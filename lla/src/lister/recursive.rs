@@ -37,16 +37,12 @@ impl RecursiveLister {
             return false;
         }
 
-        if !entry.file_type().is_file() {
+        if entry.file_type().is_file() && !Self::is_hidden(entry) {
+            counter.fetch_add(1, Ordering::Relaxed);
             return true;
         }
 
-        if !Self::is_hidden(entry) {
-            counter.fetch_add(1, Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
+        false
     }
 }
 

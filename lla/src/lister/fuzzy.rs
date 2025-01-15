@@ -668,7 +668,16 @@ impl ResultList {
                 let path = &result.entry.path;
                 let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 let metadata = path.metadata().ok();
-                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let size = if path.is_file() {
+                    metadata.as_ref().map(|m| m.len()).unwrap_or(0)
+                } else {
+                    WalkDir::new(path)
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.file_type().is_file())
+                        .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+                        .sum()
+                };
                 let modified = metadata
                     .as_ref()
                     .and_then(|m| m.modified().ok())
