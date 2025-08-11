@@ -117,6 +117,76 @@ lazy_static! {
 
         lla_plugin_utils::define_action!(
             registry,
+            "all-tags",
+            "all-tags",
+            "List all registered tags",
+            vec!["lla plugin --name file_tagger --action all-tags"],
+            |_| {
+                let plugin = FileTaggerPlugin::new();
+                let tags = plugin.get_all_tags();
+                let mut list = List::new().style(BoxStyle::Minimal).key_width(12);
+
+                if tags.is_empty() {
+                    list.add_item(
+                        KeyValue::new("Info", "No tags found.")
+                            .key_color("bright_blue")
+                            .value_color("bright_yellow")
+                            .key_width(12)
+                            .render(),
+                    );
+                } else {
+                    list.add_item(
+                        KeyValue::new("All Tags", tags.join(", "))
+                            .key_color("bright_green")
+                            .value_color("bright_cyan")
+                            .key_width(12)
+                            .render(),
+                    );
+                }
+
+                println!("\n{}", list.render());
+                Ok(())
+            }
+        );
+
+        lla_plugin_utils::define_action!(
+            registry,
+            "files-by-tag",
+            "files-by-tag <tag-to-query>",
+            "List all files tagged with the given tag",
+            vec!["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-query\""],
+            |args| {
+                if args.len() != 1 {
+                    return Err("Usage: files-by-tag <tag-to-query>".to_string());
+                }
+                let plugin = FileTaggerPlugin::new();
+                let files = plugin.get_files_for_tag(&args[0]);
+                let mut list = List::new().style(BoxStyle::Minimal).key_width(12);
+
+                if files.is_empty() {
+                    list.add_item(
+                        KeyValue::new("Info", format!("No files found for tag [{}].", &args[0]))
+                            .key_color("bright_blue")
+                            .value_color("bright_yellow")
+                            .key_width(12)
+                            .render(),
+                    );
+                } else {
+                    list.add_item(
+                        KeyValue::new(format!("All Files for [{}]", &args[0]), files.join(", "))
+                            .key_color("bright_green")
+                            .value_color("bright_cyan")
+                            .key_width(12)
+                            .render(),
+                    );
+                }
+
+                println!("\n{}", list.render());
+                Ok(())
+            }
+        );
+        lla_plugin_utils::define_action!(
+            registry,
             "help",
             "help",
             "Show help information",
@@ -144,6 +214,16 @@ lazy_static! {
                         "list-tags".to_string(),
                         "List all tags for a file".to_string(),
                         vec!["lla plugin --name file_tagger --action list-tags --args \"/path/to/file\"".to_string()],
+                    )
+                    .add_command(
+                        "all-tags".to_string(),
+                        "List all registered tags across all files".to_string(),
+                        vec!["lla plugin --name file_tagger --action all-tags".to_string()],
+                    )
+                    .add_command(
+                        "files-by-tag".to_string(),
+                        "List all files tagged with the specific tag".to_string(),
+                        vec!["lla plugin --name file_tagger --action files-by-tags --args \"tag-to-check\"".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
@@ -278,6 +358,22 @@ impl FileTaggerPlugin {
 
     fn get_tags(&self, file_path: &str) -> Vec<String> {
         self.tags.get(file_path).cloned().unwrap_or_default()
+    }
+
+    fn get_all_tags(&self) -> Vec<String> {
+        let all_tags: std::collections::HashSet<_> =
+            self.tags.values().flatten().cloned().collect();
+        all_tags.into_iter().collect()
+    }
+
+    fn get_files_for_tag(&self, tag: &str) -> Vec<String> {
+        let tag_string = tag.to_string();
+        let all_files : Vec<String> = self.tags
+            .iter()
+            .filter(|(_, values)| values.contains(&tag_string))
+            .map(|(key, _)| key.clone())
+            .collect();
+        all_files
     }
 
     fn format_tags(
