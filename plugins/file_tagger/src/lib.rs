@@ -223,7 +223,7 @@ lazy_static! {
                     .add_command(
                         "files-by-tag".to_string(),
                         "List all files tagged with the specific tag".to_string(),
-                        vec!["lla plugin --name file_tagger --action files-by-tags --args \"tag-to-check\"".to_string()],
+                         vec!["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-check\"".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
@@ -368,7 +368,8 @@ impl FileTaggerPlugin {
 
     fn get_files_for_tag(&self, tag: &str) -> Vec<String> {
         let tag_string = tag.to_string();
-        let all_files : Vec<String> = self.tags
+        let all_files: Vec<String> = self
+            .tags
             .iter()
             .filter(|(_, values)| values.contains(&tag_string))
             .map(|(key, _)| key.clone())

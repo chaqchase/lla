@@ -8,6 +8,8 @@ A file tagging plugin for `lla` that provides persistent tag management.
 - Persistent storage with efficient lookup
 - Color-coded tag display
 - Interactive commands
+- List all tags across files
+- Query files by tag
 
 ## Configuration
 
@@ -22,6 +24,10 @@ info = "bright_blue"      # Info messages
 name = "bright_yellow"    # Name highlighting
 ```
 
+## Storage
+
+Persistent tag data is stored at: `~/.config/lla/file_tags.txt`
+
 ## Usage
 
 ```bash
@@ -33,6 +39,12 @@ lla plugin --name file_tagger --action remove-tag --args "/path/to/file" "import
 
 # List tags
 lla plugin --name file_tagger --action list-tags --args "/path/to/file"
+
+# List all tags
+lla plugin --name file_tagger --action all-tags
+
+# List files by tag
+lla plugin --name file_tagger --action files-by-tag --args "important"
 
 # Help
 lla plugin --name file_tagger --action help
