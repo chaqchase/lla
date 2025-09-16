@@ -80,23 +80,80 @@ jobs:
 
   publish:
     name: Publish Release Assets
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     needs: [build-plugins]
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: release_tag
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            # Get latest release tag for other events
+            latest_tag=$(gh release view --json tagName --jq '.tagName' || echo "")
+            if [[ -z "$latest_tag" ]]; then
+              echo "No releases found, skipping plugin upload"
+              echo "skip=true" >> $GITHUB_OUTPUT
+            else
+              echo "tag=$latest_tag" >> $GITHUB_OUTPUT
+            fi
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check existing plugin assets
+        id: check_assets
+        if: steps.release_tag.outputs.skip != 'true'
+        run: |
+          tag="${{ steps.release_tag.outputs.tag }}"
+          echo "Checking for plugin assets in release $tag"
+
+          # Get list of existing assets in the release
+          existing_assets=$(gh release view "$tag" --json assets --jq '.assets[].name' || echo "")
+
+          # Check if plugin archives already exist
+          has_linux_amd64=$(echo "$existing_assets" | grep -q "plugins-linux-amd64" && echo "true" || echo "false")
+          has_linux_arm64=$(echo "$existing_assets" | grep -q "plugins-linux-arm64" && echo "true" || echo "false")
+          has_macos_amd64=$(echo "$existing_assets" | grep -q "plugins-macos-amd64" && echo "true" || echo "false")
+          has_macos_arm64=$(echo "$existing_assets" | grep -q "plugins-macos-arm64" && echo "true" || echo "false")
+
+          echo "Existing plugin assets:"
+          echo "  Linux amd64: $has_linux_amd64"
+          echo "  Linux arm64: $has_linux_arm64"
+          echo "  macOS amd64: $has_macos_amd64"
+          echo "  macOS arm64: $has_macos_arm64"
+
+          # If any plugin archives are missing, we should upload
+          if [[ "$has_linux_amd64" == "false" || "$has_linux_arm64" == "false" || 
+                "$has_macos_amd64" == "false" || "$has_macos_arm64" == "false" ]]; then
+            echo "Some plugin archives are missing, proceeding with upload"
+            echo "should_upload=true" >> $GITHUB_OUTPUT
+          else
+            echo "All plugin archives already exist, skipping upload"
+            echo "should_upload=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download all artifacts
+        if: steps.check_assets.outputs.should_upload == 'true'
         uses: actions/download-artifact@v4
         with:
           path: release_assets
           merge-multiple: true
 
       - name: List assets
+        if: steps.check_assets.outputs.should_upload == 'true'
         run: ls -R release_assets
 
       - name: Upload to GitHub Release
+        if: steps.check_assets.outputs.should_upload == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ steps.release_tag.outputs.tag }}
           files: |
             release_assets/plugins-*.tar.gz
             release_assets/plugins-*.zip
