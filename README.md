@@ -28,7 +28,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
-- Smart Search: complex filtering patterns (OR, AND, NOT, XOR), regex support
+- Smart Search: complex filtering patterns (OR, AND, NOT, XOR), regex support, content search
 - Customization: Plugin system, theme manager, custom shortcuts, configurable display
 - High Performance: Built with Rust, modern UI, clean listings
 - Smart Sorting: Multiple criteria, directory-first option, natural sorting
@@ -244,6 +244,62 @@ lla -R -d 3  # Set exploration depth
 The `-R` option can be integrated with other options to create a more specific view. For example, `lla -R -l`
 will show a detailed listing of all files and directories in the current directory.
 
+### Content Search
+
+Powerful ripgrep-backed content search with syntax highlighting and theme integration:
+
+```bash
+lla --search "TODO"
+```
+
+**Features:**
+
+- **Syntax Highlighting**: Code snippets are automatically highlighted based on file extension
+- **Match Indicators**: Bright yellow carets (^^^) point to exact match locations
+- **Context Control**: Configurable context lines around matches (`--search-context`)
+- **Theme Integration**: Colors adapt to your current lla theme
+- **Safe by Default**: Uses literal string matching; add `regex:` prefix for regex patterns
+- **Filter Integration**: Honors all existing filters, exclude paths, and dotfile settings
+
+**Examples:**
+
+```bash
+# Basic content search
+lla --search "main()"
+
+# Search with more context
+lla --search "TODO" --search-context 5
+
+# Regex search
+lla --search "regex:^func.*\("
+
+# Search in specific file types
+lla --search "Error" --filter ".rs"
+
+# Case-sensitive search
+lla --search "Error" --case-sensitive
+
+# Machine output formats
+lla --search "FIXME" --json
+lla --search "TODO" --csv
+```
+
+**Output Format:**
+
+Each match shows:
+
+- File path with themed colors
+- Syntax-highlighted code snippet with line numbers
+- Bright yellow carets (^^^) marking exact match positions
+- Configurable context lines before and after matches
+
+**Integration:**
+
+- Works with all existing filters (`--filter`, `--files-only`, etc.)
+- Respects `exclude_paths` configuration
+- Honors dotfile settings (`--no-dotfiles`, `--almost-all`)
+- Supports machine output formats (`--json`, `--ndjson`, `--csv`)
+
 ### Machine Output
 
 Stable, streaming machine-readable formats are available. These modes keep existing listing filters/sorts/depth behavior; only the output changes.
@@ -345,6 +401,33 @@ lla --csv
 | `--case-sensitive` | `-c`  | Enable case-sensitive filtering | `lla -f "test" -c`                  |
 | `--depth`          | `-d`  | Set the depth for tree listing  | `lla -t -d 3` <br> `lla -d 2`       |
 
+#### Content Search
+
+| Command            | Description                                | Example                                  |
+| ------------------ | ------------------------------------------ | ---------------------------------------- |
+| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                    |
+| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3` |
+
+Content search uses literal string matching by default (safe for special characters). Use `regex:` prefix for regex patterns:
+
+```bash
+# Literal search (default) - safe for any characters
+lla --search "main()"
+lla --search "TODO: fix bug"
+
+# Regex search - use regex: prefix
+lla --search "regex:^func.*\("
+
+# Search in specific file types
+lla --search "TODO" --filter ".rs"
+
+# Case-sensitive search
+lla src/ --search "Error" --case-sensitive
+
+# Search with machine output
+lla --search "FIXME" --json
+```
+
 #### Advanced Filtering Patterns
 
 | Filter Type        | Example                       | Description                                    |
@@ -433,6 +516,25 @@ lla --csv
 
 > **Note**
 > For detailed usage and examples of each command, visit the [lla documentation](https://lla.chaqchase.com).
+
+### Excluding Paths (macOS iCloud and others)
+
+You can exclude heavy or virtualized directories from listings via the config key `exclude_paths`.
+
+Example (`~/.config/lla/config.toml`):
+
+```toml
+# Paths to exclude from listings (tilde is supported)
+exclude_paths = [
+  "~/Library/Mobile Documents", # iCloud Drive
+  "~/Library/CloudStorage"      # Other cloud providers
+]
+```
+
+Notes:
+
+- Tilde `~` is expanded to your home directory.
+- Exclusions are honored in recursive listings and top-level listings.
 
 ## License
 

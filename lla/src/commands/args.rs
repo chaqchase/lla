@@ -43,6 +43,8 @@ pub struct Args {
     pub relative_dates: bool,
     pub output_mode: OutputMode,
     pub command: Option<Command>,
+    pub search: Option<String>,
+    pub search_context: usize,
 }
 
 pub enum Command {
@@ -123,6 +125,18 @@ impl Args {
                 ArgGroup::new("machine_output")
                     .args(&["json", "ndjson", "csv"]) // mutually exclusive
                     .multiple(false),
+            )
+            .arg(
+                Arg::with_name("search")
+                    .long("search")
+                    .takes_value(true)
+                    .help("Search file contents with ripgrep for the given pattern"),
+            )
+            .arg(
+                Arg::with_name("search-context")
+                    .long("search-context")
+                    .takes_value(true)
+                    .help("Number of context lines to show before and after matches (default: 2)"),
             )
             .arg(
                 Arg::with_name("depth")
@@ -550,6 +564,8 @@ impl Args {
                         potential_shortcut.clone(),
                         args[2..].to_vec(),
                     ))),
+                    search: None,
+                    search_context: 2,
                 };
             }
         }
@@ -746,6 +762,11 @@ impl Args {
                 }
             },
             command,
+            search: matches.value_of("search").map(String::from),
+            search_context: matches
+                .value_of("search-context")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2),
         }
     }
 }

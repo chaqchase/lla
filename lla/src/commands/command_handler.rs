@@ -1,6 +1,7 @@
 use crate::commands::args::{Args, Command, InstallSource, ShortcutAction};
 use crate::commands::file_utils::list_directory;
 use crate::commands::plugin_utils::{handle_plugin_action, list_plugins};
+use crate::commands::search::run_search;
 use crate::config::{self, Config};
 use crate::error::{LlaError, Result};
 use crate::installer::PluginInstaller;
@@ -165,7 +166,13 @@ pub fn handle_command(
             plugin_manager.perform_plugin_action(plugin_name, action, action_args)
         }
         Some(Command::Clean) => unreachable!(),
-        None => list_directory(args, config, plugin_manager, config_error),
+        None => {
+            if args.search.is_some() {
+                run_search(args, config)
+            } else {
+                list_directory(args, config, plugin_manager, config_error)
+            }
+        }
     }
 }
 

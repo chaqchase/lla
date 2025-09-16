@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-09-16
+
+### Added
+
+- Ripgrep-backed content search via `--search` flag:
+  - Search file contents for patterns using `lla --search "TODO"`
+  - Uses literal string matching by default (safe for special characters like `main()`)
+  - Supports regex patterns with `regex:` prefix (e.g., `--search "regex:^func.*\("`)
+  - Honors existing filters, exclude paths, and dotfile settings
+  - Shows context lines with configurable `--search-context` (default: 2)
+  - Works with machine output modes (`--json`, `--ndjson`, `--csv`)
+  - Supports case-sensitive/insensitive matching
+  - Integrates with directory-only/files-only filtering
+
+### Fixed
+
+- Add tilde-aware `exclude_paths` configuration and honor it across listings
+- Reuse one loaded config instead of re-loading, small performance improvement
+- Ensure recursive lister skips excluded directories via `filter_entry`
+- Hide excluded directories from top-level listings as well
+
+### Docs
+
+- Document `exclude_paths` in README and add CHANGELOG entry
+- Document new `--search` and `--search-context` flags in command reference
+
 ## [0.4.0] - 2025-01-10
 
 ### Added
