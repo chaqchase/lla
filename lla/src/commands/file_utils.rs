@@ -29,6 +29,8 @@ pub fn list_directory(
     plugin_manager: &mut PluginManager,
     config_error: Option<crate::error::LlaError>,
 ) -> Result<()> {
+    // Record directory visit for jump history (respect exclude_paths inside)
+    crate::commands::jump::record_visit(&args.directory, config);
     if let Some(error) = config_error {
         eprintln!("Warning: {}", error);
     }

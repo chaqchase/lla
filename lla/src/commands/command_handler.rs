@@ -1,5 +1,6 @@
 use crate::commands::args::{Args, Command, InstallSource, ShortcutAction};
 use crate::commands::file_utils::list_directory;
+use crate::commands::jump;
 use crate::commands::plugin_utils::{handle_plugin_action, list_plugins};
 use crate::commands::search::run_search;
 use crate::config::{self, Config};
@@ -165,6 +166,7 @@ pub fn handle_command(
         Some(Command::PluginAction(plugin_name, action, action_args)) => {
             plugin_manager.perform_plugin_action(plugin_name, action, action_args)
         }
+        Some(Command::Jump(action)) => jump::handle_jump(action, config),
         Some(Command::Clean) => unreachable!(),
         None => {
             if args.search.is_some() {

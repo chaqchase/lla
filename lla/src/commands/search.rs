@@ -47,6 +47,8 @@ fn build_name_filter_args(args_cfg: &Args) -> Vec<String> {
 }
 
 pub fn run_search(args: &Args, config: &Config) -> Result<()> {
+    // Record visit of the search root for jump history
+    crate::commands::jump::record_visit(&args.directory, config);
     let pattern = match &args.search {
         Some(p) => p,
         None => return Err(LlaError::Other("--search requires a pattern".into())),
