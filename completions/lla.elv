@@ -18,6 +18,8 @@ set edit:completion:arg-completer[lla] = {|@words|
     }
     var completions = [
         &'lla'= {
+            cand --search 'Search file contents with ripgrep for the given pattern'
+            cand --search-context 'Number of context lines to show before and after matches (default: 2)'
             cand -d 'Set the depth for tree listing (default from config)'
             cand --depth 'Set the depth for tree listing (default from config)'
             cand -s 'Sort files by name, size, or date'
@@ -79,6 +81,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --dotfiles-only 'Show only dot files and directories (those starting with a dot)'
             cand --hide-group 'Hide group column in long format'
             cand --relative-dates 'Show relative dates (e.g., ''2h ago'') in long format'
+            cand jump 'Jump to a bookmarked or recent directory'
             cand install 'Install a plugin'
             cand plugin 'Run a plugin action'
             cand list-plugins 'List all available plugins'
@@ -91,6 +94,16 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand completion 'Generate shell completion scripts'
             cand theme 'Interactive theme manager'
             cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'lla;jump'= {
+            cand --add 'Add a directory to bookmarks'
+            cand --remove 'Remove a directory from bookmarks'
+            cand --shell 'Override shell detection for setup (bash|zsh|fish)'
+            cand --list 'List bookmarks and history'
+            cand --clear-history 'Clear directory history'
+            cand --setup 'Setup shell integration for seamless directory jumping'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
         }
         &'lla;install'= {
             cand --git 'Install a plugin from a GitHub repository URL'

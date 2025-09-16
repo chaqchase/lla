@@ -15,6 +15,8 @@ _lla() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" \
+'--search=[Search file contents with ripgrep for the given pattern]: : ' \
+'--search-context=[Number of context lines to show before and after matches (default: 2)]: : ' \
 '-d+[Set the depth for tree listing (default from config)]: : ' \
 '--depth=[Set the depth for tree listing (default from config)]: : ' \
 '-s+[Sort files by name, size, or date]: :(name size date)' \
@@ -86,7 +88,19 @@ _lla() {
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:lla-command-$line[2]:"
         case $line[2] in
-            (install)
+            (jump)
+_arguments "${_arguments_options[@]}" \
+'--add=[Add a directory to bookmarks]: : ' \
+'--remove=[Remove a directory from bookmarks]: : ' \
+'--shell=[Override shell detection for setup (bash|zsh|fish)]: :(bash zsh fish)' \
+'--list[List bookmarks and history]' \
+'--clear-history[Clear directory history]' \
+'--setup[Setup shell integration for seamless directory jumping]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+&& ret=0
+;;
+(install)
 _arguments "${_arguments_options[@]}" \
 '--git=[Install a plugin from a GitHub repository URL]: : ' \
 '--dir=[Install a plugin from a local directory]: : ' \
@@ -251,6 +265,7 @@ esac
 (( $+functions[_lla_commands] )) ||
 _lla_commands() {
     local commands; commands=(
+'jump:Jump to a bookmarked or recent directory' \
 'install:Install a plugin' \
 'plugin:Run a plugin action' \
 'list-plugins:List all available plugins' \
@@ -315,6 +330,11 @@ _lla__install_commands() {
 _lla__theme__install_commands() {
     local commands; commands=()
     _describe -t commands 'lla theme install commands' commands "$@"
+}
+(( $+functions[_lla__jump_commands] )) ||
+_lla__jump_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla jump commands' commands "$@"
 }
 (( $+functions[_lla__shortcut__list_commands] )) ||
 _lla__shortcut__list_commands() {
