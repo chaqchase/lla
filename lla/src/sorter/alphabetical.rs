@@ -1,4 +1,4 @@
-use super::{compare_dirs_first, natural_cmp, FileSorter, SortOptions};
+use super::{natural_cmp, FileSorter, SortOptions};
 use crate::error::Result;
 use lla_plugin_interface::proto::DecoratedEntry;
 use rayon::prelude::*;

@@ -165,7 +165,7 @@ pub fn handle_command(
             plugin_manager.perform_plugin_action(plugin_name, action, action_args)
         }
         Some(Command::Clean) => unreachable!(),
-        None => list_directory(args, plugin_manager, config_error),
+        None => list_directory(args, config, plugin_manager, config_error),
     }
 }
 

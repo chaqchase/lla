@@ -25,6 +25,7 @@ use std::time::UNIX_EPOCH;
 
 pub fn list_directory(
     args: &Args,
+    config: &Config,
     plugin_manager: &mut PluginManager,
     config_error: Option<crate::error::LlaError>,
 ) -> Result<()> {
@@ -43,17 +44,17 @@ pub fn list_directory(
         }
     }
 
-    let lister = create_lister(args);
+    let lister = create_lister(args, config);
     let sorter = create_sorter(args);
     let filter = create_filter(args);
-    let formatter = create_formatter(args);
+    let formatter = create_formatter(args, config);
     let format = get_format(args);
 
     // Archive auto-detection branch
     let p = std::path::Path::new(&args.directory);
     let path_is_archive = p.is_file() && archive_lister::is_archive_path_str(&args.directory);
     if path_is_archive {
-        let mut decorated_files =
+        let decorated_files =
             list_and_decorate_archive_entries(args, &filter, plugin_manager, format)?;
         let decorated_files = if !args.tree_format && !args.recursive_format {
             sort_files(decorated_files, &sorter, args)?
@@ -146,7 +147,8 @@ pub fn list_directory(
         };
     }
 
-    let decorated_files = list_and_decorate_files(args, &lister, &filter, plugin_manager, format)?;
+    let decorated_files =
+        list_and_decorate_files(args, config, &lister, &filter, plugin_manager, format)?;
 
     let decorated_files = if !args.tree_format && !args.recursive_format {
         sort_files(decorated_files, &sorter, args)?
@@ -266,23 +268,39 @@ fn calculate_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
 
 pub fn list_and_decorate_files(
     args: &Args,
+    config: &Config,
     lister: &Arc<dyn FileLister + Send + Sync>,
     filter: &Arc<dyn FileFilter + Send + Sync>,
     plugin_manager: &mut PluginManager,
     format: &str,
 ) -> Result<Vec<DecoratedEntry>> {
-    let mut entries: Vec<DecoratedEntry> = lister
+    let entries: Vec<DecoratedEntry> = lister
         .list_files(
             &args.directory,
             args.tree_format || args.recursive_format,
             args.depth,
         )?
         .into_par_iter()
+        .filter(|path| {
+            // Exclude entries if they live under any excluded prefix
+            if config.exclude_paths.is_empty() {
+                return true;
+            }
+            // Ensure we compare absolute paths for robust prefix checks
+            let path_abs = match path.canonicalize() {
+                Ok(abs) => abs,
+                Err(_) => path.clone(),
+            };
+            !config
+                .exclude_paths
+                .iter()
+                .any(|ex| path_abs.starts_with(ex))
+        })
         .filter_map(|path| {
             let fs_metadata = match path.symlink_metadata() {
                 Ok(meta) => meta,
                 Err(_) => {
-                    if let Some(file_name) = path.file_name() {
+                    if path.file_name().is_some() {
                         let mut custom_fields = HashMap::new();
                         custom_fields.insert("invalid_symlink".to_string(), "true".to_string());
 
@@ -388,11 +406,12 @@ pub fn list_and_decorate_files(
         })
         .collect();
 
-    for entry in &mut entries {
+    let mut decorated_entries = entries;
+    for entry in &mut decorated_entries {
         plugin_manager.decorate_entry(entry, format);
     }
 
-    Ok(entries)
+    Ok(decorated_entries)
 }
 
 pub fn list_and_decorate_archive_entries(
@@ -405,7 +424,7 @@ pub fn list_and_decorate_archive_entries(
 
     let archive_path = Path::new(&args.directory);
     let lower = args.directory.to_lowercase();
-    let mut entries = if lower.ends_with(".zip") {
+    let entries = if lower.ends_with(".zip") {
         archive_lister::read_zip(archive_path)?
     } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
         archive_lister::read_tar_gz(archive_path)?
@@ -593,13 +612,11 @@ pub fn sort_files(
     Ok(sorted_files)
 }
 
-pub fn create_lister(args: &Args) -> Arc<dyn FileLister + Send + Sync> {
+pub fn create_lister(args: &Args, config: &Config) -> Arc<dyn FileLister + Send + Sync> {
     if args.fuzzy_format {
-        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
-        Arc::new(FuzzyLister::new(config))
+        Arc::new(FuzzyLister::new(config.clone()))
     } else if args.tree_format || args.recursive_format {
-        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
-        Arc::new(RecursiveLister::new(config))
+        Arc::new(RecursiveLister::new(config.clone()))
     } else {
         Arc::new(BasicLister)
     }
@@ -665,7 +682,7 @@ fn create_base_filter(pattern: &str, case_insensitive: bool) -> Box<dyn FileFilt
     }
 }
 
-pub fn create_formatter(args: &Args) -> Box<dyn FileFormatter> {
+pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> {
     if args.fuzzy_format {
         Box::new(FuzzyFormatter::new(
             args.show_icons,
@@ -686,7 +703,6 @@ pub fn create_formatter(args: &Args) -> Box<dyn FileFormatter> {
             args.permission_format.clone(),
         ))
     } else if args.grid_format {
-        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
         Box::new(GridFormatter::new(
             args.show_icons,
             args.grid_ignore || config.formatters.grid.ignore_width,

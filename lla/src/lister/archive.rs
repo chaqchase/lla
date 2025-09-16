@@ -3,7 +3,7 @@ use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn normalize_internal_path<S: AsRef<str>>(s: S) -> String {
     let mut p = s.as_ref().replace('\\', "/");
@@ -101,7 +101,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
     });
 
     for i in 0..archive.len() {
-        let mut file = match archive.by_index(i) {
+        let file = match archive.by_index(i) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("Warning: skipping zip entry {}: {}", i, e);
@@ -205,7 +205,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
     };
 
     for item in entries_iter {
-        let mut entry = match item {
+        let entry = match item {
             Ok(e) => e,
             Err(e) => {
                 eprintln!("Warning: skipping tar entry: {}", e);
