@@ -86,11 +86,14 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.71.0
+          components: rustfmt, clippy
           targets: ${{ matrix.target }}
+
+      - name: Ensure target installed
+        run: rustup target add ${{ matrix.target }}
 
       - name: Install cross-compilation tools
         if: matrix.cross_compile && runner.os == 'Linux'
@@ -137,10 +140,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.71.0
+          components: rustfmt, clippy
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
