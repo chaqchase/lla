@@ -16,13 +16,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [1.71.0]
+        rust: [stable]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
@@ -73,11 +73,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.71.0
+          toolchain: stable
+          components: rustfmt, clippy
           targets: ${{ matrix.target }}
+
+      - name: Ensure stable toolchain and target installed
+        run: |
+          rustup override set stable
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }} --toolchain stable
+          rustup target list --installed
 
       - name: Install cross-compilation tools
         if: matrix.cross_compile && runner.os == 'Linux'
@@ -98,6 +106,8 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare binary (Unix)
