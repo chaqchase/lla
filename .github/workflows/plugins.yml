@@ -1,0 +1,103 @@
+name: Build Plugins
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  build-plugins:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            os_label: linux
+            arch_label: amd64
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            os_label: linux
+            arch_label: arm64
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            os_label: macos
+            arch_label: amd64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            os_label: macos
+            arch_label: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_label: windows
+            arch_label: amd64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross toolchain (Linux aarch64)
+        if: runner.os == 'Linux' && contains(matrix.target, 'aarch64')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Make build script executable
+        shell: bash
+        run: chmod +x scripts/build_plugins.sh
+
+      - name: Build plugins
+        shell: bash
+        run: ./scripts/build_plugins.sh --target ${{ matrix.target }}
+
+      - name: Upload plugins archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
+          path: |
+            dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz
+            dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
+          if-no-files-found: ignore
+          compression-level: 0
+
+  publish:
+    name: Publish Release Assets
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    needs: [build-plugins]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -R release_assets
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            release_assets/plugins-*.tar.gz
+            release_assets/plugins-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
