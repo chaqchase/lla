@@ -71,11 +71,16 @@ echo "Output staging directory: ${STAGING_DIR}"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 
-# Collect plugin crate names from plugins/*/Cargo.toml
-mapfile -t PLUGIN_CRATES < <(for f in plugins/*/Cargo.toml; do \
-  [[ -f "$f" ]] || continue; \
-  awk -F ' = ' '/^name *=/ {gsub(/"/, "", $2); print $2; exit}' "$f"; \
-done)
+# Collect plugin crate names from plugins/*/Cargo.toml (Bash 3 compatible)
+PLUGIN_CRATES=()
+for f in plugins/*/Cargo.toml; do
+  if [[ -f "$f" ]]; then
+    name=$(awk -F ' = ' '/^name *=/ {gsub(/"/, "", $2); print $2; exit}' "$f" || true)
+    if [[ -n "$name" ]]; then
+      PLUGIN_CRATES+=("$name")
+    fi
+  fi
+done
 
 if [[ ${#PLUGIN_CRATES[@]} -eq 0 ]]; then
   echo "No plugins found under plugins/*" 1>&2
