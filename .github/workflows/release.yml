@@ -92,8 +92,17 @@ jobs:
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
 
-      - name: Ensure target installed
-        run: rustup target add ${{ matrix.target }}
+      - name: Ensure stable toolchain and target installed
+        run: |
+          rustup override set stable
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }} --toolchain stable
+          rustup target list --installed
+
+      - name: Verify target std presence
+        run: |
+          rustup component add rust-std --toolchain stable --target ${{ matrix.target }}
+          rustc +stable --print target-libdir --target ${{ matrix.target }}
 
       - name: Install cross-compilation tools
         if: matrix.cross_compile && runner.os == 'Linux'
@@ -114,6 +123,8 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare binary
