@@ -26,30 +26,6 @@ pub use date::DateSorter;
 use lla_plugin_interface::proto::DecoratedEntry;
 pub use size::SizeSorter;
 
-pub(crate) fn compare_dirs_first(a: &PathBuf, b: &PathBuf, dirs_first: bool) -> std::cmp::Ordering {
-    if !dirs_first {
-        return std::cmp::Ordering::Equal;
-    }
-
-    let a_is_dir = if let Ok(metadata) = a.symlink_metadata() {
-        metadata.is_dir()
-    } else {
-        a.is_dir()
-    };
-
-    let b_is_dir = if let Ok(metadata) = b.symlink_metadata() {
-        metadata.is_dir()
-    } else {
-        b.is_dir()
-    };
-
-    match (a_is_dir, b_is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => std::cmp::Ordering::Equal,
-    }
-}
-
 pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let mut a_chars = a.chars().peekable();
     let mut b_chars = b.chars().peekable();

@@ -43,6 +43,8 @@ pub struct Args {
     pub relative_dates: bool,
     pub output_mode: OutputMode,
     pub command: Option<Command>,
+    pub search: Option<String>,
+    pub search_context: usize,
 }
 
 pub enum Command {
@@ -55,6 +57,7 @@ pub enum Command {
     Update(Option<String>),
     Clean,
     Shortcut(ShortcutAction),
+    Jump(JumpAction),
     GenerateCompletion(Shell, Option<String>, Option<String>),
     Theme,
     ThemePull,
@@ -71,6 +74,16 @@ pub enum ShortcutAction {
     Remove(String),
     List,
     Run(String, Vec<String>),
+}
+
+#[derive(Clone, Debug)]
+pub enum JumpAction {
+    Prompt,
+    Add(String),
+    Remove(String),
+    List,
+    ClearHistory,
+    Setup(Option<String>),
 }
 
 #[derive(Clone)]
@@ -99,6 +112,44 @@ impl Args {
                     .index(1)
                     .default_value("."),
             )
+            .subcommand(
+                SubCommand::with_name("jump")
+                    .about("Jump to a bookmarked or recent directory")
+                    .arg(
+                        Arg::with_name("add")
+                            .long("add")
+                            .takes_value(true)
+                            .help("Add a directory to bookmarks"),
+                    )
+                    .arg(
+                        Arg::with_name("remove")
+                            .long("remove")
+                            .takes_value(true)
+                            .help("Remove a directory from bookmarks"),
+                    )
+                    .arg(
+                        Arg::with_name("list")
+                            .long("list")
+                            .help("List bookmarks and history"),
+                    )
+                    .arg(
+                        Arg::with_name("clear-history")
+                            .long("clear-history")
+                            .help("Clear directory history"),
+                    )
+                    .arg(
+                        Arg::with_name("setup")
+                            .long("setup")
+                            .help("Setup shell integration for seamless directory jumping"),
+                    )
+                    .arg(
+                        Arg::with_name("shell")
+                            .long("shell")
+                            .takes_value(true)
+                            .possible_values(&["bash", "zsh", "fish"]) 
+                            .help("Override shell detection for setup (bash|zsh|fish)"),
+                    ),
+            )
             .arg(
                 Arg::with_name("json")
                     .long("json")
@@ -123,6 +174,18 @@ impl Args {
                 ArgGroup::new("machine_output")
                     .args(&["json", "ndjson", "csv"]) // mutually exclusive
                     .multiple(false),
+            )
+            .arg(
+                Arg::with_name("search")
+                    .long("search")
+                    .takes_value(true)
+                    .help("Search file contents with ripgrep for the given pattern"),
+            )
+            .arg(
+                Arg::with_name("search-context")
+                    .long("search-context")
+                    .takes_value(true)
+                    .help("Number of context lines to show before and after matches (default: 2)"),
             )
             .arg(
                 Arg::with_name("depth")
@@ -550,6 +613,8 @@ impl Args {
                         potential_shortcut.clone(),
                         args[2..].to_vec(),
                     ))),
+                    search: None,
+                    search_context: 2,
                 };
             }
         }
@@ -647,6 +712,21 @@ impl Args {
                 .map(|v| v.map(String::from).collect())
                 .unwrap_or_default();
             Some(Command::PluginAction(plugin_name, action, args))
+        } else if let Some(jump_matches) = matches.subcommand_matches("jump") {
+            let action = if let Some(path) = jump_matches.value_of("add") {
+                JumpAction::Add(path.to_string())
+            } else if let Some(path) = jump_matches.value_of("remove") {
+                JumpAction::Remove(path.to_string())
+            } else if jump_matches.is_present("list") {
+                JumpAction::List
+            } else if jump_matches.is_present("clear-history") {
+                JumpAction::ClearHistory
+            } else if jump_matches.is_present("setup") {
+                JumpAction::Setup(jump_matches.value_of("shell").map(|s| s.to_string()))
+            } else {
+                JumpAction::Prompt
+            };
+            Some(Command::Jump(action))
         } else {
             matches.subcommand_matches("update").map(|update_matches| {
                 Command::Update(update_matches.value_of("name").map(String::from))
@@ -746,6 +826,11 @@ impl Args {
                 }
             },
             command,
+            search: matches.value_of("search").map(String::from),
+            search_context: matches
+                .value_of("search-context")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2),
         }
     }
 }

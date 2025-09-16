@@ -1,4 +1,4 @@
-use super::{compare_dirs_first, FileSorter, SortOptions};
+use super::{FileSorter, SortOptions};
 use crate::error::Result;
 use lla_plugin_interface::proto::DecoratedEntry;
 use rayon::prelude::*;
@@ -12,7 +12,7 @@ impl FileSorter for DateSorter {
         entries: &mut [(PathBuf, &DecoratedEntry)],
         options: SortOptions,
     ) -> Result<()> {
-        entries.par_sort_unstable_by(|(path_a, entry_a), (path_b, entry_b)| {
+        entries.par_sort_unstable_by(|(_path_a, entry_a), (_path_b, entry_b)| {
             if options.dirs_first {
                 let a_is_dir = entry_a.metadata.as_ref().map_or(false, |m| m.is_dir);
                 let b_is_dir = entry_b.metadata.as_ref().map_or(false, |m| m.is_dir);

@@ -165,6 +165,8 @@ pub struct Config {
     pub enabled_plugins: Vec<String>,
     #[serde(deserialize_with = "deserialize_path_with_tilde")]
     pub plugins_dir: PathBuf,
+    #[serde(default, deserialize_with = "deserialize_paths_with_tilde")]
+    pub exclude_paths: Vec<PathBuf>,
     pub default_depth: Option<usize>,
     #[serde(default)]
     pub show_icons: bool,
@@ -198,6 +200,26 @@ where
     } else {
         Ok(PathBuf::from(path_str))
     }
+}
+
+fn deserialize_paths_with_tilde<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let list = Vec::<String>::deserialize(deserializer)?;
+    let mut result = Vec::with_capacity(list.len());
+    for s in list {
+        if s.starts_with('~') {
+            let home = dirs::home_dir()
+                .ok_or_else(|| serde::de::Error::custom("Could not determine home directory"))?;
+            result.push(home.join(&s[2..]));
+        } else {
+            result.push(PathBuf::from(s));
+        }
+    }
+    Ok(result)
 }
 
 fn default_theme_name() -> String {
@@ -313,6 +335,13 @@ enabled_plugins = {}
 # Default: ~/.config/lla/plugins
 plugins_dir = "{}"
 
+# Paths to exclude from listings (tilde is supported)
+# Examples:
+#   - "~/Library/Mobile Documents"  # macOS iCloud Drive (Mobile Documents)
+#   - "~/Library/CloudStorage"      # macOS cloud storage providers
+# Default: [] (no exclusions)
+exclude_paths = {}
+
 # Maximum depth for recursive directory traversal
 # Controls how deep lla will go when showing directory contents
 # Set to None for unlimited depth (may impact performance)
@@ -398,6 +427,25 @@ ignore_patterns = {}"#,
             self.theme,
             serde_json::to_string(&self.enabled_plugins).unwrap(),
             plugins_dir_display,
+            {
+                let home = dirs::home_dir();
+                let display_paths: Vec<String> = self
+                    .exclude_paths
+                    .iter()
+                    .map(|p| {
+                        if let Some(home) = &home {
+                            if let Ok(relative) = p.strip_prefix(home) {
+                                format!("~/{}", relative.to_string_lossy())
+                            } else {
+                                p.to_string_lossy().to_string()
+                            }
+                        } else {
+                            p.to_string_lossy().to_string()
+                        }
+                    })
+                    .collect();
+                serde_json::to_string(&display_paths).unwrap()
+            },
             match self.default_depth {
                 Some(depth) => depth.to_string(),
                 None => "null".to_string(),
@@ -545,6 +593,16 @@ ignore_patterns = {}"#,
             ))));
         }
 
+        // Validate exclude_paths entries are non-empty
+        for p in &self.exclude_paths {
+            if p.as_os_str().is_empty() {
+                return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
+                    "exclude_paths".to_string(),
+                    "exclude_paths cannot contain empty paths".to_string(),
+                )));
+            }
+        }
+
         if let Some(depth) = self.default_depth {
             if depth == 0 {
                 return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
@@ -628,6 +686,35 @@ ignore_patterns = {}"#,
                     )))
                 })?;
                 self.plugins_dir = new_dir;
+            }
+            ["exclude_paths"] => {
+                // Accept JSON array (e.g., ["~/foo","/bar"]) or a single path string
+                let paths: Vec<String> = if value.trim_start().starts_with('[') {
+                    serde_json::from_str(value).map_err(|_| {
+                        LlaError::Config(ConfigErrorKind::InvalidValue(
+                            key.to_string(),
+                            "must be a JSON array of strings or a single path".to_string(),
+                        ))
+                    })?
+                } else {
+                    vec![value.to_string()]
+                };
+
+                let mut resolved = Vec::with_capacity(paths.len());
+                for s in paths {
+                    if s.starts_with('~') {
+                        let home = dirs::home_dir().ok_or_else(|| {
+                            LlaError::Config(ConfigErrorKind::InvalidPath(
+                                "Could not determine home directory".to_string(),
+                            ))
+                        })?;
+                        resolved.push(home.join(&s[2..]));
+                    } else {
+                        resolved.push(PathBuf::from(s));
+                    }
+                }
+
+                self.exclude_paths = resolved;
             }
             ["default_sort"] => {
                 if !["name", "size", "date"].contains(&value) {
@@ -816,6 +903,7 @@ impl Default for Config {
             default_format: String::from("default"),
             enabled_plugins: vec![],
             plugins_dir: default_plugins_dir,
+            exclude_paths: Vec::new(),
             default_depth: Some(3),
             show_icons: false,
             include_dirs: false,

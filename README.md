@@ -28,7 +28,8 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
-- Smart Search: complex filtering patterns (OR, AND, NOT, XOR), regex support
+- Smart Navigation: Interactive directory jumper with bookmarks and history
+- Smart Search: complex filtering patterns (OR, AND, NOT, XOR), regex support, content search
 - Customization: Plugin system, theme manager, custom shortcuts, configurable display
 - High Performance: Built with Rust, modern UI, clean listings
 - Smart Sorting: Multiple criteria, directory-first option, natural sorting
@@ -220,13 +221,93 @@ lla -S # use --include-dirs to calculate directories sizes
 
 ### Advanced Navigation
 
+#### Jump-to-Directory (Interactive Directory Jumper)
+
+Quickly navigate to bookmarked or recently visited directories with an interactive keyboard-driven prompt:
+
+```bash
+# One-time setup for seamless directory jumping
+lla jump --setup
+
+# Interactive directory selection
+lla jump
+
+# Add directory to bookmarks
+lla jump --add ~/projects/my-app
+
+# Remove bookmark
+lla jump --remove ~/projects/my-app
+
+# List all bookmarks and recent history
+lla jump --list
+
+# Clear history
+lla jump --clear-history
+```
+
+**Features:**
+
+- **Interactive Selection**: Arrow keys and Enter to select from bookmarked and recent directories
+- **Smart History**: Automatically records directory visits (respects `exclude_paths`)
+- **Bookmarks**: Add favorite directories for quick access
+- **Deduplication**: No duplicate entries in history
+- **Shell Integration**: Works seamlessly with shell commands like `cd`
+
+**How it works:**
+
+1. Bookmarks (marked with ★) appear first in the selection list
+2. Recent directories follow, showing directory name and full path
+3. Use arrow keys to navigate, Enter to select
+4. The selected path is printed to stdout for shell integration
+5. History is automatically maintained as you navigate directories
+
+**Shell Integration Setup:**
+
+Since `lla` runs as a child process, it cannot directly change your shell's working directory. To enable seamless directory jumping, run the automatic setup:
+
+```bash
+lla jump --setup
+```
+
+This will automatically detect your shell (bash, zsh, or fish) and add the necessary function to your shell configuration file. After setup, restart your terminal or run `source ~/.zshrc` (or equivalent for your shell).
+
+Then use `j` to jump to directories interactively!
+
+**Examples:**
+
+```bash
+# One-time setup (auto-detects your shell)
+lla jump --setup
+
+# shell override
+lla jump --setup --shell fish
+
+# Navigate to a frequently used directory (after setup)
+j
+
+# Add your project directories to bookmarks
+lla jump --add ~/dev/my-project
+lla jump --add ~/work/client-app
+lla jump --add ~/personal/blog
+
+# View all your saved locations
+lla jump --list
+```
+
 #### Fuzzy Search (Experimental)
 
-Interactive file discovery:
+Interactive file discovery with multi-select and batch actions:
 
 ```bash
 lla --fuzzy
 ```
+
+Keyboard shortcuts:
+
+- Space: toggle select
+- Enter: confirm (returns the highlighted file or all selected files)
+- y: copy selected path(s) to clipboard
+- o: open selected file(s) with the system opener (open/xdg-open/start)
 
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 
@@ -243,6 +324,62 @@ lla -R -d 3  # Set exploration depth
 
 The `-R` option can be integrated with other options to create a more specific view. For example, `lla -R -l`
 will show a detailed listing of all files and directories in the current directory.
+
+### Content Search
+
+Powerful ripgrep-backed content search with syntax highlighting and theme integration:
+
+```bash
+lla --search "TODO"
+```
+
+**Features:**
+
+- **Syntax Highlighting**: Code snippets are automatically highlighted based on file extension
+- **Match Indicators**: Bright yellow carets (^^^) point to exact match locations
+- **Context Control**: Configurable context lines around matches (`--search-context`)
+- **Theme Integration**: Colors adapt to your current lla theme
+- **Safe by Default**: Uses literal string matching; add `regex:` prefix for regex patterns
+- **Filter Integration**: Honors all existing filters, exclude paths, and dotfile settings
+
+**Examples:**
+
+```bash
+# Basic content search
+lla --search "main()"
+
+# Search with more context
+lla --search "TODO" --search-context 5
+
+# Regex search
+lla --search "regex:^func.*\("
+
+# Search in specific file types
+lla --search "Error" --filter ".rs"
+
+# Case-sensitive search
+lla --search "Error" --case-sensitive
+
+# Machine output formats
+lla --search "FIXME" --json
+lla --search "TODO" --csv
+```
+
+**Output Format:**
+
+Each match shows:
+
+- File path with themed colors
+- Syntax-highlighted code snippet with line numbers
+- Bright yellow carets (^^^) marking exact match positions
+- Configurable context lines before and after matches
+
+**Integration:**
+
+- Works with all existing filters (`--filter`, `--files-only`, etc.)
+- Respects `exclude_paths` configuration
+- Honors dotfile settings (`--no-dotfiles`, `--almost-all`)
+- Supports machine output formats (`--json`, `--ndjson`, `--csv`)
 
 ### Machine Output
 
@@ -316,6 +453,17 @@ lla --csv
 | `--fuzzy`     | `-F`  | Interactive fuzzy finder (Experimental) | `lla --fuzzy`                         |
 | `--recursive` | `-R`  | Recursive listing format                | `lla -R` <br> `lla -R -d 3`           |
 
+#### Navigation Commands
+
+| Command                    | Description                       | Example                               |
+| -------------------------- | --------------------------------- | ------------------------------------- |
+| `lla jump --setup`         | Auto-setup shell integration      | `lla jump --setup`                    |
+| `lla jump`                 | Interactive directory jumper      | `j` (after setup)                     |
+| `lla jump --add`           | Add directory to bookmarks        | `lla jump --add ~/projects/my-app`    |
+| `lla jump --remove`        | Remove bookmark                   | `lla jump --remove ~/projects/my-app` |
+| `lla jump --list`          | List bookmarks and recent history | `lla jump --list`                     |
+| `lla jump --clear-history` | Clear directory history           | `lla jump --clear-history`            |
+
 #### Display Modifiers
 
 | Command               | Description                                                                           | Example                         |
@@ -344,6 +492,33 @@ lla --csv
 | `--filter`         | `-f`  | Filter files by pattern         | `lla -f "test"` <br> `lla -f ".rs"` |
 | `--case-sensitive` | `-c`  | Enable case-sensitive filtering | `lla -f "test" -c`                  |
 | `--depth`          | `-d`  | Set the depth for tree listing  | `lla -t -d 3` <br> `lla -d 2`       |
+
+#### Content Search
+
+| Command            | Description                                | Example                                  |
+| ------------------ | ------------------------------------------ | ---------------------------------------- |
+| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                    |
+| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3` |
+
+Content search uses literal string matching by default (safe for special characters). Use `regex:` prefix for regex patterns:
+
+```bash
+# Literal search (default) - safe for any characters
+lla --search "main()"
+lla --search "TODO: fix bug"
+
+# Regex search - use regex: prefix
+lla --search "regex:^func.*\("
+
+# Search in specific file types
+lla --search "TODO" --filter ".rs"
+
+# Case-sensitive search
+lla src/ --search "Error" --case-sensitive
+
+# Search with machine output
+lla --search "FIXME" --json
+```
 
 #### Advanced Filtering Patterns
 
@@ -433,6 +608,25 @@ lla --csv
 
 > **Note**
 > For detailed usage and examples of each command, visit the [lla documentation](https://lla.chaqchase.com).
+
+### Excluding Paths (macOS iCloud and others)
+
+You can exclude heavy or virtualized directories from listings via the config key `exclude_paths`.
+
+Example (`~/.config/lla/config.toml`):
+
+```toml
+# Paths to exclude from listings (tilde is supported)
+exclude_paths = [
+  "~/Library/Mobile Documents", # iCloud Drive
+  "~/Library/CloudStorage"      # Other cloud providers
+]
+```
+
+Notes:
+
+- Tilde `~` is expanded to your home directory.
+- Exclusions are honored in recursive listings and top-level listings.
 
 ## License
 

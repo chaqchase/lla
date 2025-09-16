@@ -16,10 +16,12 @@ use fuzzy_matcher::FuzzyMatcher;
 use ignore::WalkBuilder;
 use parking_lot::RwLock;
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fs::Permissions;
 use std::io::{self, stdout, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     Arc,
@@ -40,6 +42,97 @@ struct FileEntry {
     name_str: String,
     modified: SystemTime,
     normalized_path: String,
+}
+fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
+    // Best-effort cross-platform clipboard support
+    // macOS: pbcopy, Linux (common): xclip or xsel, Windows: clip
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = ProcessCommand::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write as IoWrite;
+            stdin.write_all(text.as_bytes())?;
+        }
+        let _ = child.wait();
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try xclip
+        if let Ok(mut child) = ProcessCommand::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write as IoWrite;
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+            return Ok(());
+        }
+        // Try xsel
+        if let Ok(mut child) = ProcessCommand::new("xsel")
+            .args(["--clipboard", "--input"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write as IoWrite;
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+            return Ok(());
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut child = ProcessCommand::new("cmd")
+            .args(["/C", "clip"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write as IoWrite;
+            stdin.write_all(text.as_bytes())?;
+        }
+        let _ = child.wait();
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    {
+        Ok(())
+    }
+}
+
+fn open_path(path: &PathBuf) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = ProcessCommand::new("open").arg(path).spawn()?.wait();
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = ProcessCommand::new("xdg-open").arg(path).spawn()?.wait();
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = ProcessCommand::new("cmd")
+            .args(["/C", "start", path.to_string_lossy().as_ref()])
+            .spawn()?
+            .wait();
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    {
+        Ok(())
+    }
 }
 
 impl FileEntry {
@@ -373,10 +466,59 @@ impl FuzzyLister {
                         (KeyCode::Char('c'), KeyModifiers::CONTROL)
                         | (KeyCode::Esc, KeyModifiers::NONE) => break,
                         (KeyCode::Enter, KeyModifiers::NONE) => {
-                            if let Some(result) = result_list.get_selected() {
-                                selected_paths.push(result.entry.path.clone());
-                                break;
+                            if result_list.multi_selected.is_empty() {
+                                if let Some(result) = result_list.get_selected() {
+                                    selected_paths.push(result.entry.path.clone());
+                                }
+                            } else {
+                                selected_paths.extend(result_list.multi_selected.iter().cloned());
                             }
+                            break;
+                        }
+                        // Toggle multi-select with Space
+                        (KeyCode::Char(' '), KeyModifiers::NONE) => {
+                            if let Some(result) = result_list.get_selected() {
+                                let p = result.entry.path.clone();
+                                result_list.toggle_mark(&p);
+                                pending_render = true;
+                                last_render_request = now;
+                            }
+                        }
+                        // Copy selected paths to clipboard (y)
+                        (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                            let mut paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
+                                result_list
+                                    .get_selected()
+                                    .map(|r| vec![r.entry.path.clone()])
+                                    .unwrap_or_default()
+                            } else {
+                                result_list.multi_selected.iter().cloned().collect()
+                            };
+                            paths.sort();
+                            let content = paths
+                                .iter()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let _ = copy_to_clipboard(&content);
+                            pending_render = true;
+                            last_render_request = now;
+                        }
+                        // Open selected paths (o)
+                        (KeyCode::Char('o'), KeyModifiers::NONE) => {
+                            let paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
+                                result_list
+                                    .get_selected()
+                                    .map(|r| vec![r.entry.path.clone()])
+                                    .unwrap_or_default()
+                            } else {
+                                result_list.multi_selected.iter().cloned().collect()
+                            };
+                            for p in paths {
+                                let _ = open_path(&p);
+                            }
+                            pending_render = true;
+                            last_render_request = now;
                         }
                         (KeyCode::Up, KeyModifiers::NONE) => {
                             result_list.move_selection(-1);
@@ -453,7 +595,7 @@ impl FuzzyLister {
         }
 
         let status_line = format!(
-            "{}{}{}{}",
+            "{}{}{}{}{}",
             " Total: ".bold(),
             result_list.results.len().to_string().yellow(),
             format!(
@@ -463,11 +605,8 @@ impl FuzzyLister {
                 result_list.total_indexed
             )
             .bright_black(),
-            if !result_list.indexing_complete {
-                format!(" • {}", "Indexing...".bright_yellow())
-            } else {
-                "".to_string()
-            }
+            " • ",
+            "Space: select, Enter: confirm, y: copy, o: open".bright_black()
         );
 
         execute!(
@@ -589,6 +728,7 @@ struct ResultList {
     max_visible: usize,
     total_indexed: usize,
     indexing_complete: bool,
+    multi_selected: HashSet<PathBuf>,
 }
 
 impl ResultList {
@@ -600,6 +740,7 @@ impl ResultList {
             max_visible,
             total_indexed: 0,
             indexing_complete: false,
+            multi_selected: HashSet::new(),
         }
     }
 
@@ -635,6 +776,14 @@ impl ResultList {
         if new_idx >= 0 && new_idx < self.results.len() as i32 {
             self.selected_idx = new_idx as usize;
             self.update_window();
+        }
+    }
+
+    fn toggle_mark(&mut self, path: &PathBuf) {
+        if self.multi_selected.contains(path) {
+            self.multi_selected.remove(path);
+        } else {
+            self.multi_selected.insert(path.clone());
         }
     }
 
@@ -698,6 +847,7 @@ impl ResultList {
                     path_str.to_string()
                 };
 
+                let is_marked = self.multi_selected.contains(path);
                 let name_display = if is_selected {
                     format_with_icon(
                         path,
@@ -712,7 +862,9 @@ impl ResultList {
                     format_with_icon(path, colorize_file_name(path).to_string(), true)
                 };
 
-                let prefix = if is_selected {
+                let prefix = if is_marked {
+                    "●".bold()
+                } else if is_selected {
                     "→".bold()
                 } else {
                     " ".normal()
