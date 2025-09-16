@@ -1,3 +1,5 @@
+complete -c lla -n "__fish_use_subcommand" -l search -d 'Search file contents with ripgrep for the given pattern' -r
+complete -c lla -n "__fish_use_subcommand" -l search-context -d 'Number of context lines to show before and after matches (default: 2)' -r
 complete -c lla -n "__fish_use_subcommand" -s d -l depth -d 'Set the depth for tree listing (default from config)' -r
 complete -c lla -n "__fish_use_subcommand" -s s -l sort -d 'Sort files by name, size, or date' -r -f -a "{name	,size	,date	}"
 complete -c lla -n "__fish_use_subcommand" -s f -l filter -d 'Filter files by name or extension' -r
@@ -42,6 +44,7 @@ complete -c lla -n "__fish_use_subcommand" -s A -l almost-all -d 'Show all files
 complete -c lla -n "__fish_use_subcommand" -l dotfiles-only -d 'Show only dot files and directories (those starting with a dot)'
 complete -c lla -n "__fish_use_subcommand" -l hide-group -d 'Hide group column in long format'
 complete -c lla -n "__fish_use_subcommand" -l relative-dates -d 'Show relative dates (e.g., \'2h ago\') in long format'
+complete -c lla -n "__fish_use_subcommand" -f -a "jump" -d 'Jump to a bookmarked or recent directory'
 complete -c lla -n "__fish_use_subcommand" -f -a "install" -d 'Install a plugin'
 complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run a plugin action'
 complete -c lla -n "__fish_use_subcommand" -f -a "list-plugins" -d 'List all available plugins'
@@ -54,6 +57,13 @@ complete -c lla -n "__fish_use_subcommand" -f -a "shortcut" -d 'Manage command s
 complete -c lla -n "__fish_use_subcommand" -f -a "completion" -d 'Generate shell completion scripts'
 complete -c lla -n "__fish_use_subcommand" -f -a "theme" -d 'Interactive theme manager'
 complete -c lla -n "__fish_use_subcommand" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c lla -n "__fish_seen_subcommand_from jump" -l add -d 'Add a directory to bookmarks' -r
+complete -c lla -n "__fish_seen_subcommand_from jump" -l remove -d 'Remove a directory from bookmarks' -r
+complete -c lla -n "__fish_seen_subcommand_from jump" -l shell -d 'Override shell detection for setup (bash|zsh|fish)' -r -f -a "{bash	,zsh	,fish	}"
+complete -c lla -n "__fish_seen_subcommand_from jump" -l list -d 'List bookmarks and history'
+complete -c lla -n "__fish_seen_subcommand_from jump" -l clear-history -d 'Clear directory history'
+complete -c lla -n "__fish_seen_subcommand_from jump" -l setup -d 'Setup shell integration for seamless directory jumping'
+complete -c lla -n "__fish_seen_subcommand_from jump" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from install" -l git -d 'Install a plugin from a GitHub repository URL' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -l dir -d 'Install a plugin from a local directory' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -s h -l help -d 'Print help information'

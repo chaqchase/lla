@@ -21,6 +21,8 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
 
     $completions = @(switch ($command) {
         'lla' {
+            [CompletionResult]::new('--search', 'search', [CompletionResultType]::ParameterName, 'Search file contents with ripgrep for the given pattern')
+            [CompletionResult]::new('--search-context', 'search-context', [CompletionResultType]::ParameterName, 'Number of context lines to show before and after matches (default: 2)')
             [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Set the depth for tree listing (default from config)')
             [CompletionResult]::new('--depth', 'depth', [CompletionResultType]::ParameterName, 'Set the depth for tree listing (default from config)')
             [CompletionResult]::new('-s', 's', [CompletionResultType]::ParameterName, 'Sort files by name, size, or date')
@@ -82,6 +84,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--dotfiles-only', 'dotfiles-only', [CompletionResultType]::ParameterName, 'Show only dot files and directories (those starting with a dot)')
             [CompletionResult]::new('--hide-group', 'hide-group', [CompletionResultType]::ParameterName, 'Hide group column in long format')
             [CompletionResult]::new('--relative-dates', 'relative-dates', [CompletionResultType]::ParameterName, 'Show relative dates (e.g., ''2h ago'') in long format')
+            [CompletionResult]::new('jump', 'jump', [CompletionResultType]::ParameterValue, 'Jump to a bookmarked or recent directory')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a plugin')
             [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run a plugin action')
             [CompletionResult]::new('list-plugins', 'list-plugins', [CompletionResultType]::ParameterValue, 'List all available plugins')
@@ -94,6 +97,17 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('completion', 'completion', [CompletionResultType]::ParameterValue, 'Generate shell completion scripts')
             [CompletionResult]::new('theme', 'theme', [CompletionResultType]::ParameterValue, 'Interactive theme manager')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'lla;jump' {
+            [CompletionResult]::new('--add', 'add', [CompletionResultType]::ParameterName, 'Add a directory to bookmarks')
+            [CompletionResult]::new('--remove', 'remove', [CompletionResultType]::ParameterName, 'Remove a directory from bookmarks')
+            [CompletionResult]::new('--shell', 'shell', [CompletionResultType]::ParameterName, 'Override shell detection for setup (bash|zsh|fish)')
+            [CompletionResult]::new('--list', 'list', [CompletionResultType]::ParameterName, 'List bookmarks and history')
+            [CompletionResult]::new('--clear-history', 'clear-history', [CompletionResultType]::ParameterName, 'Clear directory history')
+            [CompletionResult]::new('--setup', 'setup', [CompletionResultType]::ParameterName, 'Setup shell integration for seamless directory jumping')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
         }
         'lla;install' {

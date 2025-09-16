@@ -33,6 +33,9 @@ _lla() {
             install)
                 cmd+="__install"
                 ;;
+            jump)
+                cmd+="__jump"
+                ;;
             list)
                 cmd+="__list"
                 ;;
@@ -67,12 +70,20 @@ _lla() {
 
     case "${cmd}" in
         lla)
-            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --case-sensitive --enable-plugin --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --permission-format --hide-group --relative-dates <directory> install plugin list-plugins use init config update clean shortcut completion theme help"
+            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --case-sensitive --enable-plugin --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --permission-format --hide-group --relative-dates <directory> jump install plugin list-plugins use init config update clean shortcut completion theme help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --search)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --search-context)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --depth)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -223,6 +234,32 @@ _lla() {
                     ;;
                 --dir)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__jump)
+            opts="-h --add --remove --list --clear-history --setup --shell --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --add)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --remove)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --shell)
+                    COMPREPLY=($(compgen -W "bash zsh fish" -- "${cur}"))
                     return 0
                     ;;
                 *)
