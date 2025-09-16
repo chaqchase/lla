@@ -79,6 +79,7 @@ impl FileFormatter for FuzzyFormatter {
         for (idx, file) in files.iter().enumerate() {
             let line = self.format_entry(file, "", idx == 0, plugin_manager);
             output.push_str(&line);
+            output.push_str("\n");
         }
 
         Ok(output)
