@@ -55,6 +55,7 @@ esac
 case "$TARGET_TRIPLE" in
   aarch64-*) ARCH_LABEL="arm64" ;;
   x86_64-*)  ARCH_LABEL="amd64" ;;
+  i686-*)    ARCH_LABEL="i686" ;;
   *)
     echo "Unsupported architecture in target triple: $TARGET_TRIPLE" 1>&2
     exit 1
