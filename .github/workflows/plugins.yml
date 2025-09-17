@@ -23,6 +23,10 @@ jobs:
             target: aarch64-unknown-linux-gnu
             os_label: linux
             arch_label: arm64
+          - runner: ubuntu-22.04
+            target: i686-unknown-linux-gnu
+            os_label: linux
+            arch_label: i686
           - runner: macos-13
             target: x86_64-apple-darwin
             os_label: macos
@@ -53,12 +57,17 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cross toolchain (Linux aarch64)
-        if: runner.os == 'Linux' && contains(matrix.target, 'aarch64')
+      - name: Install cross toolchain (Linux cross-compilation)
+        if: runner.os == 'Linux' && (contains(matrix.target, 'aarch64') || contains(matrix.target, 'i686'))
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-i686-linux-gnu
+          sudo apt-get install -y crossbuild-essential-arm64 crossbuild-essential-i386
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          elif [[ "${{ matrix.target }}" == "i686-unknown-linux-gnu" ]]; then
+            echo "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=i686-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
 
       - name: Make build script executable
         shell: bash
@@ -117,17 +126,19 @@ jobs:
           # Check if plugin archives already exist
           has_linux_amd64=$(echo "$existing_assets" | grep -q "plugins-linux-amd64" && echo "true" || echo "false")
           has_linux_arm64=$(echo "$existing_assets" | grep -q "plugins-linux-arm64" && echo "true" || echo "false")
+          has_linux_i686=$(echo "$existing_assets" | grep -q "plugins-linux-i686" && echo "true" || echo "false")
           has_macos_amd64=$(echo "$existing_assets" | grep -q "plugins-macos-amd64" && echo "true" || echo "false")
           has_macos_arm64=$(echo "$existing_assets" | grep -q "plugins-macos-arm64" && echo "true" || echo "false")
 
           echo "Existing plugin assets:"
           echo "  Linux amd64: $has_linux_amd64"
           echo "  Linux arm64: $has_linux_arm64"
+          echo "  Linux i686: $has_linux_i686"
           echo "  macOS amd64: $has_macos_amd64"
           echo "  macOS arm64: $has_macos_arm64"
 
           # If any plugin archives are missing, we should upload
-          if [[ "$has_linux_amd64" == "false" || "$has_linux_arm64" == "false" || 
+          if [[ "$has_linux_amd64" == "false" || "$has_linux_arm64" == "false" || "$has_linux_i686" == "false" ||
                 "$has_macos_amd64" == "false" || "$has_macos_arm64" == "false" ]]; then
             echo "Some plugin archives are missing, proceeding with upload"
             echo "should_upload=true" >> $GITHUB_OUTPUT
