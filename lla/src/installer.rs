@@ -6,7 +6,7 @@ use colored::{Color, Colorize};
 use console::Term;
 use dialoguer::MultiSelect;
 use flate2::read::GzDecoder;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use libloading::Library;
 use lla_plugin_interface::{
     proto::{plugin_message::Message, PluginMessage},
@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tar::Archive;
 use toml::{self, Value};
 use ureq::{Agent, AgentBuilder, Error as UreqError, Request};
@@ -159,6 +159,43 @@ impl<'a> InstallerUi<'a> {
         Color::BrightBlack
     }
 
+    fn format_size(bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        let mut size = bytes as f64;
+        let mut unit_index = 0;
+
+        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit_index += 1;
+        }
+
+        if unit_index == 0 {
+            format!("{:.0} {}", size, UNITS[unit_index])
+        } else {
+            format!("{:.1} {}", size, UNITS[unit_index])
+        }
+    }
+
+    fn format_speed(bytes_per_sec: f64) -> String {
+        Self::format_size(bytes_per_sec as u64) + "/s"
+    }
+
+    fn format_duration(duration: Duration) -> String {
+        let total_secs = duration.as_secs();
+        if total_secs >= 3600 {
+            format!(
+                "{}h{}m{}s",
+                total_secs / 3600,
+                (total_secs % 3600) / 60,
+                total_secs % 60
+            )
+        } else if total_secs >= 60 {
+            format!("{}m{}s", total_secs / 60, total_secs % 60)
+        } else {
+            format!("{}s", total_secs)
+        }
+    }
+
     fn accent_text(&self, text: &str) -> String {
         self.stylize(text, self.accent_color(), true)
     }
@@ -252,6 +289,39 @@ impl<'a> InstallerUi<'a> {
 
         ProgressStyle::with_template(&template)
             .expect("valid progress style template")
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    }
+
+    fn download_progress_style(&self) -> ProgressStyle {
+        let template = if self.color_state.is_enabled() {
+            format!(
+                "{{spinner:.{}}} {{msg}} [{{bar:18.{}/{}}}] {{percent}}% {{bytes}}/{{total_bytes}} ({{eta}})",
+                self.spinner_token(),
+                self.spinner_token(),
+                "black"
+            )
+        } else {
+            "{spinner} {msg} [{bar:18}] {percent}% {bytes}/{total_bytes} ({eta})".to_string()
+        };
+
+        ProgressStyle::with_template(&template)
+            .expect("valid download progress style template")
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .progress_chars("█▉▊▋▌▍▎▏ ")
+    }
+
+    fn build_progress_style(&self) -> ProgressStyle {
+        let template = if self.color_state.is_enabled() {
+            format!(
+                "{{spinner:.{}}} {{wide_msg}} {{elapsed}}",
+                self.spinner_token()
+            )
+        } else {
+            "{spinner} {wide_msg} {elapsed}".to_string()
+        };
+
+        ProgressStyle::with_template(&template)
+            .expect("valid build progress style template")
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
     }
 }
@@ -423,9 +493,35 @@ impl PluginInstaller {
 
     fn create_spinner(&self, message: &str) -> ProgressBar {
         let pb = ProgressBar::new_spinner();
+        pb.set_draw_target(ProgressDrawTarget::stderr());
         pb.set_style(self.create_progress_style());
         pb.set_message(message.to_string());
-        pb.enable_steady_tick(Duration::from_millis(80));
+        pb.enable_steady_tick(Duration::from_millis(120));
+        pb
+    }
+
+    fn create_download_progress(&self, message: &str, total_size: Option<u64>) -> ProgressBar {
+        let pb = if let Some(size) = total_size {
+            ProgressBar::new(size)
+        } else {
+            ProgressBar::new_spinner()
+        };
+
+        let ui = self.ui();
+        pb.set_draw_target(ProgressDrawTarget::stderr());
+        pb.set_style(ui.download_progress_style());
+        pb.set_message(message.to_string());
+        pb.enable_steady_tick(Duration::from_millis(120));
+        pb
+    }
+
+    fn create_build_progress(&self, message: &str) -> ProgressBar {
+        let pb = ProgressBar::new_spinner();
+        let ui = self.ui();
+        pb.set_draw_target(ProgressDrawTarget::stderr());
+        pb.set_style(ui.build_progress_style());
+        pb.set_message(message.to_string());
+        pb.enable_steady_tick(Duration::from_millis(120));
         pb
     }
 
@@ -524,34 +620,103 @@ impl PluginInstaller {
         agent: &Agent,
         url: &str,
         destination: &Path,
-        progress: &ProgressBar,
         ui: &InstallerUi,
     ) -> Result<u64> {
         let response = Self::github_request(agent, url)
             .call()
             .map_err(|err| Self::map_http_error("Failed to download archive", err))?;
 
+        let content_length = response
+            .header("content-length")
+            .and_then(|h| h.parse::<u64>().ok());
+
+        let asset_name = destination
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("archive");
+
+        let download_message = ui.progress_message("Downloading", asset_name);
+        let progress = self.create_download_progress(&download_message, content_length);
+
         let mut reader = response.into_reader();
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut file = fs::File::create(destination)?;
-        let bytes = std::io::copy(&mut reader, &mut file)?;
-        let asset_name = destination
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("archive");
-        let size_text = format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0));
-        let message = ui.format_status(
+
+        let mut buffer = [0u8; 8192];
+        let mut total_bytes = 0u64;
+        let start_time = Instant::now();
+
+        loop {
+            let bytes_read = reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            file.write_all(&buffer[..bytes_read])?;
+            total_bytes += bytes_read as u64;
+
+            if let Some(total) = content_length {
+                progress.set_position(total_bytes);
+                let speed = if start_time.elapsed().as_secs_f64() > 0.0 {
+                    total_bytes as f64 / start_time.elapsed().as_secs_f64()
+                } else {
+                    0.0
+                };
+
+                let eta_text = if total_bytes < total && speed > 0.0 {
+                    let remaining_bytes = total - total_bytes;
+                    let eta_secs = remaining_bytes as f64 / speed;
+                    format!(
+                        " - {}",
+                        InstallerUi::format_duration(Duration::from_secs(eta_secs as u64))
+                    )
+                } else {
+                    String::new()
+                };
+
+                progress.set_message(format!(
+                    "{} ({}){}",
+                    download_message,
+                    InstallerUi::format_speed(speed),
+                    eta_text
+                ));
+            } else {
+                progress.set_message(format!(
+                    "{} ({})",
+                    download_message,
+                    InstallerUi::format_size(total_bytes)
+                ));
+            }
+        }
+
+        file.flush()?;
+
+        let size_text = InstallerUi::format_size(total_bytes);
+        let elapsed = start_time.elapsed();
+        let speed_text = if elapsed.as_secs_f64() > 0.0 {
+            format!(
+                " at {}",
+                InstallerUi::format_speed(total_bytes as f64 / elapsed.as_secs_f64())
+            )
+        } else {
+            String::new()
+        };
+
+        let success_message = ui.format_status(
             StatusKind::Success,
             format!(
-                "Downloaded {} {}",
+                "Downloaded {} {}{}",
                 ui.highlight_text(asset_name),
-                ui.muted_text(&size_text)
+                ui.muted_text(&size_text),
+                ui.muted_text(&speed_text)
             ),
         );
-        progress.finish_with_message(message);
-        Ok(bytes)
+
+        progress.finish_and_clear();
+        eprintln!("{}", success_message);
+        Ok(total_bytes)
     }
 
     fn calculate_sha256(path: &Path) -> Result<String> {
@@ -898,24 +1063,17 @@ impl PluginInstaller {
         let archive_path = temp_dir.path().join(&asset.name);
         let extracted_dir = temp_dir.path().join("plugins");
 
-        let download_message = ui.progress_message("Downloading", &asset.name);
-        let download_pb = self.create_spinner(&download_message);
-        self.download_to_path(
-            &agent,
-            &asset.browser_download_url,
-            &archive_path,
-            &download_pb,
-            &ui,
-        )?;
+        self.download_to_path(&agent, &asset.browser_download_url, &archive_path, &ui)?;
 
         if let Some(expected) = checksum.as_deref() {
             let verify_message = ui.progress_message("Verifying", "checksum");
             let verify_pb = self.create_spinner(&verify_message);
             let actual = Self::calculate_sha256(&archive_path)?;
             if actual.eq_ignore_ascii_case(expected) {
-                verify_pb.finish_with_message(
-                    ui.format_status(StatusKind::Success, ui.muted_text("Checksum verified")),
-                );
+                let verified_msg =
+                    ui.format_status(StatusKind::Success, ui.muted_text("Checksum verified"));
+                verify_pb.finish_and_clear();
+                eprintln!("{}", verified_msg);
             } else {
                 let mismatch = ui.format_status(
                     StatusKind::Error,
@@ -925,7 +1083,8 @@ impl PluginInstaller {
                         ui.error_text(&actual)
                     ),
                 );
-                verify_pb.finish_with_message(mismatch);
+                verify_pb.finish_and_clear();
+                eprintln!("{}", mismatch);
                 return Err(LlaError::Plugin(format!(
                     "Checksum verification failed: expected {}, got {}",
                     expected, actual
@@ -936,9 +1095,10 @@ impl PluginInstaller {
         let extract_message = ui.progress_message("Extracting", &asset.name);
         let extract_pb = self.create_spinner(&extract_message);
         Self::extract_archive(&archive_path, &extracted_dir)?;
-        extract_pb.finish_with_message(
-            ui.format_status(StatusKind::Success, ui.muted_text("Archive extracted")),
-        );
+        let extracted_msg =
+            ui.format_status(StatusKind::Success, ui.muted_text("Archive extracted"));
+        extract_pb.finish_and_clear();
+        eprintln!("{}", extracted_msg);
 
         let plugin_paths =
             Self::collect_prebuilt_plugin_files(&extracted_dir, host.library_extension)?;
@@ -1003,7 +1163,8 @@ impl PluginInstaller {
                         StatusKind::Success,
                         ui.name_with_version(&plugin.name, &plugin.version),
                     );
-                    pb.finish_with_message(message);
+                    pb.finish_and_clear();
+                    eprintln!("{}", message);
                     summary.add_success(plugin.name.clone(), plugin.version.clone());
                 }
                 Err(err) => {
@@ -1016,7 +1177,8 @@ impl PluginInstaller {
                             ui.error_text(&error_text)
                         ),
                     );
-                    pb.finish_with_message(message);
+                    pb.finish_and_clear();
+                    eprintln!("{}", message);
                     summary.add_failure(plugin.name.clone(), error_text);
                 }
             }
@@ -1051,15 +1213,35 @@ impl PluginInstaller {
             .trim_end_matches(".git");
 
         let clone_message = ui.progress_message("Cloning", repo_name);
-        let pb = m.add(self.create_spinner(&clone_message));
+        let pb = m.add(self.create_build_progress(&clone_message));
 
         let temp_dir = tempfile::tempdir()?;
+        let start_time = Instant::now();
+
         let mut child = Command::new("git")
-            .args(["clone", "--quiet", url])
+            .args(["clone", "--progress", url])
             .current_dir(&temp_dir)
+            .stderr(std::process::Stdio::piped())
             .spawn()?;
 
+        if let Some(stderr) = child.stderr.take() {
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    if line.contains("Counting objects")
+                        || line.contains("Compressing objects")
+                        || line.contains("Receiving objects")
+                    {
+                        let clean_line = line.trim().replace('\r', "");
+                        pb.set_message(format!("{} - {}", clone_message, clean_line));
+                    }
+                }
+            }
+        }
+
         let status = child.wait()?;
+        let elapsed = start_time.elapsed();
+
         if !status.success() {
             let message = ui.format_status(
                 StatusKind::Error,
@@ -1069,14 +1251,21 @@ impl PluginInstaller {
                     ui.error_text("Clone failed")
                 ),
             );
-            pb.finish_with_message(message);
+            pb.finish_and_clear();
+            eprintln!("{}", message);
             return Err(LlaError::Plugin("Failed to clone repository".to_string()));
         }
 
-        pb.finish_with_message(ui.format_status(
+        let cloned_msg = ui.format_status(
             StatusKind::Success,
-            format!("Cloned {}", ui.highlight_text(repo_name)),
-        ));
+            format!(
+                "Cloned {} {}",
+                ui.highlight_text(repo_name),
+                ui.muted_text(&format!("in {}", InstallerUi::format_duration(elapsed)))
+            ),
+        );
+        pb.finish_and_clear();
+        eprintln!("{}", cloned_msg);
 
         self.install_plugins(
             &temp_dir.path().join(repo_name),
@@ -1332,6 +1521,7 @@ impl PluginInstaller {
             }
         };
 
+        let start_time = Instant::now();
         let mut child = Command::new("cargo")
             .args(&build_args)
             .current_dir(&build_dir)
@@ -1343,8 +1533,18 @@ impl PluginInstaller {
                 let reader = std::io::BufReader::new(stderr);
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        if line.contains("Compiling") {
-                            pb.set_message(ui.progress_message("Building", &plugin_name));
+                        if line.trim().starts_with("Compiling") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                let package_info = parts[1..].join(" ");
+                                pb.set_message(format!(
+                                    "{} {}",
+                                    ui.progress_message("Building", &plugin_name),
+                                    ui.muted_text(&format!("({})", package_info))
+                                ));
+                            }
+                        } else if line.trim().starts_with("Finished") {
+                            pb.set_message(ui.progress_message("Finalizing", &plugin_name));
                         }
                     }
                 }
@@ -1352,8 +1552,25 @@ impl PluginInstaller {
         }
 
         let status = child.wait()?;
+        let build_elapsed = start_time.elapsed();
+
         if !status.success() {
-            return Err(LlaError::Plugin("Build failed".to_string()));
+            if let Some(pb) = pb {
+                let error_message = ui.format_status(
+                    StatusKind::Error,
+                    format!(
+                        "{} {}",
+                        ui.highlight_text(&plugin_name),
+                        ui.error_text("Build failed")
+                    ),
+                );
+                pb.finish_and_clear();
+                eprintln!("{}", error_message);
+            }
+            return Err(LlaError::Plugin(format!(
+                "Build failed for plugin '{}'",
+                plugin_name
+            )));
         }
 
         let target_dir = build_dir.join("target").join("release");
@@ -1377,10 +1594,31 @@ impl PluginInstaller {
             fs::copy(plugin_file, &dest_path)?;
         }
 
-        if pb.is_none() {
+        if let Some(pb) = pb {
+            let success_message = ui.format_status(
+                StatusKind::Success,
+                format!(
+                    "Built and installed {} {}",
+                    ui.highlight_text(&plugin_name),
+                    ui.muted_text(&format!(
+                        "in {}",
+                        InstallerUi::format_duration(build_elapsed)
+                    ))
+                ),
+            );
+            pb.finish_and_clear();
+            eprintln!("{}", success_message);
+        } else {
             ui.print_status(
                 StatusKind::Success,
-                format!("Installed {}", ui.highlight_text(&plugin_name)),
+                format!(
+                    "Built and installed {} {}",
+                    ui.highlight_text(&plugin_name),
+                    ui.muted_text(&format!(
+                        "in {}",
+                        InstallerUi::format_duration(build_elapsed)
+                    ))
+                ),
             );
         }
         Ok(())
@@ -1425,7 +1663,7 @@ impl PluginInstaller {
 
             let progress_bar = if let Some(m) = multi_progress {
                 let initial = ui.progress_message("Preparing", &plugin_name);
-                Some(m.add(self.create_spinner(&initial)))
+                Some(m.add(self.create_build_progress(&initial)))
             } else {
                 None
             };
@@ -1468,7 +1706,8 @@ impl PluginInstaller {
                                     ui.error_text(&error_text)
                                 ),
                             );
-                            pb.finish_with_message(message);
+                            pb.finish_and_clear();
+                            eprintln!("{}", message);
                         }
                     } else {
                         summary.add_success(plugin_name.clone(), version.clone());
@@ -1477,7 +1716,8 @@ impl PluginInstaller {
                                 StatusKind::Success,
                                 ui.name_with_version(&plugin_name, &version),
                             );
-                            pb.finish_with_message(message);
+                            pb.finish_and_clear();
+                            eprintln!("{}", message);
                         }
                     }
                 }
@@ -1493,7 +1733,8 @@ impl PluginInstaller {
                                 ui.error_text(&error_text)
                             ),
                         );
-                        pb.finish_with_message(message);
+                        pb.finish_and_clear();
+                        eprintln!("{}", message);
                     }
                 }
             }
@@ -1595,7 +1836,8 @@ impl PluginInstaller {
                                 ui.error_text("Failed to clone repository")
                             ),
                         );
-                        pb.finish_with_message(message);
+                        pb.finish_and_clear();
+                        eprintln!("{}", message);
                         continue;
                     }
 
