@@ -268,6 +268,7 @@ fn handle_shortcut_action(
 fn handle_install(source: &InstallSource, args: &Args) -> Result<()> {
     let installer = PluginInstaller::new(&args.plugins_dir, args);
     match source {
+        InstallSource::Prebuilt => installer.install_from_prebuilt(),
         InstallSource::GitHub(url) => installer.install_from_git(url),
         InstallSource::LocalDir(dir) => installer.install_from_directory(dir),
     }

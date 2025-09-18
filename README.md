@@ -566,6 +566,8 @@ lla --search "FIXME" --json
 
 | Command         | Description                  | Example                                            |
 | --------------- | ---------------------------- | -------------------------------------------------- |
+| `install`       | Install from latest prebuilt release (default) | `lla install`                                 |
+| `install --prebuilt` | Install from latest prebuilt release | `lla install --prebuilt`                     |
 | `install --git` | Install from Git repository  | `lla install --git https://github.com/user/plugin` |
 | `install --dir` | Install from local directory | `lla install --dir path/to/plugin`                 |
 

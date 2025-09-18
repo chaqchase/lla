@@ -65,6 +65,7 @@ pub enum Command {
 }
 
 pub enum InstallSource {
+    Prebuilt,
     GitHub(String),
     LocalDir(String),
 }
@@ -409,6 +410,11 @@ impl Args {
                 SubCommand::with_name("install")
                     .about("Install a plugin")
                     .arg(
+                        Arg::with_name("prebuilt")
+                            .long("prebuilt")
+                            .help("Install plugins from the latest prebuilt release (default)"),
+                    )
+                    .arg(
                         Arg::with_name("git")
                             .long("git")
                             .takes_value(true)
@@ -419,6 +425,11 @@ impl Args {
                             .long("dir")
                             .takes_value(true)
                             .help("Install a plugin from a local directory"),
+                    )
+                    .group(
+                        ArgGroup::with_name("install-source")
+                            .args(&["prebuilt", "git", "dir"])
+                            .multiple(false),
                     ),
             )
             .subcommand(
@@ -674,7 +685,9 @@ impl Args {
         } else if matches.subcommand_matches("clean").is_some() {
             Some(Command::Clean)
         } else if let Some(install_matches) = matches.subcommand_matches("install") {
-            if let Some(github_url) = install_matches.value_of("git") {
+            if install_matches.is_present("prebuilt") {
+                Some(Command::Install(InstallSource::Prebuilt))
+            } else if let Some(github_url) = install_matches.value_of("git") {
                 Some(Command::Install(InstallSource::GitHub(
                     github_url.to_string(),
                 )))
@@ -683,10 +696,7 @@ impl Args {
                     local_dir.to_string(),
                 )))
             } else {
-                // default --git https://github.com/triyanox/lla
-                Some(Command::Install(InstallSource::GitHub(
-                    "https://github.com/triyanox/lla".to_string(),
-                )))
+                Some(Command::Install(InstallSource::Prebuilt))
             }
         } else if matches.subcommand_matches("list-plugins").is_some() {
             Some(Command::ListPlugins)
