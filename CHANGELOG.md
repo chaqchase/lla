@@ -5,15 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1]
 
 ### Added
 
 - Git view now shows richer per-file context including commit subject lines, upstream tracking, and working tree summaries.
+- Prebuilt plugin installer that downloads the latest release archive (`lla install --prebuilt`).
 
 ### Changed
 
 - Git formatter adapts column widths to the current terminal size, truncating long subjects and hiding plugin columns when necessary to avoid wrapping.
+- `lla install` now defaults to downloading prebuilt plugins; use `--git` for source builds when needed.
+- Plugin installation flow features themed progress spinners and richer status messaging for a cleaner, modern experience.
+
+### Docs
+
+- Documented the new prebuilt plugin installation flow and updated default instructions.
 
 ## [0.4.1] - 2025-09-16
 

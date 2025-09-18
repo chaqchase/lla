@@ -4,13 +4,22 @@ This is a list of all the plugins available for lla.
 
 ## Installation
 
-You can install all plugins at once using:
+You can install all prebuilt plugins at once using the default installer:
 
 ```bash
+lla install
+```
+
+To force fetching the latest prebuilt archive (useful after a release):
+
+```bash
+# install pre-built plugins
+lla install --prebuilt
+# or install from a repo
 lla install --git https://github.com/triyanox/lla
 ```
 
-or you can manually install them like this:
+If you prefer to build from source, install them like this:
 
 ```bash
 git clone https://github.com/triyanox/lla
