@@ -222,7 +222,7 @@ _lla() {
             return 0
             ;;
         lla__install)
-            opts="-h --git --dir --help"
+            opts="-h --prebuilt --git --dir --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

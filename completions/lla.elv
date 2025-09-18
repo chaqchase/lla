@@ -108,6 +108,7 @@ set edit:completion:arg-completer[lla] = {|@words|
         &'lla;install'= {
             cand --git 'Install a plugin from a GitHub repository URL'
             cand --dir 'Install a plugin from a local directory'
+            cand --prebuilt 'Install plugins from the latest prebuilt release (default)'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }

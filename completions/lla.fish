@@ -66,6 +66,7 @@ complete -c lla -n "__fish_seen_subcommand_from jump" -l setup -d 'Setup shell i
 complete -c lla -n "__fish_seen_subcommand_from jump" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from install" -l git -d 'Install a plugin from a GitHub repository URL' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -l dir -d 'Install a plugin from a local directory' -r
+complete -c lla -n "__fish_seen_subcommand_from install" -l prebuilt -d 'Install plugins from the latest prebuilt release (default)'
 complete -c lla -n "__fish_seen_subcommand_from install" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from plugin" -s n -l name -d 'Name of the plugin' -r
 complete -c lla -n "__fish_seen_subcommand_from plugin" -s a -l action -d 'Action to perform' -r
