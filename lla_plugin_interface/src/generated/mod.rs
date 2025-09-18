@@ -33,13 +33,26 @@ pub struct DecoratedEntry {
     #[prost(map = "string, string", tag = "3")]
     pub custom_fields:
         ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map = "string, message", tag = "4")]
+    pub field_types:
+        ::std::collections::HashMap<::prost::alloc::string::String, FieldType>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FieldType {
+    #[prost(string, tag = "1")]
+    pub r#type: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub format: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub unit: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PluginMessage {
     #[prost(
         oneof = "plugin_message::Message",
-        tags = "1, 2, 3, 4, 5, 6, 7, 101, 102, 103, 104, 105, 106, 107, 108"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110"
     )]
     pub message: ::core::option::Option<plugin_message::Message>,
 }
@@ -62,6 +75,10 @@ pub mod plugin_message {
         FormatField(super::FormatFieldRequest),
         #[prost(message, tag = "7")]
         Action(super::ActionRequest),
+        #[prost(message, tag = "8")]
+        BatchDecorate(super::BatchDecorateRequest),
+        #[prost(message, tag = "9")]
+        Config(super::ConfigRequest),
         #[prost(string, tag = "101")]
         NameResponse(::prost::alloc::string::String),
         #[prost(string, tag = "102")]
@@ -78,6 +95,10 @@ pub mod plugin_message {
         ActionResponse(super::ActionResponse),
         #[prost(string, tag = "108")]
         ErrorResponse(::prost::alloc::string::String),
+        #[prost(message, tag = "109")]
+        BatchDecoratedResponse(super::BatchDecorateResponse),
+        #[prost(message, tag = "110")]
+        ConfigResponse(super::ConfigResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -115,4 +136,60 @@ pub struct ActionResponse {
     pub success: bool,
     #[prost(string, optional, tag = "2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchDecorateRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<DecoratedEntry>,
+    #[prost(string, tag = "2")]
+    pub format: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchDecorateResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<DecoratedEntry>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConfigRequest {
+    #[prost(map = "string, string", tag = "1")]
+    pub config: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(string, tag = "2")]
+    pub theme: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub shortcuts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConfigResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, optional, tag = "2")]
+    pub error: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PluginHealth {
+    #[prost(bool, tag = "1")]
+    pub is_healthy: bool,
+    #[prost(string, optional, tag = "2")]
+    pub last_error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint64, optional, tag = "3")]
+    pub last_error_time: ::core::option::Option<u64>,
+    #[prost(string, repeated, tag = "4")]
+    pub missing_dependencies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PluginInfo {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub description: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "4")]
+    pub health: ::core::option::Option<PluginHealth>,
 }

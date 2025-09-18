@@ -411,20 +411,72 @@ impl Plugin for FileCategoryPlugin {
                         if let Some((category, color, subcategory)) =
                             PluginState::get_category_info(&self.config().rules, &entry)
                         {
-                            entry
-                                .custom_fields
-                                .insert("category".to_string(), category.clone());
-                            entry
-                                .custom_fields
-                                .insert("category_color".to_string(), color);
+                            // Add category with rich type information
+                            entry.custom_fields.insert("category".to_string(), category.clone());
+                            entry.field_types.insert("category".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "badge".to_string(),
+                                format: Some(color.clone()),
+                                unit: None,
+                            });
+
+                            entry.custom_fields.insert("category_color".to_string(), color);
+                            entry.field_types.insert("category_color".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "string".to_string(),
+                                format: Some("color".to_string()),
+                                unit: None,
+                            });
+
                             if let Some(sub) = &subcategory {
-                                entry
-                                    .custom_fields
-                                    .insert("subcategory".to_string(), sub.clone());
+                                entry.custom_fields.insert("subcategory".to_string(), sub.clone());
+                                entry.field_types.insert("subcategory".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "badge".to_string(),
+                                    format: Some("gray".to_string()),
+                                    unit: None,
+                                });
                             }
                             state.update_stats(&entry, &category, subcategory.as_deref());
                         }
                         PluginResponse::Decorated(entry)
+                    }
+                    PluginRequest::BatchDecorate(mut entries, _format) => {
+                        let mut state = PLUGIN_STATE.write();
+
+                        for entry in &mut entries {
+                            if let Some((category, color, subcategory)) =
+                                PluginState::get_category_info(&self.config().rules, entry)
+                            {
+                                // Add category with rich type information
+                                entry.custom_fields.insert("category".to_string(), category.clone());
+                                entry.field_types.insert("category".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "badge".to_string(),
+                                    format: Some(color.clone()),
+                                    unit: None,
+                                });
+
+                                entry.custom_fields.insert("category_color".to_string(), color);
+                                entry.field_types.insert("category_color".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "string".to_string(),
+                                    format: Some("color".to_string()),
+                                    unit: None,
+                                });
+
+                                if let Some(sub) = &subcategory {
+                                    entry.custom_fields.insert("subcategory".to_string(), sub.clone());
+                                    entry.field_types.insert("subcategory".to_string(), lla_plugin_interface::FieldType {
+                                        field_type: "badge".to_string(),
+                                        format: Some("gray".to_string()),
+                                        unit: None,
+                                    });
+                                }
+                                state.update_stats(entry, &category, subcategory.as_deref());
+                            }
+                        }
+
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        // Plugin could adapt categories based on user theme preferences
+                        PluginResponse::ConfigResult(Ok(()))
                     }
                     PluginRequest::FormatField(entry, format) => {
                         let field = self.format_file_info(&entry, &format);

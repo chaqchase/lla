@@ -424,6 +424,12 @@ impl Plugin for DirsPlugin {
                         let result = ACTION_REGISTRY.read().handle(&action, &args);
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::BatchDecorate(entries, _format) => {
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        PluginResponse::ConfigResult(Ok(()))
+                    }
                 };
                 self.encode_response(response)
             }

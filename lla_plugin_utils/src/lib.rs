@@ -12,7 +12,7 @@ pub use ui::{
     TextBlock, TextStyle,
 };
 
-use lla_plugin_interface::{proto, PluginRequest, PluginResponse};
+use lla_plugin_interface::{proto, ConfigRequest, DecoratedEntry, PluginRequest, PluginResponse};
 
 pub struct BasePlugin<C: PluginConfig> {
     config_manager: ConfigManager<C>,
@@ -88,6 +88,7 @@ pub trait ProtobufHandler {
                     path: std::path::PathBuf::from(entry.path),
                     metadata,
                     custom_fields: entry.custom_fields,
+                    field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
                 };
                 Ok(PluginRequest::Decorate(decorated))
             }
@@ -113,11 +114,29 @@ pub trait ProtobufHandler {
                     path: std::path::PathBuf::from(entry.path),
                     metadata,
                     custom_fields: entry.custom_fields,
+                    field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
                 };
                 Ok(PluginRequest::FormatField(decorated, req.format))
             }
             Some(proto::plugin_message::Message::Action(req)) => {
                 Ok(PluginRequest::PerformAction(req.action, req.args))
+            }
+            Some(proto::plugin_message::Message::BatchDecorate(batch_req)) => {
+                let mut entries = Vec::new();
+                for entry in batch_req.entries {
+                    match DecoratedEntry::try_from(entry) {
+                        Ok(e) => entries.push(e),
+                        Err(_) => continue,
+                    }
+                }
+                Ok(PluginRequest::BatchDecorate(entries, batch_req.format))
+            }
+            Some(proto::plugin_message::Message::Config(config_req)) => {
+                Ok(PluginRequest::Config(ConfigRequest {
+                    config: config_req.config,
+                    theme: config_req.theme,
+                    shortcuts: config_req.shortcuts,
+                }))
             }
             _ => Err("Invalid request type".to_string()),
         }
@@ -156,6 +175,7 @@ pub trait ProtobufHandler {
                     path: entry.path.to_string_lossy().to_string(),
                     metadata: Some(proto_metadata),
                     custom_fields: entry.custom_fields,
+                    field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
                 };
                 proto::plugin_message::Message::DecoratedResponse(proto_entry)
             }
@@ -170,6 +190,42 @@ pub trait ProtobufHandler {
                     error: None,
                 }),
                 Err(e) => proto::plugin_message::Message::ActionResponse(proto::ActionResponse {
+                    success: false,
+                    error: Some(e),
+                }),
+            },
+            PluginResponse::BatchDecorated(entries) => {
+                let proto_entries: Vec<proto::DecoratedEntry> = entries
+                    .into_iter()
+                    .map(|entry| proto::DecoratedEntry {
+                        path: entry.path.to_string_lossy().to_string(),
+                        metadata: Some(proto::EntryMetadata {
+                            size: entry.metadata.size,
+                            modified: entry.metadata.modified,
+                            accessed: entry.metadata.accessed,
+                            created: entry.metadata.created,
+                            is_dir: entry.metadata.is_dir,
+                            is_file: entry.metadata.is_file,
+                            is_symlink: entry.metadata.is_symlink,
+                            permissions: entry.metadata.permissions,
+                            uid: entry.metadata.uid,
+                            gid: entry.metadata.gid,
+                        }),
+                        custom_fields: entry.custom_fields,
+                        field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
+                    })
+                    .collect();
+
+                proto::plugin_message::Message::BatchDecoratedResponse(proto::BatchDecorateResponse {
+                    entries: proto_entries,
+                })
+            }
+            PluginResponse::ConfigResult(result) => match result {
+                Ok(()) => proto::plugin_message::Message::ConfigResponse(proto::ConfigResponse {
+                    success: true,
+                    error: None,
+                }),
+                Err(e) => proto::plugin_message::Message::ConfigResponse(proto::ConfigResponse {
                     success: false,
                     error: Some(e),
                 }),

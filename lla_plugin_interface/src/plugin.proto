@@ -19,6 +19,13 @@ message DecoratedEntry {
     string path = 1;
     EntryMetadata metadata = 2;
     map<string, string> custom_fields = 3;
+    map<string, FieldType> field_types = 4;
+}
+
+message FieldType {
+    string type = 1;  // "string", "number", "date", "badge", "boolean"
+    optional string format = 2;  // Additional format info (e.g., date format, badge color)
+    optional string unit = 3;    // For numbers (e.g., "bytes", "ms")
 }
 
 message PluginMessage {
@@ -30,6 +37,8 @@ message PluginMessage {
         DecoratedEntry decorate = 5;
         FormatFieldRequest format_field = 6;
         ActionRequest action = 7;
+        BatchDecorateRequest batch_decorate = 8;
+        ConfigRequest config = 9;
         string name_response = 101;
         string version_response = 102;
         string description_response = 103;
@@ -38,6 +47,8 @@ message PluginMessage {
         FormattedFieldResponse field_response = 106;
         ActionResponse action_response = 107;
         string error_response = 108;
+        BatchDecorateResponse batch_decorated_response = 109;
+        ConfigResponse config_response = 110;
     }
 }
 
@@ -62,4 +73,38 @@ message FormattedFieldResponse {
 message ActionResponse {
     bool success = 1;
     optional string error = 2;
-} 
+}
+
+message BatchDecorateRequest {
+    repeated DecoratedEntry entries = 1;
+    string format = 2;
+}
+
+message BatchDecorateResponse {
+    repeated DecoratedEntry entries = 1;
+}
+
+message ConfigRequest {
+    map<string, string> config = 1;
+    string theme = 2;
+    repeated string shortcuts = 3;
+}
+
+message ConfigResponse {
+    bool success = 1;
+    optional string error = 2;
+}
+
+message PluginHealth {
+    bool is_healthy = 1;
+    optional string last_error = 2;
+    optional uint64 last_error_time = 3;
+    repeated string missing_dependencies = 4;
+}
+
+message PluginInfo {
+    string name = 1;
+    string version = 2;
+    string description = 3;
+    optional PluginHealth health = 4;
+}

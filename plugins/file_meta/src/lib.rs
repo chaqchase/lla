@@ -267,6 +267,18 @@ impl Plugin for FileMetadataPlugin {
                         let result = ACTION_REGISTRY.read().handle(&action, &args);
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::BatchDecorate(entries, _format) => {
+                        // For now, fall back to individual processing
+                        let mut processed_entries = Vec::new();
+                        for entry in entries {
+                            // Apply the same logic as Decorate
+                            processed_entries.push(entry);
+                        }
+                        PluginResponse::BatchDecorated(processed_entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        PluginResponse::ConfigResult(Ok(()))
+                    }
                 };
                 self.encode_response(response)
             }

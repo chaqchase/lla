@@ -16,11 +16,34 @@ use std::path::{Path, PathBuf};
 type DecorationCache = DashMap<(String, String), HashMap<String, String>>;
 static DECORATION_CACHE: Lazy<DecorationCache> = Lazy::new(DashMap::new);
 
+type CapabilityCache = DashMap<String, Vec<String>>;
+static CAPABILITY_CACHE: Lazy<CapabilityCache> = Lazy::new(DashMap::new);
+
+#[derive(Clone)]
+pub struct PluginHealth {
+    pub is_healthy: bool,
+    pub last_error: Option<String>,
+    pub last_error_time: Option<u64>,
+    pub missing_dependencies: Vec<String>,
+}
+
+impl Default for PluginHealth {
+    fn default() -> Self {
+        PluginHealth {
+            is_healthy: true,
+            last_error: None,
+            last_error_time: None,
+            missing_dependencies: Vec::new(),
+        }
+    }
+}
+
 pub struct PluginManager {
     plugins: HashMap<String, (Library, *mut PluginApi)>,
     loaded_paths: HashSet<PathBuf>,
     pub enabled_plugins: HashSet<String>,
     config: Config,
+    plugin_health: HashMap<String, PluginHealth>,
 }
 
 impl PluginManager {
@@ -31,6 +54,7 @@ impl PluginManager {
             loaded_paths: HashSet::new(),
             enabled_plugins,
             config,
+            plugin_health: HashMap::new(),
         }
     }
 
@@ -70,7 +94,19 @@ impl PluginManager {
         }
     }
 
-    fn send_request(&self, plugin_name: &str, request: PluginMessage) -> Result<PluginMessage> {
+    fn record_plugin_error(&mut self, plugin_name: &str, error: String) {
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let health = self.plugin_health.entry(plugin_name.to_string()).or_default();
+        health.is_healthy = false;
+        health.last_error = Some(error);
+        health.last_error_time = Some(current_time);
+    }
+
+    fn send_request(&mut self, plugin_name: &str, request: PluginMessage) -> Result<PluginMessage> {
         if let Some((_, api)) = self.plugins.get(plugin_name) {
             let mut buf = Vec::with_capacity(request.encoded_len());
             request.encode(&mut buf).unwrap();
@@ -80,15 +116,23 @@ impl PluginManager {
                     ((**api).handle_request)(std::ptr::null_mut(), buf.as_ptr(), buf.len());
                 let response_vec =
                     Vec::from_raw_parts(raw_response.ptr, raw_response.len, raw_response.capacity);
-                let response_msg = proto::PluginMessage::decode(&response_vec[..])
-                    .map_err(|e| LlaError::Plugin(format!("Failed to decode response: {}", e)))?;
-                Ok(response_msg)
+                match proto::PluginMessage::decode(&response_vec[..]) {
+                    Ok(response_msg) => {
+                        // Mark plugin as healthy on successful response
+                        self.plugin_health.entry(plugin_name.to_string()).or_default().is_healthy = true;
+                        Ok(response_msg)
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to decode response: {}", e);
+                        self.record_plugin_error(plugin_name, error_msg.clone());
+                        Err(LlaError::Plugin(error_msg))
+                    }
+                }
             }
         } else {
-            Err(LlaError::Plugin(format!(
-                "Plugin '{}' not found",
-                plugin_name
-            )))
+            let error_msg = format!("Plugin '{}' not found", plugin_name);
+            self.record_plugin_error(plugin_name, error_msg.clone());
+            Err(LlaError::Plugin(error_msg))
         }
     }
 
@@ -128,12 +172,13 @@ impl PluginManager {
         }
     }
 
-    pub fn list_plugins(&mut self) -> Vec<(String, String, String)> {
+    pub fn list_plugins(&mut self) -> Vec<proto::PluginInfo> {
         let mut result = Vec::new();
-        for plugin_name in self.plugins.keys() {
+        let plugin_names: Vec<String> = self.plugins.keys().cloned().collect();
+        for plugin_name in plugin_names {
             let name = match self
                 .send_request(
-                    plugin_name,
+                    &plugin_name,
                     PluginMessage {
                         message: Some(Message::GetName(true)),
                     },
@@ -148,7 +193,7 @@ impl PluginManager {
 
             let version = match self
                 .send_request(
-                    plugin_name,
+                    &plugin_name,
                     PluginMessage {
                         message: Some(Message::GetVersion(true)),
                     },
@@ -163,7 +208,7 @@ impl PluginManager {
 
             let description = match self
                 .send_request(
-                    plugin_name,
+                    &plugin_name,
                     PluginMessage {
                         message: Some(Message::GetDescription(true)),
                     },
@@ -176,7 +221,21 @@ impl PluginManager {
                 Err(_) => continue,
             };
 
-            result.push((name, version, description));
+            // Get health information
+            let health = self.plugin_health.get(&plugin_name).cloned().unwrap_or_default();
+            let proto_health = proto::PluginHealth {
+                is_healthy: health.is_healthy,
+                last_error: health.last_error,
+                last_error_time: health.last_error_time,
+                missing_dependencies: health.missing_dependencies,
+            };
+
+            result.push(proto::PluginInfo {
+                name,
+                version,
+                description,
+                health: Some(proto_health),
+            });
         }
         result
     }
@@ -225,10 +284,15 @@ impl PluginManager {
                                             Some(Message::NameResponse(name)) => {
                                                 if let std::collections::hash_map::Entry::Vacant(
                                                     e,
-                                                ) = self.plugins.entry(name)
+                                                ) = self.plugins.entry(name.clone())
                                                 {
                                                     e.insert((library, api));
                                                     self.loaded_paths.insert(path);
+
+                                                    // Initialize plugin health
+                                                    self.plugin_health.insert(name.clone(), PluginHealth::default());
+                                                    // Send config/context message to newly loaded plugin
+                                                    self.send_config_to_plugin(&name);
                                                 }
                                             }
                                             _ => eprintln!(
@@ -302,6 +366,116 @@ impl PluginManager {
         }
     }
 
+    fn send_config_to_plugin(&mut self, plugin_name: &str) {
+        let mut config_map = std::collections::HashMap::new();
+
+        // Add basic config values
+        config_map.insert("version".to_string(), "0.4.1".to_string());
+        config_map.insert("api_version".to_string(), CURRENT_PLUGIN_API_VERSION.to_string());
+
+        // Add user preferences from config
+        config_map.insert("theme".to_string(), self.config.theme.clone());
+        config_map.insert("default_format".to_string(), self.config.default_format.clone());
+        config_map.insert("show_icons".to_string(), self.config.show_icons.to_string());
+
+        // Extract shortcuts as strings
+        let shortcuts: Vec<String> = self.config.shortcuts
+            .iter()
+            .map(|(key, cmd)| format!("{}:{}", key, cmd.action))
+            .collect();
+
+        let config_request = proto::PluginMessage {
+            message: Some(proto::plugin_message::Message::Config(proto::ConfigRequest {
+                config: config_map,
+                theme: self.config.theme.clone(),
+                shortcuts,
+            })),
+        };
+
+        // Send config message - ignore response as it's optional for plugins
+        let _ = self.send_request(plugin_name, config_request);
+    }
+
+    fn get_supported_formats(&mut self, plugin_name: &str) -> Vec<String> {
+        if let Some(cached_formats) = CAPABILITY_CACHE.get(plugin_name) {
+            return cached_formats.clone();
+        }
+
+        let request = PluginMessage {
+            message: Some(Message::GetSupportedFormats(true)),
+        };
+
+        let formats = if let Ok(response) = self.send_request(plugin_name, request) {
+            if let Some(Message::FormatsResponse(formats_response)) = response.message {
+                formats_response.formats
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        CAPABILITY_CACHE.insert(plugin_name.to_string(), formats.clone());
+        formats
+    }
+
+    pub fn decorate_entries_batch(&mut self, entries: &mut [proto::DecoratedEntry], format: &str) {
+        if self.enabled_plugins.is_empty() || (format != "default" && format != "long") {
+            return;
+        }
+
+        // Pre-collect supported plugin names to avoid borrowing conflicts
+        let plugin_names: Vec<String> = self.enabled_plugins.iter().cloned().collect();
+        let mut supported_names = Vec::new();
+        for name in plugin_names {
+            let formats = self.get_supported_formats(&name);
+            if formats.contains(&format.to_string()) {
+                supported_names.push(name);
+            }
+        }
+
+        if supported_names.is_empty() {
+            return;
+        }
+
+        for name in supported_names {
+            // Try batch decoration first
+            let batch_request = proto::PluginMessage {
+                message: Some(proto::plugin_message::Message::BatchDecorate(
+                    proto::BatchDecorateRequest {
+                        entries: entries.to_vec(),
+                        format: format.to_string(),
+                    },
+                )),
+            };
+
+            if let Ok(response) = self.send_request(&name, batch_request) {
+                if let Some(proto::plugin_message::Message::BatchDecoratedResponse(batch_response)) = response.message {
+                    // Apply batch results to entries
+                    for (i, decorated_entry) in batch_response.entries.into_iter().enumerate() {
+                        if i < entries.len() {
+                            entries[i].custom_fields.extend(decorated_entry.custom_fields);
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            // Fall back to individual decoration
+            for entry in entries.iter_mut() {
+                let request = proto::PluginMessage {
+                    message: Some(proto::plugin_message::Message::Decorate(entry.clone())),
+                };
+
+                if let Ok(response) = self.send_request(&name, request) {
+                    if let Some(proto::plugin_message::Message::DecoratedResponse(decorated)) = response.message {
+                        entry.custom_fields.extend(decorated.custom_fields);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn decorate_entry(&mut self, entry: &mut proto::DecoratedEntry, format: &str) {
         if self.enabled_plugins.is_empty() || (format != "default" && format != "long") {
             return;
@@ -316,23 +490,15 @@ impl PluginManager {
             return;
         }
 
-        let supported_names: Vec<_> = {
-            let mut names = Vec::new();
-            for name in self.enabled_plugins.iter() {
-                let request = PluginMessage {
-                    message: Some(Message::GetSupportedFormats(true)),
-                };
-
-                if let Ok(response) = self.send_request(name, request) {
-                    if let Some(Message::FormatsResponse(formats_response)) = response.message {
-                        if formats_response.formats.contains(&format.to_string()) {
-                            names.push(name.clone());
-                        }
-                    }
-                }
+        // Pre-collect supported plugin names to avoid borrowing conflicts
+        let plugin_names: Vec<String> = self.enabled_plugins.iter().cloned().collect();
+        let mut supported_names = Vec::new();
+        for name in plugin_names {
+            let formats = self.get_supported_formats(&name);
+            if formats.contains(&format.to_string()) {
+                supported_names.push(name);
             }
-            names
-        };
+        }
 
         if supported_names.is_empty() {
             return;
@@ -364,37 +530,29 @@ impl PluginManager {
             return Vec::new();
         }
 
-        let mut result = Vec::with_capacity(self.enabled_plugins.len());
-        for name in self.enabled_plugins.iter() {
-            let supports_format = match self.send_request(
-                name,
-                PluginMessage {
-                    message: Some(Message::GetSupportedFormats(true)),
-                },
-            ) {
-                Ok(response) => {
-                    if let Some(Message::FormatsResponse(formats)) = response.message {
-                        formats.formats.contains(&format.to_string())
-                    } else {
-                        false
-                    }
-                }
-                Err(_) => false,
+        // Pre-collect supported plugin names to avoid borrowing conflicts
+        let plugin_names: Vec<String> = self.enabled_plugins.iter().cloned().collect();
+        let mut supported_names = Vec::new();
+        for name in plugin_names {
+            let formats = self.get_supported_formats(&name);
+            if formats.contains(&format.to_string()) {
+                supported_names.push(name);
+            }
+        }
+
+        let mut result = Vec::with_capacity(supported_names.len());
+        for name in supported_names.iter() {
+            let request = PluginMessage {
+                message: Some(Message::FormatField(proto::FormatFieldRequest {
+                    entry: Some(entry.clone()),
+                    format: format.to_string(),
+                })),
             };
 
-            if supports_format {
-                let request = PluginMessage {
-                    message: Some(Message::FormatField(proto::FormatFieldRequest {
-                        entry: Some(entry.clone()),
-                        format: format.to_string(),
-                    })),
-                };
-
-                if let Ok(response) = self.send_request(name, request) {
-                    if let Some(Message::FieldResponse(field_response)) = response.message {
-                        if let Some(field) = field_response.field {
-                            result.push(field);
-                        }
+            if let Ok(response) = self.send_request(name, request) {
+                if let Some(Message::FieldResponse(field_response)) = response.message {
+                    if let Some(field) = field_response.field {
+                        result.push(field);
                     }
                 }
             }

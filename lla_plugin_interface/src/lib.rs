@@ -19,6 +19,14 @@ pub struct DecoratedEntry {
     pub path: PathBuf,
     pub metadata: EntryMetadata,
     pub custom_fields: HashMap<String, String>,
+    pub field_types: HashMap<String, FieldType>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FieldType {
+    pub field_type: String,
+    pub format: Option<String>,
+    pub unit: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -44,6 +52,15 @@ pub enum PluginRequest {
     Decorate(DecoratedEntry),
     FormatField(DecoratedEntry, String),
     PerformAction(String, Vec<String>),
+    BatchDecorate(Vec<DecoratedEntry>, String),
+    Config(ConfigRequest),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ConfigRequest {
+    pub config: HashMap<String, String>,
+    pub theme: String,
+    pub shortcuts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,6 +73,8 @@ pub enum PluginResponse {
     FormattedField(Option<String>),
     ActionResult(Result<(), String>),
     Error(String),
+    BatchDecorated(Vec<DecoratedEntry>),
+    ConfigResult(Result<(), String>),
 }
 
 impl From<EntryMetadata> for proto::EntryMetadata {
@@ -92,12 +111,33 @@ impl From<proto::EntryMetadata> for EntryMetadata {
     }
 }
 
+impl From<FieldType> for proto::FieldType {
+    fn from(field_type: FieldType) -> Self {
+        proto::FieldType {
+            r#type: field_type.field_type,
+            format: field_type.format,
+            unit: field_type.unit,
+        }
+    }
+}
+
+impl From<proto::FieldType> for FieldType {
+    fn from(field_type: proto::FieldType) -> Self {
+        FieldType {
+            field_type: field_type.r#type,
+            format: field_type.format,
+            unit: field_type.unit,
+        }
+    }
+}
+
 impl From<DecoratedEntry> for proto::DecoratedEntry {
     fn from(entry: DecoratedEntry) -> Self {
         proto::DecoratedEntry {
             path: entry.path.to_string_lossy().to_string(),
             metadata: Some(entry.metadata.into()),
             custom_fields: entry.custom_fields,
+            field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
         }
     }
 }
@@ -110,6 +150,7 @@ impl TryFrom<proto::DecoratedEntry> for DecoratedEntry {
             path: PathBuf::from(entry.path),
             metadata: entry.metadata.unwrap_or_default().into(),
             custom_fields: entry.custom_fields,
+            field_types: entry.field_types.into_iter().map(|(k, v)| (k, v.into())).collect(),
         })
     }
 }

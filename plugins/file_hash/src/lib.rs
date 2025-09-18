@@ -210,13 +210,57 @@ impl Plugin for FileHashPlugin {
                             spinner.set_status("Calculating hashes...".to_string());
 
                             if let Some((sha1, sha256)) = Self::calculate_hashes(&entry.path) {
+                                // Add hash values with appropriate type information
                                 entry.custom_fields.insert("sha1".to_string(), sha1);
+                                entry.field_types.insert("sha1".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "string".to_string(),
+                                    format: Some("hash".to_string()),
+                                    unit: Some("SHA1".to_string()),
+                                });
+
                                 entry.custom_fields.insert("sha256".to_string(), sha256);
+                                entry.field_types.insert("sha256".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "string".to_string(),
+                                    format: Some("hash".to_string()),
+                                    unit: Some("SHA256".to_string()),
+                                });
                             }
 
                             spinner.finish();
                         }
                         PluginResponse::Decorated(entry)
+                    }
+                    PluginRequest::BatchDecorate(mut entries, _format) => {
+                        let spinner = SPINNER.write();
+                        spinner.set_status("Calculating hashes for batch...".to_string());
+
+                        for entry in &mut entries {
+                            if entry.metadata.is_file {
+                                if let Some((sha1, sha256)) = Self::calculate_hashes(&entry.path) {
+                                    // Add hash values with appropriate type information
+                                    entry.custom_fields.insert("sha1".to_string(), sha1);
+                                    entry.field_types.insert("sha1".to_string(), lla_plugin_interface::FieldType {
+                                        field_type: "string".to_string(),
+                                        format: Some("hash".to_string()),
+                                        unit: Some("SHA1".to_string()),
+                                    });
+
+                                    entry.custom_fields.insert("sha256".to_string(), sha256);
+                                    entry.field_types.insert("sha256".to_string(), lla_plugin_interface::FieldType {
+                                        field_type: "string".to_string(),
+                                        format: Some("hash".to_string()),
+                                        unit: Some("SHA256".to_string()),
+                                    });
+                                }
+                            }
+                        }
+
+                        spinner.finish();
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        // Plugin acknowledges configuration
+                        PluginResponse::ConfigResult(Ok(()))
                     }
                     PluginRequest::FormatField(entry, format) => {
                         let field = self.format_hash_info(&entry, &format);

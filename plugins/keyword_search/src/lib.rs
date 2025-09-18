@@ -722,6 +722,12 @@ impl Plugin for KeywordSearchPlugin {
                         };
                         response
                     }
+                    PluginRequest::BatchDecorate(entries, _format) => {
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        PluginResponse::ConfigResult(Ok(()))
+                    }
                 };
                 self.encode_response(response)
             }

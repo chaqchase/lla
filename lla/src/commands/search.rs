@@ -217,7 +217,7 @@ struct RgLines {
 #[derive(Debug, Deserialize, Clone)]
 struct RgSubMatch {
     #[serde(rename = "match")]
-    m: RgText,
+    _m: RgText,
     start: usize,
     end: usize,
 }
@@ -359,7 +359,7 @@ fn read_snippet(path: &std::path::Path, start_line: usize, lines: usize) -> Resu
     Ok(result)
 }
 
-fn utf8_col(s: &str, byte_offset: usize) -> usize {
+fn _utf8_col(s: &str, byte_offset: usize) -> usize {
     let mut count = 0;
     for (i, _) in s.char_indices() {
         if i >= byte_offset {

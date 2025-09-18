@@ -52,6 +52,7 @@ fn synthesize_directory_entries(entries: &mut Vec<DecoratedEntry>, root_prefix: 
                 gid: 0,
             }),
             custom_fields: HashMap::new(),
+            field_types: HashMap::new(),
         });
     }
 }
@@ -98,6 +99,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
             gid: 0,
         }),
         custom_fields: root_fields,
+        field_types: HashMap::new(),
     });
 
     for i in 0..archive.len() {
@@ -153,6 +155,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
                 gid: 0,
             }),
             custom_fields,
+            field_types: HashMap::new(),
         });
     }
 
@@ -192,6 +195,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
             gid: 0,
         }),
         custom_fields: root_fields,
+        field_types: HashMap::new(),
     });
 
     let entries_iter = match archive.entries() {
@@ -272,6 +276,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
                 gid,
             }),
             custom_fields,
+            field_types: HashMap::new(),
         });
     }
 

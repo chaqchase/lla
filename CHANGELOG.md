@@ -10,17 +10,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Git view now shows richer per-file context including commit subject lines, upstream tracking, and working tree summaries.
+- Plugin capability caching system:
+  - GetSupportedFormats responses are now cached per plugin to eliminate redundant API calls
+  - Significant performance improvement for large directories with multiple plugins
+  - Cache is automatically populated on first request and reused for subsequent operations
+- Batch decoration request interface:
+  - New BatchDecorateRequest and BatchDecorateResponse messages in plugin protocol
+  - Plugins can now process multiple entries in a single request to reduce protobuf overhead
+  - Automatic fallback to per-entry decoration for plugins that don't support batch operations
+  - Maintains full backward compatibility with existing plugins
+- Lightweight configuration and context messaging:
+  - New ConfigRequest message sent to plugins during load time
+  - Plugins receive user preferences including theme, default format, show_icons setting, and shortcuts
+  - Enables plugins to adapt their behavior to user preferences and environment
+  - Older plugins automatically ignore the new message type
+- Extended DecoratedEntry with type and schema information:
+  - New field_types map in DecoratedEntry for rich field metadata
+  - Support for field type annotations: "string", "number", "date", "badge", "boolean"
+  - Optional format and unit information for enhanced display capabilities
+  - Enables advanced formatting while maintaining backward compatibility with plain string fields
+- Plugin health diagnostics and monitoring:
+  - Comprehensive plugin health tracking including error history and status
+  - Enhanced list_plugins command with health indicators in the UI
+  - Real-time error reporting with timestamps and detailed error messages
+  - Missing dependency detection for better plugin troubleshooting
+  - Visual health status indicators in plugin selection interface
 
 ### Changed
 
 - Git formatter adapts column widths to the current terminal size, truncating long subjects and hiding plugin columns when necessary to avoid wrapping.
+- Plugin list interface now displays health status with visual indicators
+- Plugin manager now tracks and reports plugin operational status
+- DecoratedEntry structure extended with optional type information for richer field rendering
+- Plugin version updates:
+  - Major enhancements: git_status (0.4.0), file_hash (0.4.0), categorizer (0.4.0), sizeviz (0.4.0), duplicate_file_detector (0.4.0)
+  - Compatibility updates: file_meta (0.3.2), dirs_meta (0.3.3), file_tagger (0.3.3), keyword_search (0.3.2), last_git_commit (0.3.3), code_complexity (0.3.3), code_snippet_extractor (0.3.3)
+  - Minor updates: file_copier (0.1.2), file_mover (0.1.2), file_organizer (0.1.2), file_remover (0.1.2)
 
 ## [0.4.1] - 2025-09-16
 
 ### Added
 
 - Jump-to-directory feature with bookmarks and history (`lla jump`):
-
   - Interactive directory jumper with keyboard-driven prompt using arrow keys/Enter
   - **One-command setup**: `lla jump --setup` automatically configures shell integration
   - Auto-detects shell (bash, zsh, fish) and adds `j` function for seamless directory changing
@@ -36,7 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ripgrep-backed content search via `--search` flag:
 - Fuzzy finder enhancements (`--fuzzy`):
-
   - Multi-select via Space with visual markers (●)
   - Batch actions:
     - `Enter`: confirm selection (single or multi)
@@ -133,13 +163,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Enhanced symlink support:
-
   - New symlink metadata retrieval and display
   - Improved symlink target information in output
   - Better visual representation of symlinks
 
 - New permission format options:
-
   - `--permission-format` argument with multiple display formats:
     - symbolic (default)
     - octal
@@ -169,14 +197,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - New file management plugins:
-
   - `file_copier`: Clipboard-based file copying functionality
   - `file_mover`: Clipboard-based file moving operations
   - `file_remover`: Interactive file and directory removal
   - `file_organizer`: File organization with multiple strategies (extension, date, type, size)
 
 - Enhanced theme system:
-
   - New `LlaDialoguerTheme` for consistent UI styling
   - Additional customization options for symbols and padding
   - New theme management commands: `theme pull` and `theme install`
@@ -206,14 +232,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - New utility library `lla_plugin_utils` for building plugins:
-
   - UI components (BoxComponent, HelpFormatter, KeyValue, etc.)
   - Plugin infrastructure utilities
   - Code highlighting and syntax support
   - Configuration management tools
 
 - New command-line arguments for file type filtering:
-
   - `--dirs-only`: Show only directories
   - `--files-only`: Show only regular files
   - `--symlinks-only`: Show only symbolic links
@@ -253,13 +277,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Interactive fuzzy file search (Experimental - Might be unstable)
-
   - Enabled via the new `--fuzzy` flag
   - Designed for quick file lookups in standard-sized directories
   - Future updates will optimize performance for large-scale directory structures
 
 - Directory size integration
-
   - New option to include directory sizes in all listing formats
   - Compatible with default, sizemap, grid, and tree visualizations
   - Recursive directory size calculation with `calculate_dir_size`
@@ -267,12 +289,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced size bar visualization for both directories and files
 
 - Enhanced shell integration
-
   - Added comprehensive shell completion support for bash, zsh, fish, and elvish
   - Generate completions using `lla completion <shell> [path]`
 
 - Customizable fuzzy search configuration
-
   - New `listers.fuzzy.ignore_patterns` setting
   - Supports multiple pattern types:
     - Simple substring matching
@@ -280,11 +300,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Regular expressions
 
 - Interactive theme management
-
   - New `lla theme` command for interactive theme switching
 
 - Advanced directory visualization
-
   - New `--recursive` flag for hierarchical directory display
   - Implemented `RecursiveFormatter` for structured output
   - Flexible tree and recursive format options
@@ -292,19 +310,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Architecture improvements
-
   - Redesigned `Args` struct to accommodate shell completion, fuzzy format, and directory size features
   - Enhanced command handler for improved shell integration
   - Optimized file listing and formatting logic
 
 - Dependency updates
-
   - Added `clap_complete` for shell completion functionality
   - Updated `hermit-abi` version specifications
   - Integrated `num_cpus` for improved performance
 
 - Search functionality enhancements
-
   - Implemented configurable `FuzzyConfig` structure
   - Enhanced `FuzzyLister` and `SearchIndex` components
   - Improved pattern matching and file filtering capabilities

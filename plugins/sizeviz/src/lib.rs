@@ -289,13 +289,38 @@ impl Plugin for FileSizeVisualizerPlugin {
 
                         if entry.path.is_file() {
                             let size = entry.metadata.size;
-                            entry
-                                .custom_fields
-                                .insert("size".to_string(), size.to_string());
+                            entry.custom_fields.insert("size".to_string(), size.to_string());
+                            entry.field_types.insert("size".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "number".to_string(),
+                                format: Some("bytes".to_string()),
+                                unit: Some("bytes".to_string()),
+                            });
                         }
 
                         spinner.finish();
                         PluginResponse::Decorated(entry)
+                    }
+                    PluginRequest::BatchDecorate(mut entries, _format) => {
+                        let spinner = SPINNER.write();
+                        spinner.set_status("Calculating sizes for batch...".to_string());
+
+                        for entry in &mut entries {
+                            if entry.path.is_file() {
+                                let size = entry.metadata.size;
+                                entry.custom_fields.insert("size".to_string(), size.to_string());
+                                entry.field_types.insert("size".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "number".to_string(),
+                                    format: Some("bytes".to_string()),
+                                    unit: Some("bytes".to_string()),
+                                });
+                            }
+                        }
+
+                        spinner.finish();
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        PluginResponse::ConfigResult(Ok(()))
                     }
                     PluginRequest::FormatField(entry, format) => {
                         let field = self.format_size_info(&entry, &format);

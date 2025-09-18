@@ -328,6 +328,7 @@ pub fn list_and_decorate_files(
                                 gid: 0,
                             }),
                             custom_fields,
+                            field_types: HashMap::new(),
                         });
                     }
                     return None;
@@ -404,6 +405,7 @@ pub fn list_and_decorate_files(
                 path: path.to_string_lossy().into_owned(),
                 metadata: Some(metadata),
                 custom_fields,
+                field_types: HashMap::new(),
             })
         })
         .collect();
@@ -579,6 +581,7 @@ pub fn list_and_decorate_single_file(
         path: path.to_string_lossy().into_owned(),
         metadata: Some(metadata),
         custom_fields,
+        field_types: HashMap::new(),
     };
 
     plugin_manager.decorate_entry(&mut entry, format);

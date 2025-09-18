@@ -7,17 +7,27 @@ use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use std::collections::HashSet;
 
 pub fn list_plugins(plugin_manager: &mut PluginManager) -> Result<()> {
-    let plugins: Vec<(String, String, String)> =
-        plugin_manager.list_plugins().into_iter().collect();
+    let plugins = plugin_manager.list_plugins();
 
     let plugin_names: Vec<String> = plugins
         .iter()
-        .map(|(name, version, desc)| {
+        .map(|plugin_info| {
+            let health_indicator = if let Some(health) = &plugin_info.health {
+                if health.is_healthy {
+                    "✓".green()
+                } else {
+                    "✗".red()
+                }
+            } else {
+                "?".yellow()
+            };
+
             format!(
-                "{} {} - {}",
-                name.cyan(),
-                format!("v{}", version).yellow(),
-                desc
+                "{} {} {} - {}",
+                health_indicator,
+                plugin_info.name.cyan(),
+                format!("v{}", plugin_info.version).yellow(),
+                plugin_info.description
             )
         })
         .collect();
@@ -35,7 +45,7 @@ pub fn list_plugins(plugin_manager: &mut PluginManager) -> Result<()> {
         .defaults(
             &plugins
                 .iter()
-                .map(|(name, _, _)| plugin_manager.enabled_plugins.contains(name))
+                .map(|plugin_info| plugin_manager.enabled_plugins.contains(&plugin_info.name))
                 .collect::<Vec<_>>(),
         )
         .interact()?;
@@ -43,15 +53,15 @@ pub fn list_plugins(plugin_manager: &mut PluginManager) -> Result<()> {
     let mut updated_plugins = HashSet::new();
 
     for idx in selections {
-        let (name, _, _) = &plugins[idx];
-        updated_plugins.insert(name.to_string());
+        let plugin_info = &plugins[idx];
+        updated_plugins.insert(plugin_info.name.clone());
     }
 
-    for (name, _, _) in &plugins {
-        if updated_plugins.contains(name) {
-            plugin_manager.enable_plugin(name)?;
+    for plugin_info in &plugins {
+        if updated_plugins.contains(&plugin_info.name) {
+            plugin_manager.enable_plugin(&plugin_info.name)?;
         } else {
-            plugin_manager.disable_plugin(name)?;
+            plugin_manager.disable_plugin(&plugin_info.name)?;
         }
     }
 

@@ -384,27 +384,131 @@ impl Plugin for GitStatusPlugin {
                         if let Some((status, branch, commit)) = Self::get_git_info(&entry.path) {
                             let (status_summary, staged, modified, untracked, conflicts) =
                                 Self::format_git_status(&status);
-                            entry
-                                .custom_fields
-                                .insert("git_status".to_string(), status_summary);
+
+                            // Add custom fields with rich type information
+                            entry.custom_fields.insert("git_status".to_string(), status_summary);
+                            entry.field_types.insert("git_status".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "badge".to_string(),
+                                format: Some("blue".to_string()),
+                                unit: None,
+                            });
+
                             entry.custom_fields.insert("git_branch".to_string(), branch);
+                            entry.field_types.insert("git_branch".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "badge".to_string(),
+                                format: Some("cyan".to_string()),
+                                unit: None,
+                            });
+
                             entry.custom_fields.insert("git_commit".to_string(), commit);
-                            entry
-                                .custom_fields
-                                .insert("git_staged".to_string(), staged.to_string());
-                            entry
-                                .custom_fields
-                                .insert("git_modified".to_string(), modified.to_string());
-                            entry
-                                .custom_fields
-                                .insert("git_untracked".to_string(), untracked.to_string());
-                            entry
-                                .custom_fields
-                                .insert("git_conflicts".to_string(), conflicts.to_string());
+                            entry.field_types.insert("git_commit".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "string".to_string(),
+                                format: Some("commit_hash".to_string()),
+                                unit: None,
+                            });
+
+                            // Numeric fields with appropriate types
+                            entry.custom_fields.insert("git_staged".to_string(), staged.to_string());
+                            entry.field_types.insert("git_staged".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "number".to_string(),
+                                format: None,
+                                unit: Some("files".to_string()),
+                            });
+
+                            entry.custom_fields.insert("git_modified".to_string(), modified.to_string());
+                            entry.field_types.insert("git_modified".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "number".to_string(),
+                                format: None,
+                                unit: Some("files".to_string()),
+                            });
+
+                            entry.custom_fields.insert("git_untracked".to_string(), untracked.to_string());
+                            entry.field_types.insert("git_untracked".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "number".to_string(),
+                                format: None,
+                                unit: Some("files".to_string()),
+                            });
+
+                            entry.custom_fields.insert("git_conflicts".to_string(), conflicts.to_string());
+                            entry.field_types.insert("git_conflicts".to_string(), lla_plugin_interface::FieldType {
+                                field_type: "number".to_string(),
+                                format: if conflicts > 0 { Some("red".to_string()) } else { None },
+                                unit: Some("files".to_string()),
+                            });
                         }
 
                         spinner.finish();
                         PluginResponse::Decorated(entry)
+                    }
+                    PluginRequest::BatchDecorate(mut entries, _format) => {
+                        let spinner = SPINNER.write();
+                        spinner.set_status("Checking Git status for batch...".to_string());
+
+                        for entry in &mut entries {
+                            if let Some((status, branch, commit)) = Self::get_git_info(&entry.path) {
+                                let (status_summary, staged, modified, untracked, conflicts) =
+                                    Self::format_git_status(&status);
+
+                                // Add custom fields with rich type information
+                                entry.custom_fields.insert("git_status".to_string(), status_summary);
+                                entry.field_types.insert("git_status".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "badge".to_string(),
+                                    format: Some("blue".to_string()),
+                                    unit: None,
+                                });
+
+                                entry.custom_fields.insert("git_branch".to_string(), branch);
+                                entry.field_types.insert("git_branch".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "badge".to_string(),
+                                    format: Some("cyan".to_string()),
+                                    unit: None,
+                                });
+
+                                entry.custom_fields.insert("git_commit".to_string(), commit);
+                                entry.field_types.insert("git_commit".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "string".to_string(),
+                                    format: Some("commit_hash".to_string()),
+                                    unit: None,
+                                });
+
+                                // Numeric fields with appropriate types
+                                entry.custom_fields.insert("git_staged".to_string(), staged.to_string());
+                                entry.field_types.insert("git_staged".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "number".to_string(),
+                                    format: None,
+                                    unit: Some("files".to_string()),
+                                });
+
+                                entry.custom_fields.insert("git_modified".to_string(), modified.to_string());
+                                entry.field_types.insert("git_modified".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "number".to_string(),
+                                    format: None,
+                                    unit: Some("files".to_string()),
+                                });
+
+                                entry.custom_fields.insert("git_untracked".to_string(), untracked.to_string());
+                                entry.field_types.insert("git_untracked".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "number".to_string(),
+                                    format: None,
+                                    unit: Some("files".to_string()),
+                                });
+
+                                entry.custom_fields.insert("git_conflicts".to_string(), conflicts.to_string());
+                                entry.field_types.insert("git_conflicts".to_string(), lla_plugin_interface::FieldType {
+                                    field_type: "number".to_string(),
+                                    format: if conflicts > 0 { Some("red".to_string()) } else { None },
+                                    unit: Some("files".to_string()),
+                                });
+                            }
+                        }
+
+                        spinner.finish();
+                        PluginResponse::BatchDecorated(entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        // Plugin acknowledges configuration but doesn't need to act on it
+                        // Could be used to adapt behavior based on theme, etc.
+                        PluginResponse::ConfigResult(Ok(()))
                     }
                     PluginRequest::FormatField(entry, format) => {
                         let field = self.format_git_info(&entry, &format);

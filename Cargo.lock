@@ -175,7 +175,7 @@ checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "categorizer"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "colored",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "code_complexity"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bytes",
  "colored",
@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "code_snippet_extractor"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "arboard",
  "base64 0.21.7",
@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "dirs_meta"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bytes",
  "colored",
@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "duplicate_file_detector"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "colored",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "file_copier"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "colored",
  "dialoguer",
@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "file_hash"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "colored",
@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "file_meta"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "file_mover"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "colored",
  "dialoguer",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "file_organizer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "colored",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "file_remover"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "colored",
  "dialoguer",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "file_tagger"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bytes",
  "colored",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "git_status"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "colored",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "keyword_search"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "arboard",
  "bytes",
@@ -1067,7 +1067,7 @@ dependencies = [
 
 [[package]]
 name = "last_git_commit"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bytes",
  "colored",
@@ -1862,7 +1862,7 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
 name = "sizeviz"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "colored",

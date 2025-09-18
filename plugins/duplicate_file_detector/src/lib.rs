@@ -201,9 +201,12 @@ impl DuplicateFileDetectorPlugin {
                 let oldest = entries.iter().min_by_key(|f| f.modified).unwrap();
 
                 if oldest.path == entry.path {
-                    entry
-                        .custom_fields
-                        .insert("has_duplicates".to_string(), "true".to_string());
+                    entry.custom_fields.insert("has_duplicates".to_string(), "true".to_string());
+                    entry.field_types.insert("has_duplicates".to_string(), lla_plugin_interface::FieldType {
+                        field_type: "boolean".to_string(),
+                        format: Some("red".to_string()),
+                        unit: None,
+                    });
 
                     let duplicate_paths: Vec<String> = entries
                         .iter()
@@ -211,18 +214,29 @@ impl DuplicateFileDetectorPlugin {
                         .map(|f| f.path.to_string_lossy().to_string())
                         .collect();
 
-                    entry
-                        .custom_fields
-                        .insert("duplicate_paths".to_string(), duplicate_paths.join(", "));
+                    entry.custom_fields.insert("duplicate_paths".to_string(), duplicate_paths.join(", "));
+                    entry.field_types.insert("duplicate_paths".to_string(), lla_plugin_interface::FieldType {
+                        field_type: "string".to_string(),
+                        format: Some("list".to_string()),
+                        unit: Some("paths".to_string()),
+                    });
                 } else {
-                    entry
-                        .custom_fields
-                        .insert("is_duplicate".to_string(), "true".to_string());
+                    entry.custom_fields.insert("is_duplicate".to_string(), "true".to_string());
+                    entry.field_types.insert("is_duplicate".to_string(), lla_plugin_interface::FieldType {
+                        field_type: "boolean".to_string(),
+                        format: Some("yellow".to_string()),
+                        unit: None,
+                    });
 
                     entry.custom_fields.insert(
                         "original_path".to_string(),
                         oldest.path.to_string_lossy().to_string(),
                     );
+                    entry.field_types.insert("original_path".to_string(), lla_plugin_interface::FieldType {
+                        field_type: "string".to_string(),
+                        format: Some("path".to_string()),
+                        unit: None,
+                    });
                 }
             }
         }
@@ -357,6 +371,16 @@ impl Plugin for DuplicateFileDetectorPlugin {
                     ]),
                     PluginRequest::Decorate(entry) => {
                         PluginResponse::Decorated(self.process_entry(entry))
+                    }
+                    PluginRequest::BatchDecorate(entries, _format) => {
+                        let mut processed_entries = Vec::new();
+                        for entry in entries {
+                            processed_entries.push(self.process_entry(entry));
+                        }
+                        PluginResponse::BatchDecorated(processed_entries)
+                    }
+                    PluginRequest::Config(_config_request) => {
+                        PluginResponse::ConfigResult(Ok(()))
                     }
                     PluginRequest::FormatField(entry, format) => {
                         let field = self.format_duplicate_info(&entry, &format);
