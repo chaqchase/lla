@@ -113,6 +113,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
         'lla;install' {
             [CompletionResult]::new('--git', 'git', [CompletionResultType]::ParameterName, 'Install a plugin from a GitHub repository URL')
             [CompletionResult]::new('--dir', 'dir', [CompletionResultType]::ParameterName, 'Install a plugin from a local directory')
+            [CompletionResult]::new('--prebuilt', 'prebuilt', [CompletionResultType]::ParameterName, 'Install plugins from the latest prebuilt release (default)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break

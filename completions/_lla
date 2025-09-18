@@ -104,6 +104,7 @@ _arguments "${_arguments_options[@]}" \
 _arguments "${_arguments_options[@]}" \
 '--git=[Install a plugin from a GitHub repository URL]: : ' \
 '--dir=[Install a plugin from a local directory]: : ' \
+'--prebuilt[Install plugins from the latest prebuilt release (default)]' \
 '-h[Print help information]' \
 '--help[Print help information]' \
 && ret=0
