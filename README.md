@@ -28,6 +28,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
+- Gitignore-Aware Traversal: Recursive listing honors project, global, and info/exclude patterns with per-source toggles
 - Smart Navigation: Interactive directory jumper with bookmarks and history
 - Smart Search: complex filtering patterns (OR, AND, NOT, XOR), regex support, content search
 - Customization: Plugin system, theme manager, custom shortcuts, configurable display
@@ -471,7 +472,20 @@ lla --csv
 | `--icons`             | Show icons for files and directories                                                  | `lla --icons`                   |
 | `--no-icons`          | Hide icons for files and directories                                                  | `lla --no-icons`                |
 | `--no-color`          | Disable all colors in the output                                                      | `lla --no-color`                |
+| `--all` / `--hidden`  | Show every entry, including dotfiles and the special `.` / `..` directories           | `lla --all`                     |
+| `--almost-all`        | Show dotfiles but omit `.` and `..`                                                    | `lla --almost-all`              |
+| `--dotfiles-only`     | Show only entries whose names start with `.`                                          | `lla --dotfiles-only`           |
+| `--no-dotfiles`       | Hide dot-prefixed files and directories                                               | `lla --no-dotfiles`             |
 | `--permission-format` | Set the format for displaying permissions (symbolic, octal, binary, verbose, compact) | `lla --permission-format octal` |
+
+> Tip: `--hidden` is an alias of `--all`. Conflicting combinations such as `--all --no-dotfiles` are rejected so the active visibility mode is always explicit.
+
+**Dotfile visibility precedence**
+
+1. `--dotfiles-only` wins when supplied, ensuring only dot-prefixed entries render.
+2. `--all` / `--hidden` and `--almost-all` force dotfiles to be visible (the latter still hides `.` and `..`).
+3. `--no-dotfiles` restores hidden behaviour even if the config default is to show dotfiles.
+4. When no flag is passed, `filter.no_dotfiles` in the config decides the default.
 
 ### Sort & Filter Options
 
@@ -492,6 +506,16 @@ lla --csv
 | `--filter`         | `-f`  | Filter files by pattern         | `lla -f "test"` <br> `lla -f ".rs"` |
 | `--case-sensitive` | `-c`  | Enable case-sensitive filtering | `lla -f "test" -c`                  |
 | `--depth`          | `-d`  | Set the depth for tree listing  | `lla -t -d 3` <br> `lla -d 2`       |
+
+#### Git Ignore Controls
+
+| Command            | Description                                                             | Example                          |
+| ------------------ | ----------------------------------------------------------------------- | -------------------------------- |
+| `--no-git-ignore`  | Ignore repository `.gitignore`, parent patterns, and `.git/info/exclude` | `lla -R --no-git-ignore`         |
+| `--no-git-global`  | Skip global gitignore rules configured in your Git config                | `lla --no-git-global`            |
+| `--no-git-exclude` | Skip patterns loaded from `.git/info/exclude`                            | `lla --no-git-exclude`           |
+
+> By default recursive listings and content search honor all gitignore sources; combine these flags to opt out of specific sources when needed.
 
 #### Content Search
 
@@ -627,6 +651,22 @@ Notes:
 
 - Tilde `~` is expanded to your home directory.
 - Exclusions are honored in recursive listings and top-level listings.
+
+### Recursive Lister Configuration
+
+Fine-tune how recursive traversals behave by adjusting the `[listers.recursive]` section in `~/.config/lla/config.toml`:
+
+```toml
+[listers.recursive]
+max_entries = 20000
+respect_gitignore = true
+git_global = true
+git_exclude = true
+hidden_follows_dotfiles = true
+```
+
+- Set any toggle to `false` to opt out of that gitignore source by default; the CLI flags above can still override per-invocation.
+- When `hidden_follows_dotfiles` is `true` (default), hidden entries are only shown when dotfiles are visible. Disable it if you always want hidden files, regardless of dotfile filters.
 
 ## License
 

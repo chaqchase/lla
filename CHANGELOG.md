@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Recursive lister now honours repository `.gitignore`, global gitignore, and `.git/info/exclude` patterns by default, with new configuration toggles under `[listers.recursive]`.
+- CLI flags `--hidden`, `--no-git-ignore`, `--no-git-global`, and `--no-git-exclude` provide per-run control over hidden files and gitignore sources.
+
+### Changed
+
+- Recursive listing and content search traversal share a single gitignore-aware walker, ensuring exclude path handling, depth limits, and max entry caps stay consistent across commands.
+- Dotfile visibility flags are now mutually exclusive with clear precedence (`--hidden` aliases `--all`), and recursive traversal counts respect the dotfile mode to avoid premature entry limits.
+
 ## [0.4.1] - 2025-09-16
 
 ### Added

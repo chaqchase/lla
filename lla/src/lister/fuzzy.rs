@@ -1,4 +1,5 @@
 use super::FileLister;
+use crate::commands::args::Args;
 use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
 use crate::{error::Result, theme::color_value_to_color};
@@ -624,6 +625,7 @@ impl FuzzyLister {
 impl FileLister for FuzzyLister {
     fn list_files(
         &self,
+        _args: &Args,
         directory: &str,
         recursive: bool,
         depth: Option<usize>,

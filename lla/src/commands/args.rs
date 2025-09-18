@@ -38,6 +38,10 @@ pub struct Args {
     pub no_dotfiles: bool,
     pub almost_all: bool,
     pub dotfiles_only: bool,
+    pub dotfiles_mode: DotfilesMode,
+    pub respect_git_ignore: bool,
+    pub use_git_global: bool,
+    pub use_git_exclude: bool,
     pub permission_format: String,
     pub hide_group: bool,
     pub relative_dates: bool,
@@ -98,6 +102,25 @@ pub enum OutputMode {
     Json { pretty: bool },
     Ndjson,
     Csv,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DotfilesMode {
+    Hide,
+    ShowAll,
+    ShowAlmostAll,
+    Only,
+}
+
+impl DotfilesMode {
+    fn flags(self) -> (bool, bool, bool) {
+        match self {
+            DotfilesMode::Hide => (true, false, false),
+            DotfilesMode::ShowAll => (false, false, false),
+            DotfilesMode::ShowAlmostAll => (false, true, false),
+            DotfilesMode::Only => (false, false, true),
+        }
+    }
 }
 
 impl Args {
@@ -368,24 +391,44 @@ impl Args {
             .arg(
                 Arg::with_name("no-dotfiles")
                     .long("no-dotfiles")
+                    .conflicts_with_all(&["all", "almost-all", "dotfiles-only"])
                     .help("Hide files starting with a dot (overrides config setting)"),
             )
             .arg(
                 Arg::with_name("all")
                     .short('a')
                     .long("all")
-                    .help("Show all files including dotfiles (overrides no_dotfiles config)"),
+                    .alias("hidden")
+                    .conflicts_with_all(&["almost-all", "no-dotfiles", "dotfiles-only"])
+                    .help("Show all files including dotfiles (alias: --hidden)"),
             )
             .arg(
                 Arg::with_name("almost-all")
                     .short('A')
                     .long("almost-all")
+                    .conflicts_with_all(&["all", "no-dotfiles", "dotfiles-only"])
                     .help("Show all files including dotfiles except . and .. (overrides no_dotfiles config)"),
             )
             .arg(
                 Arg::with_name("dotfiles-only")
                     .long("dotfiles-only")
+                    .conflicts_with_all(&["all", "almost-all", "no-dotfiles"])
                     .help("Show only dot files and directories (those starting with a dot)"),
+            )
+            .arg(
+                Arg::with_name("no-git-ignore")
+                    .long("no-git-ignore")
+                    .help("Do not respect .gitignore files when traversing directories"),
+            )
+            .arg(
+                Arg::with_name("no-git-global")
+                    .long("no-git-global")
+                    .help("Do not apply global gitignore rules from git config"),
+            )
+            .arg(
+                Arg::with_name("no-git-exclude")
+                    .long("no-git-exclude")
+                    .help("Do not load patterns from .git/info/exclude"),
             )
             .arg(
                 Arg::with_name("permission-format")
@@ -570,6 +613,12 @@ impl Args {
         if args.len() > 1 {
             let potential_shortcut = &args[1];
             if config.get_shortcut(potential_shortcut).is_some() {
+                let dotfiles_mode = if config.filter.no_dotfiles {
+                    DotfilesMode::Hide
+                } else {
+                    DotfilesMode::ShowAll
+                };
+                let (no_dotfiles, almost_all_flag, dotfiles_only_flag) = dotfiles_mode.flags();
                 return Self {
                     directory: ".".to_string(),
                     depth: config.default_depth,
@@ -602,9 +651,13 @@ impl Args {
                     no_dirs: false,
                     no_files: false,
                     no_symlinks: false,
-                    no_dotfiles: config.filter.no_dotfiles,
-                    almost_all: false,
-                    dotfiles_only: false,
+                    no_dotfiles,
+                    almost_all: almost_all_flag,
+                    dotfiles_only: dotfiles_only_flag,
+                    dotfiles_mode,
+                    respect_git_ignore: config.listers.recursive.respect_gitignore,
+                    use_git_global: config.listers.recursive.git_global,
+                    use_git_exclude: config.listers.recursive.git_exclude,
                     permission_format: config.permission_format.clone(),
                     hide_group: config.formatters.long.hide_group,
                     relative_dates: config.formatters.long.relative_dates,
@@ -733,6 +786,36 @@ impl Args {
             })
         };
 
+        let dotfiles_mode = if matches.is_present("dotfiles-only") {
+            DotfilesMode::Only
+        } else if matches.is_present("all") {
+            DotfilesMode::ShowAll
+        } else if matches.is_present("almost-all") {
+            DotfilesMode::ShowAlmostAll
+        } else if matches.is_present("no-dotfiles") {
+            DotfilesMode::Hide
+        } else if config.filter.no_dotfiles {
+            DotfilesMode::Hide
+        } else {
+            DotfilesMode::ShowAll
+        };
+        let (no_dotfiles, almost_all_flag, dotfiles_only_flag) = dotfiles_mode.flags();
+        let respect_git_ignore = if matches.is_present("no-git-ignore") {
+            false
+        } else {
+            config.listers.recursive.respect_gitignore
+        };
+        let use_git_global = if matches.is_present("no-git-global") {
+            false
+        } else {
+            config.listers.recursive.git_global
+        };
+        let use_git_exclude = if matches.is_present("no-git-exclude") {
+            false
+        } else {
+            config.listers.recursive.git_exclude
+        };
+
         let has_format_flag = matches.is_present("long")
             || matches.is_present("tree")
             || matches.is_present("table")
@@ -800,12 +883,13 @@ impl Args {
             no_dirs: matches.is_present("no-dirs"),
             no_files: matches.is_present("no-files"),
             no_symlinks: matches.is_present("no-symlinks"),
-            no_dotfiles: matches.is_present("no-dotfiles")
-                && !matches.is_present("all")
-                && !matches.is_present("almost-all")
-                && config.filter.no_dotfiles,
-            almost_all: matches.is_present("almost-all"),
-            dotfiles_only: matches.is_present("dotfiles-only"),
+            no_dotfiles,
+            almost_all: almost_all_flag,
+            dotfiles_only: dotfiles_only_flag,
+            dotfiles_mode,
+            respect_git_ignore,
+            use_git_global,
+            use_git_exclude,
             permission_format: matches
                 .value_of("permission-format")
                 .unwrap_or(&config.permission_format)

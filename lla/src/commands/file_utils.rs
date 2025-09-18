@@ -278,6 +278,7 @@ pub fn list_and_decorate_files(
 ) -> Result<Vec<DecoratedEntry>> {
     let entries: Vec<DecoratedEntry> = lister
         .list_files(
+            args,
             &args.directory,
             args.tree_format || args.recursive_format,
             args.depth,

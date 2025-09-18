@@ -88,12 +88,24 @@ impl Default for LongFormatterConfig {
 pub struct RecursiveConfig {
     #[serde(default)]
     pub max_entries: Option<usize>,
+    #[serde(default = "default_true")]
+    pub respect_gitignore: bool,
+    #[serde(default = "default_true")]
+    pub git_global: bool,
+    #[serde(default = "default_true")]
+    pub git_exclude: bool,
+    #[serde(default = "default_true")]
+    pub hidden_follows_dotfiles: bool,
 }
 
 impl Default for RecursiveConfig {
     fn default() -> Self {
         Self {
             max_entries: Some(20_000),
+            respect_gitignore: true,
+            git_global: true,
+            git_exclude: true,
+            hidden_follows_dotfiles: true,
         }
     }
 }
@@ -120,6 +132,10 @@ fn default_ignore_patterns() -> Vec<String> {
         String::from(".idea"),
         String::from(".vscode"),
     ]
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -410,6 +426,19 @@ relative_dates = {}
 # Default: 20000 entries
 max_entries = {}
 
+# Whether to respect repository .gitignore rules during recursive traversal
+# Default: true
+respect_gitignore = {}
+# Whether to apply global gitignore patterns configured in git
+# Default: true
+git_global = {}
+# Whether to honor patterns from .git/info/exclude
+# Default: true
+git_exclude = {}
+# When true, hidden files follow dotfile filtering preferences
+# Default: true
+hidden_follows_dotfiles = {}
+
 # Fuzzy lister configuration
 [listers.fuzzy]
 # Patterns to ignore when listing files in fuzzy mode
@@ -461,6 +490,10 @@ ignore_patterns = {}"#,
             self.formatters.long.hide_group,
             self.formatters.long.relative_dates,
             self.listers.recursive.max_entries.unwrap_or(0),
+            self.listers.recursive.respect_gitignore,
+            self.listers.recursive.git_global,
+            self.listers.recursive.git_exclude,
+            self.listers.recursive.hidden_follows_dotfiles,
             serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
         );
 
@@ -843,6 +876,38 @@ ignore_patterns = {}"#,
                     )));
                 }
                 self.listers.recursive.max_entries = Some(max_entries);
+            }
+            ["listers", "recursive", "respect_gitignore"] => {
+                self.listers.recursive.respect_gitignore = value.parse().map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be true or false".to_string(),
+                    ))
+                })?;
+            }
+            ["listers", "recursive", "git_global"] => {
+                self.listers.recursive.git_global = value.parse().map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be true or false".to_string(),
+                    ))
+                })?;
+            }
+            ["listers", "recursive", "git_exclude"] => {
+                self.listers.recursive.git_exclude = value.parse().map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be true or false".to_string(),
+                    ))
+                })?;
+            }
+            ["listers", "recursive", "hidden_follows_dotfiles"] => {
+                self.listers.recursive.hidden_follows_dotfiles = value.parse().map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be true or false".to_string(),
+                    ))
+                })?;
             }
             ["theme"] => {
                 if let Ok(themes) = crate::theme::list_themes() {

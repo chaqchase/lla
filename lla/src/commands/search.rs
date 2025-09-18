@@ -3,8 +3,8 @@ use crate::config::Config;
 use crate::error::{LlaError, Result};
 use crate::theme::is_no_color;
 use crate::utils::color::colorize_file_name;
+use crate::utils::walk::build_walk_builder;
 use colored::*;
-use ignore::WalkBuilder;
 use lla_plugin_utils::syntax::CodeHighlighter;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -133,10 +133,7 @@ pub fn run_search(args: &Args, config: &Config) -> Result<()> {
     // Scope search paths: walk honoring .gitignore and config.filter.no_dotfiles with ignore crate
     // Collect eligible paths to pass to ripgrep to avoid traversing excluded prefixes
     let mut paths: Vec<PathBuf> = Vec::new();
-    let mut walker = WalkBuilder::new(root);
-    walker.hidden(!args.almost_all && (args.no_dotfiles || config.filter.no_dotfiles));
-    walker.git_ignore(true).git_exclude(true).parents(true);
-    let walker = walker.build();
+    let walker = build_walk_builder(root, args, config).build();
     for dent in walker {
         if let Ok(d) = dent {
             let p = d.path();

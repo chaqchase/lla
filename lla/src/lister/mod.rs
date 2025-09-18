@@ -1,9 +1,11 @@
+use crate::commands::args::Args;
 use crate::error::Result;
 use std::path::PathBuf;
 
 pub trait FileLister {
     fn list_files(
         &self,
+        args: &Args,
         directory: &str,
         recursive: bool,
         depth: Option<usize>,

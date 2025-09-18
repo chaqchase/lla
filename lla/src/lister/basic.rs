@@ -1,4 +1,5 @@
 use super::FileLister;
+use crate::commands::args::Args;
 use crate::error::Result;
 use std::fs;
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ pub struct BasicLister;
 impl FileLister for BasicLister {
     fn list_files(
         &self,
+        _args: &Args,
         directory: &str,
         _recursive: bool,
         _depth: Option<usize>,
