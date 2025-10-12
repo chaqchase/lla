@@ -19,7 +19,6 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs::Permissions;
 use std::io::{self, stdout, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::sync::{
@@ -873,7 +872,20 @@ impl ResultList {
                 let perms = metadata
                     .as_ref()
                     .map(|m| m.permissions())
-                    .unwrap_or_else(|| Permissions::from_mode(0o644));
+                    .unwrap_or_else(|| {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            Permissions::from_mode(0o644)
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            // On Windows, create a read-only Permissions
+                            let mut perms = std::fs::metadata(".").unwrap().permissions();
+                            perms.set_readonly(false);
+                            perms
+                        }
+                    });
                 let perms_display = colorize_permissions(&perms, Some("symbolic"));
                 let size_display = colorize_size(size);
                 let date_display = colorize_date(&modified);

@@ -19,8 +19,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, Read, Write};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
@@ -90,6 +88,16 @@ impl HostTarget {
                 os_label: "linux",
                 arch_label: "i686",
                 library_extension: "so",
+            }),
+            ("windows", "x86_64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "amd64",
+                library_extension: "dll",
+            }),
+            ("windows", "aarch64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "arm64",
+                library_extension: "dll",
             }),
             _ => Err(LlaError::Plugin(format!(
                 "Unsupported platform for prebuilt plugins: {}-{}",
@@ -774,6 +782,7 @@ impl PluginInstaller {
 
                 #[cfg(unix)]
                 if let Some(mode) = entry.unix_mode() {
+                    use std::os::unix::fs::PermissionsExt;
                     fs::set_permissions(&out_path, fs::Permissions::from_mode(mode))?;
                 }
             }

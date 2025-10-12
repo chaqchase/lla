@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
 use once_cell::sync::Lazy;
-use std::os::unix::fs::MetadataExt;
 use std::sync::Mutex;
 use users::{get_group_by_gid, get_user_by_uid};
 
@@ -108,9 +107,21 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     .to_string();
 
     // Extra FS data
-    let (inode, hard_links) = match fs::symlink_metadata(&entry.path) {
-        Ok(m) => (Some(m.ino()), Some(m.nlink() as u64)),
-        Err(_) => (None, None),
+    let (inode, hard_links) = {
+        #[cfg(unix)]
+        {
+            match fs::symlink_metadata(&entry.path) {
+                Ok(m) => {
+                    use std::os::unix::fs::MetadataExt;
+                    (Some(m.ino()), Some(m.nlink() as u64))
+                }
+                Err(_) => (None, None),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            (None, None)
+        }
     };
 
     let symlink_target = if md.is_symlink {
@@ -127,8 +138,35 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
 
     let is_hidden = name.starts_with('.');
 
-    let owner_user = uid_to_name(md.uid);
-    let owner_group = gid_to_name(md.gid);
+    let owner_user = {
+        #[cfg(unix)]
+        {
+            uid_to_name(md.uid)
+        }
+        #[cfg(windows)]
+        {
+            crate::windows_metadata::get_windows_owner(path)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            None
+        }
+    };
+
+    let owner_group = {
+        #[cfg(unix)]
+        {
+            gid_to_name(md.gid)
+        }
+        #[cfg(windows)]
+        {
+            crate::windows_metadata::get_windows_group(path)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            None
+        }
+    };
 
     let mut plugin: HashMap<String, serde_json::Value> = HashMap::new();
     for (k, v) in &entry.custom_fields {

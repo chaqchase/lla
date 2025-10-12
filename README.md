@@ -65,6 +65,8 @@ This script will automatically:
 
 ### Manual Installation
 
+#### Linux/macOS
+
 ```bash
 # Manual - Example is for amd64 GNU, replaces the file names if downloading for a different arch.
 wget -c https://github.com/triyanox/lla/releases/download/<version>/<lla-<os>-<arch>> -O lla # Example /v0.3.9/lla-linux-amd64
@@ -72,6 +74,14 @@ sudo chmod +x lla
 sudo chown root:root lla
 sudo mv lla /usr/local/bin/lla
 ```
+
+#### Windows
+
+Download the appropriate binary for your architecture from the [releases page](https://github.com/triyanox/lla/releases):
+- `lla-windows-amd64.exe` for 64-bit Intel/AMD systems
+- `lla-windows-arm64.exe` for ARM64 systems
+
+Add the directory containing the executable to your PATH environment variable.
 
 ### Post Installation
 
