@@ -18,7 +18,6 @@ use crate::sorter::{AlphabeticalSorter, DateSorter, FileSorter, SizeSorter, Sort
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -212,27 +211,90 @@ pub fn get_format(args: &Args) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 pub fn convert_metadata(metadata: &std::fs::Metadata) -> EntryMetadata {
-    EntryMetadata {
-        size: metadata.len(),
-        modified: metadata
-            .modified()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        accessed: metadata
-            .accessed()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        created: metadata
-            .created()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        is_dir: metadata.is_dir(),
-        is_file: metadata.is_file(),
-        is_symlink: metadata.is_symlink(),
-        permissions: metadata.mode(),
-        uid: metadata.uid(),
-        gid: metadata.gid(),
+    convert_metadata_with_path(metadata, None)
+}
+
+pub fn convert_metadata_with_path(
+    metadata: &std::fs::Metadata,
+    _path: Option<&std::path::Path>,
+) -> EntryMetadata {
+    #[cfg(unix)]
+    {
+        let _ = _path; // Suppress unused warning
+        use std::os::unix::fs::MetadataExt;
+        EntryMetadata {
+            size: metadata.len(),
+            modified: metadata
+                .modified()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            accessed: metadata
+                .accessed()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            created: metadata
+                .created()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            is_symlink: metadata.is_symlink(),
+            permissions: metadata.mode(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
+        }
+    }
+    #[cfg(windows)]
+    {
+        EntryMetadata {
+            size: metadata.len(),
+            modified: metadata
+                .modified()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            accessed: metadata
+                .accessed()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            created: metadata
+                .created()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            is_symlink: metadata.is_symlink(),
+            permissions: _path
+                .map(|p| crate::windows_metadata::get_windows_permissions(p))
+                .unwrap_or(0o644),
+            uid: 0, // Windows doesn't use Unix-style UIDs
+            gid: 0, // Windows doesn't use Unix-style GIDs
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        EntryMetadata {
+            size: metadata.len(),
+            modified: metadata
+                .modified()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            accessed: metadata
+                .accessed()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            created: metadata
+                .created()
+                .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+                .unwrap_or(0),
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            is_symlink: metadata.is_symlink(),
+            permissions: 0o644,
+            uid: 0,
+            gid: 0,
+        }
     }
 }
 
@@ -334,7 +396,7 @@ pub fn list_and_decorate_files(
                 }
             };
 
-            let mut metadata = convert_metadata(&fs_metadata);
+            let mut metadata = convert_metadata_with_path(&fs_metadata, Some(&path));
 
             let is_dotfile = path
                 .file_name()
@@ -557,7 +619,7 @@ pub fn list_and_decorate_single_file(
 
     // Read metadata and map to EntryMetadata
     let fs_metadata = path.symlink_metadata()?;
-    let mut metadata = convert_metadata(&fs_metadata);
+    let mut metadata = convert_metadata_with_path(&fs_metadata, Some(path));
 
     if args.include_dirs && metadata.is_dir {
         if let Ok(dir_size) = calculate_dir_size(path) {

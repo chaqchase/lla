@@ -9,6 +9,8 @@ mod plugin;
 mod sorter;
 mod theme;
 mod utils;
+#[cfg(windows)]
+mod windows_metadata;
 
 use commands::args::{Args, Command};
 use commands::command_handler::handle_command;

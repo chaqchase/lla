@@ -138,10 +138,35 @@ pub fn colorize_user(user: &str) -> ColoredString {
 }
 
 use std::fs::Permissions;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+/// Create a Permissions object from mode value (cross-platform)
+pub fn permissions_from_mode(mode: u32) -> Permissions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Permissions::from_mode(mode)
+    }
+    #[cfg(not(unix))]
+    {
+        // On Windows, create a default permissions object
+        // This is a workaround since Windows doesn't have Unix-style permissions
+        std::fs::metadata(".").map(|m| m.permissions()).unwrap_or_else(|_| {
+            let temp = std::env::temp_dir().join("lla_temp");
+            let _ = std::fs::write(&temp, "");
+            let perms = std::fs::metadata(&temp).map(|m| m.permissions()).unwrap();
+            let _ = std::fs::remove_file(&temp);
+            perms
+        })
+    }
+}
+
 pub fn colorize_permissions(permissions: &Permissions, format: Option<&str>) -> String {
+    #[cfg(unix)]
     let mode = permissions.mode();
+    #[cfg(not(unix))]
+    let mode = 0o644u32; // Default permissions for non-Unix systems
 
     if is_no_color() {
         return format_permissions_no_color(mode, format);

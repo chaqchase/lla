@@ -10,7 +10,6 @@ use once_cell::sync::Lazy;
 use prost::Message as _;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 type DecorationCache = DashMap<(String, String), HashMap<String, String>>;
@@ -35,38 +34,78 @@ impl PluginManager {
     }
 
     fn _convert_metadata(metadata: &std::fs::Metadata) -> proto::EntryMetadata {
-        proto::EntryMetadata {
-            size: metadata.len(),
-            modified: metadata
-                .modified()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            accessed: metadata
-                .accessed()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            created: metadata
-                .created()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            is_symlink: metadata.is_symlink(),
-            permissions: metadata.mode(),
-            uid: metadata.uid(),
-            gid: metadata.gid(),
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            proto::EntryMetadata {
+                size: metadata.len(),
+                modified: metadata
+                    .modified()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                accessed: metadata
+                    .accessed()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                created: metadata
+                    .created()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                is_dir: metadata.is_dir(),
+                is_file: metadata.is_file(),
+                is_symlink: metadata.is_symlink(),
+                permissions: metadata.mode(),
+                uid: metadata.uid(),
+                gid: metadata.gid(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            proto::EntryMetadata {
+                size: metadata.len(),
+                modified: metadata
+                    .modified()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                accessed: metadata
+                    .accessed()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                created: metadata
+                    .created()
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0),
+                is_dir: metadata.is_dir(),
+                is_file: metadata.is_file(),
+                is_symlink: metadata.is_symlink(),
+                permissions: 0o644,
+                uid: 0,
+                gid: 0,
+            }
         }
     }
 

@@ -7,8 +7,6 @@ use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 use std::cmp;
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 use unicode_width::UnicodeWidthStr;
@@ -47,7 +45,7 @@ impl TableFormatter {
 
         for entry in files {
             let metadata = entry.metadata.as_ref().cloned().unwrap_or_default();
-            let perms = Permissions::from_mode(metadata.permissions);
+            let perms = permissions_from_mode(metadata.permissions);
             let perms = colorize_permissions(&perms, Some(permission_format));
             widths[0] = cmp::max(widths[0], Self::visible_width(&perms));
 
@@ -175,7 +173,7 @@ impl FileFormatter for TableFormatter {
 
         for entry in files {
             let metadata = entry.metadata.as_ref().cloned().unwrap_or_default();
-            let perms = Permissions::from_mode(metadata.permissions);
+            let perms = permissions_from_mode(metadata.permissions);
             let perms = colorize_permissions(&perms, Some(&self.permission_format));
             let size = colorize_size(metadata.size);
             let modified = UNIX_EPOCH + Duration::from_secs(metadata.modified);

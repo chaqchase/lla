@@ -78,6 +78,14 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: lla-macos-arm64
 
+          # Windows builds
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: lla-windows-amd64.exe
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: lla-windows-arm64.exe
+
     steps:
       - uses: actions/checkout@v4
 
@@ -127,9 +135,15 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Prepare binary
+      - name: Prepare binary (Unix)
+        if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/lla ${{ matrix.artifact_name }}
+
+      - name: Prepare binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          copy target\${{ matrix.target }}\release\lla.exe ${{ matrix.artifact_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

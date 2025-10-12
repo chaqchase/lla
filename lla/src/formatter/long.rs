@@ -9,8 +9,6 @@ use once_cell::sync::Lazy;
 use unicode_width::UnicodeWidthStr;
 
 use std::collections::HashMap;
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -102,7 +100,7 @@ impl FileFormatter for LongFormatter {
         for entry in files {
             let metadata = entry.metadata.as_ref().cloned().unwrap_or_default();
             let size = colorize_size(metadata.size);
-            let perms = Permissions::from_mode(metadata.permissions);
+            let perms = permissions_from_mode(metadata.permissions);
             let permissions = colorize_permissions(&perms, Some(&self.permission_format));
             let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(metadata.modified);
             let modified_colored = if self.relative_dates {
@@ -125,34 +123,55 @@ impl FileFormatter for LongFormatter {
             )
             .to_string();
 
-            let uid = metadata.uid;
-            let gid = metadata.gid;
-
             let user = {
-                let mut cache = USER_CACHE.lock().unwrap();
-                if let Some(cached_user) = cache.get(&uid) {
-                    cached_user.clone()
-                } else {
-                    let user = get_user_by_uid(uid)
-                        .map(|u| u.name().to_string_lossy().into_owned())
-                        .unwrap_or_else(|| uid.to_string());
-                    cache.insert(uid, user.clone());
-                    user
+                #[cfg(unix)]
+                {
+                    let uid = metadata.uid;
+                    let mut cache = USER_CACHE.lock().unwrap();
+                    if let Some(cached_user) = cache.get(&uid) {
+                        cached_user.clone()
+                    } else {
+                        let user = get_user_by_uid(uid)
+                            .map(|u| u.name().to_string_lossy().into_owned())
+                            .unwrap_or_else(|| uid.to_string());
+                        cache.insert(uid, user.clone());
+                        user
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    crate::windows_metadata::get_windows_owner(path).unwrap_or_else(|| "UNKNOWN".to_string())
+                }
+                #[cfg(not(any(unix, windows)))]
+                {
+                    "UNKNOWN".to_string()
                 }
             };
 
             let group = if self.hide_group {
                 String::new()
             } else {
-                let mut cache = GROUP_CACHE.lock().unwrap();
-                if let Some(cached_group) = cache.get(&gid) {
-                    cached_group.clone()
-                } else {
-                    let group = get_group_by_gid(gid)
-                        .map(|g| g.name().to_string_lossy().into_owned())
-                        .unwrap_or_else(|| gid.to_string());
-                    cache.insert(gid, group.clone());
-                    group
+                #[cfg(unix)]
+                {
+                    let gid = metadata.gid;
+                    let mut cache = GROUP_CACHE.lock().unwrap();
+                    if let Some(cached_group) = cache.get(&gid) {
+                        cached_group.clone()
+                    } else {
+                        let group = get_group_by_gid(gid)
+                            .map(|g| g.name().to_string_lossy().into_owned())
+                            .unwrap_or_else(|| gid.to_string());
+                        cache.insert(gid, group.clone());
+                        group
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    crate::windows_metadata::get_windows_group(path).unwrap_or_else(|| "UNKNOWN".to_string())
+                }
+                #[cfg(not(any(unix, windows)))]
+                {
+                    "UNKNOWN".to_string()
                 }
             };
 
