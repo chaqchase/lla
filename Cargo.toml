@@ -43,7 +43,7 @@ glob = "0.3"
 # Protobuf dependencies
 prost = "0.12"
 prost-build = "0.12"
-ureq = { version = "2", features = ["json", "tls", "gzip"] }
+ureq = { version = "2", features = ["json", "gzip", "tls-rustls"] }
 sha2 = "0.10"
 
 [profile.release]
