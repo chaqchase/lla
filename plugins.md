@@ -39,10 +39,16 @@ then copy the generated `.so`, `.dll`, or `.dylib` file from the `target/release
 - [file_hash](https://github.com/chaqchase/lla/tree/main/plugins/file_hash): Displays the hash of each file
 - [file_meta](https://github.com/chaqchase/lla/tree/main/plugins/file_meta): Displays the file metadata of each file
 - [file_tagger](https://github.com/chaqchase/lla/tree/main/plugins/file_tagger): A plugin for tagging files and filtering by tags
+- [flush_dns](https://github.com/chaqchase/lla/tree/main/plugins/flush_dns): Flush DNS cache on macOS, Linux, and Windows
 - [git_status](https://github.com/chaqchase/lla/tree/main/plugins/git_status): Shows the git status of each file
+- [google_meet](https://github.com/chaqchase/lla/tree/main/plugins/google_meet): Google Meet plugin for creating meeting rooms and managing links
+- [google_search](https://github.com/chaqchase/lla/tree/main/plugins/google_search): Google search with autosuggestions, history management, and clipboard fallback
+- [jwt](https://github.com/chaqchase/lla/tree/main/plugins/jwt): JWT decoder and analyzer with search and validation capabilities
 - [keyword_search](https://github.com/chaqchase/lla/tree/main/plugins/keyword_search): Searches file contents for user-specified keywords
 - [last_git_commit](https://github.com/chaqchase/lla/tree/main/plugins/last_git_commit): A plugin for the lla that provides the last git commit hash
+- [npm](https://github.com/chaqchase/lla/tree/main/plugins/npm): NPM package search with bundlephobia integration and favorites management
 - [sizeviz](https://github.com/chaqchase/lla/tree/main/plugins/sizeviz): File size visualizer plugin for lla
+- [youtube](https://github.com/chaqchase/lla/tree/main/plugins/youtube): YouTube search with autosuggestions and history management
 - [file_mover](https://github.com/chaqchase/lla/tree/main/plugins/file_mover): A plugin that provides an intuitive clipboard-based interface for moving files and directories.
 - [file_copier](https://github.com/chaqchase/lla/tree/main/plugins/file_copier): A plugin that provides an intuitive clipboard-based interface for copying files and directories.
 - [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): A plugin that provides an interactive interface for safely removing files and directories.
