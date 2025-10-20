@@ -1,0 +1,23 @@
+[package]
+name = "google_meet"
+description = "Google Meet plugin for creating meeting rooms and managing links"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+colored = "2.0.0"
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+dirs = "5.0.1"
+serde = { version = "1.0.200", features = ["derive"] }
+toml = "0.8.8"
+prost = "0.12"
+bytes = "1.5"
+dialoguer = "0.11.0"
+console = "0.15.7"
+arboard = "3.3.0"
+chrono = "0.4"
+uuid = { version = "1.0", features = ["v4"] }
+
+[lib]
+crate-type = ["cdylib"]
