@@ -346,16 +346,16 @@ jobs:
               export BINARY_PATH="$binary_path"
 
               # Generate DEB package
-              nfpm pkg --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
+              nfpm pkg --config nfpm.yaml --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
 
               # Generate RPM package
-              nfpm pkg --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
+              nfpm pkg --config nfpm.yaml --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
 
               # Generate APK package
-              nfpm pkg --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
+              nfpm pkg --config nfpm.yaml --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
 
               # Generate Pacman package
-              nfpm pkg --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
+              nfpm pkg --config nfpm.yaml --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
             fi
           done
 
