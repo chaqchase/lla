@@ -119,12 +119,12 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             break
         }
         'lla;plugin' {
-            [CompletionResult]::new('-n', 'n', [CompletionResultType]::ParameterName, 'Name of the plugin')
-            [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'Name of the plugin')
-            [CompletionResult]::new('-a', 'a', [CompletionResultType]::ParameterName, 'Action to perform')
-            [CompletionResult]::new('--action', 'action', [CompletionResultType]::ParameterName, 'Action to perform')
-            [CompletionResult]::new('-r', 'r', [CompletionResultType]::ParameterName, 'Arguments for the plugin action')
-            [CompletionResult]::new('--args', 'args', [CompletionResultType]::ParameterName, 'Arguments for the plugin action')
+            [CompletionResult]::new('-n', 'n', [CompletionResultType]::ParameterName, 'Name of the plugin (alternative to positional)')
+            [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'Name of the plugin (alternative to positional)')
+            [CompletionResult]::new('-a', 'a', [CompletionResultType]::ParameterName, 'Action to perform (alternative to positional)')
+            [CompletionResult]::new('--action', 'action', [CompletionResultType]::ParameterName, 'Action to perform (alternative to positional)')
+            [CompletionResult]::new('-r', 'r', [CompletionResultType]::ParameterName, 'Arguments for the plugin action (alternative to positional)')
+            [CompletionResult]::new('--args', 'args', [CompletionResultType]::ParameterName, 'Arguments for the plugin action (alternative to positional)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
@@ -164,7 +164,10 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a new shortcut')
+            [CompletionResult]::new('create', 'create', [CompletionResultType]::ParameterValue, 'Interactively create a new shortcut')
             [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a shortcut')
+            [CompletionResult]::new('export', 'export', [CompletionResultType]::ParameterValue, 'Export shortcuts to a file')
+            [CompletionResult]::new('import', 'import', [CompletionResultType]::ParameterValue, 'Import shortcuts from a file')
             [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List all shortcuts')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
@@ -176,7 +179,23 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
         }
+        'lla;shortcut;create' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
         'lla;shortcut;remove' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;shortcut;export' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;shortcut;import' {
+            [CompletionResult]::new('--merge', 'merge', [CompletionResultType]::ParameterName, 'Merge with existing shortcuts (skip conflicts)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break

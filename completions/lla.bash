@@ -24,8 +24,17 @@ _lla() {
             config)
                 cmd+="__config"
                 ;;
+            create)
+                cmd+="__create"
+                ;;
+            export)
+                cmd+="__export"
+                ;;
             help)
                 cmd+="__help"
+                ;;
+            import)
+                cmd+="__import"
                 ;;
             init)
                 cmd+="__init"
@@ -284,7 +293,7 @@ _lla() {
             return 0
             ;;
         lla__plugin)
-            opts="-n -a -r -h --name --action --args --help"
+            opts="-n -a -r -h --name --action --args --help <plugin_name> <plugin_action> <plugin_args>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -322,7 +331,7 @@ _lla() {
             return 0
             ;;
         lla__shortcut)
-            opts="-h --help add remove list help"
+            opts="-h --help add create remove export import list help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -357,8 +366,50 @@ _lla() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        lla__shortcut__create)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__shortcut__export)
+            opts="-h --help <output>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         lla__shortcut__help)
             opts="<SUBCOMMAND>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__shortcut__import)
+            opts="-h --merge --help <file>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

@@ -111,14 +111,17 @@ _arguments "${_arguments_options[@]}" \
 ;;
 (plugin)
 _arguments "${_arguments_options[@]}" \
-'-n+[Name of the plugin]: : ' \
-'--name=[Name of the plugin]: : ' \
-'-a+[Action to perform]: : ' \
-'--action=[Action to perform]: : ' \
-'*-r+[Arguments for the plugin action]: : ' \
-'*--args=[Arguments for the plugin action]: : ' \
+'-n+[Name of the plugin (alternative to positional)]: : ' \
+'--name=[Name of the plugin (alternative to positional)]: : ' \
+'-a+[Action to perform (alternative to positional)]: : ' \
+'--action=[Action to perform (alternative to positional)]: : ' \
+'*-r+[Arguments for the plugin action (alternative to positional)]: : ' \
+'*--args=[Arguments for the plugin action (alternative to positional)]: : ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
+'::plugin_name -- Name of the plugin:' \
+'::plugin_action -- Action to perform:' \
+'*::plugin_args -- Arguments for the plugin action:' \
 && ret=0
 ;;
 (list-plugins)
@@ -184,11 +187,32 @@ _arguments "${_arguments_options[@]}" \
 ':action -- Plugin action:' \
 && ret=0
 ;;
+(create)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+&& ret=0
+;;
 (remove)
 _arguments "${_arguments_options[@]}" \
 '-h[Print help information]' \
 '--help[Print help information]' \
 ':name -- Name of the shortcut to remove:' \
+&& ret=0
+;;
+(export)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'::output -- Output file path (defaults to stdout):' \
+&& ret=0
+;;
+(import)
+_arguments "${_arguments_options[@]}" \
+'--merge[Merge with existing shortcuts (skip conflicts)]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+':file -- File path to import from:' \
 && ret=0
 ;;
 (list)
@@ -302,6 +326,16 @@ _lla__config_commands() {
     local commands; commands=()
     _describe -t commands 'lla config commands' commands "$@"
 }
+(( $+functions[_lla__shortcut__create_commands] )) ||
+_lla__shortcut__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla shortcut create commands' commands "$@"
+}
+(( $+functions[_lla__shortcut__export_commands] )) ||
+_lla__shortcut__export_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla shortcut export commands' commands "$@"
+}
 (( $+functions[_lla__help_commands] )) ||
 _lla__help_commands() {
     local commands; commands=()
@@ -316,6 +350,11 @@ _lla__shortcut__help_commands() {
 _lla__theme__help_commands() {
     local commands; commands=()
     _describe -t commands 'lla theme help commands' commands "$@"
+}
+(( $+functions[_lla__shortcut__import_commands] )) ||
+_lla__shortcut__import_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla shortcut import commands' commands "$@"
 }
 (( $+functions[_lla__init_commands] )) ||
 _lla__init_commands() {
@@ -366,7 +405,10 @@ _lla__shortcut__remove_commands() {
 _lla__shortcut_commands() {
     local commands; commands=(
 'add:Add a new shortcut' \
+'create:Interactively create a new shortcut' \
 'remove:Remove a shortcut' \
+'export:Export shortcuts to a file' \
+'import:Import shortcuts from a file' \
 'list:List all shortcuts' \
 'help:Print this message or the help of the given subcommand(s)' \
     )

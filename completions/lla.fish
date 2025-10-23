@@ -68,9 +68,9 @@ complete -c lla -n "__fish_seen_subcommand_from install" -l git -d 'Install a pl
 complete -c lla -n "__fish_seen_subcommand_from install" -l dir -d 'Install a plugin from a local directory' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -l prebuilt -d 'Install plugins from the latest prebuilt release (default)'
 complete -c lla -n "__fish_seen_subcommand_from install" -s h -l help -d 'Print help information'
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s n -l name -d 'Name of the plugin' -r
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s a -l action -d 'Action to perform' -r
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s r -l args -d 'Arguments for the plugin action' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin" -s n -l name -d 'Name of the plugin (alternative to positional)' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin" -s a -l action -d 'Action to perform (alternative to positional)' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin" -s r -l args -d 'Arguments for the plugin action (alternative to positional)' -r
 complete -c lla -n "__fish_seen_subcommand_from plugin" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from list-plugins" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from use" -s h -l help -d 'Print help information'
@@ -79,14 +79,21 @@ complete -c lla -n "__fish_seen_subcommand_from config" -l set -d 'Set a configu
 complete -c lla -n "__fish_seen_subcommand_from config" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from update" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from clean" -s h -l help -d 'Print help information'
-complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -s h -l help -d 'Print help information'
-complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "add" -d 'Add a new shortcut'
-complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "remove" -d 'Remove a shortcut'
-complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "list" -d 'List all shortcuts'
-complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "add" -d 'Add a new shortcut'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "create" -d 'Interactively create a new shortcut'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "remove" -d 'Remove a shortcut'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "export" -d 'Export shortcuts to a file'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "import" -d 'Import shortcuts from a file'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "list" -d 'List all shortcuts'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and not __fish_seen_subcommand_from add; and not __fish_seen_subcommand_from create; and not __fish_seen_subcommand_from remove; and not __fish_seen_subcommand_from export; and not __fish_seen_subcommand_from import; and not __fish_seen_subcommand_from list; and not __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from add" -s d -l description -d 'Optional description of the shortcut' -r
 complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from add" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from create" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from remove" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from export" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from import" -l merge -d 'Merge with existing shortcuts (skip conflicts)'
+complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from import" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from completion" -s p -l path -d 'Custom installation path for the completion script' -r
 complete -c lla -n "__fish_seen_subcommand_from completion" -s o -l output -d 'Output path for the completion script (prints to stdout if not specified)' -r
