@@ -53,3 +53,4 @@ then copy the generated `.so`, `.dll`, or `.dylib` file from the `target/release
 - [file_copier](https://github.com/chaqchase/lla/tree/main/plugins/file_copier): A plugin that provides an intuitive clipboard-based interface for copying files and directories.
 - [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): A plugin that provides an interactive interface for safely removing files and directories.
 - [file_organizer](https://github.com/chaqchase/lla/tree/main/plugins/file_organizer): A plugin for organizing files using various strategies
+- [kill_process](https://github.com/chaqchase/lla/tree/main/plugins/kill_process): Interactive process management plugin for listing and terminating system processes with cross-platform support

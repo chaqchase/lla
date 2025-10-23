@@ -1,0 +1,68 @@
+name: "NFPM Packaging Test"
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  nfpm-package:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+      ARTIFACT_DIR: artifacts/lla-linux-amd64
+      ARTIFACT_NAME: lla-linux-amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ env.TARGET }}
+
+      - name: Build release binary
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo build --release --target "${TARGET}"
+
+      - name: Prepare artifact directory
+        run: |
+          mkdir -p "${ARTIFACT_DIR}"
+          cp "target/${TARGET}/release/lla" "${ARTIFACT_DIR}/${ARTIFACT_NAME}"
+
+      - name: Install nFPM
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt update
+          sudo apt install -y nfpm gettext-base
+          nfpm --version
+
+      - name: Package with nFPM
+        run: |
+          set -euo pipefail
+
+          VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml | grep '^version = ' | cut -d '"' -f 2)
+          export VERSION
+          export ARCH=amd64
+          export BINARY_PATH="${ARTIFACT_DIR}/${ARTIFACT_NAME}"
+
+          tmp_config=$(mktemp)
+          envsubst < nfpm.yaml > "$tmp_config"
+
+          nfpm pkg --config "$tmp_config" --packager deb --target "${ARTIFACT_DIR}/lla_${VERSION}_amd64.deb"
+          nfpm pkg --config "$tmp_config" --packager rpm --target "${ARTIFACT_DIR}/lla-${VERSION}-1.x86_64.rpm"
+          nfpm pkg --config "$tmp_config" --packager apk --target "${ARTIFACT_DIR}/lla-${VERSION}-r0.x86_64.apk"
+          nfpm pkg --config "$tmp_config" --packager archlinux --target "${ARTIFACT_DIR}/lla-${VERSION}-1-x86_64.pkg.tar.zst"
+
+          rm -f "$tmp_config"
+
+      - name: Upload packages (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfpm-packages
+          path: |
+            ${ARTIFACT_DIR}/*.deb
+            ${ARTIFACT_DIR}/*.rpm
+            ${ARTIFACT_DIR}/*.apk
+            ${ARTIFACT_DIR}/*.pkg.tar.zst

@@ -753,6 +753,49 @@ impl Plugin for GoogleMeetPlugin {
                         };
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo {
+                                name: "create".to_string(),
+                                usage: "create".to_string(),
+                                description: "Create a Google Meet".to_string(),
+                                examples: vec!["lla plugin google_meet create".to_string()],
+                            },
+                            ActionInfo {
+                                name: "create-with-profile".to_string(),
+                                usage: "create-with-profile".to_string(),
+                                description: "Create a Meet with profile selection".to_string(),
+                                examples: vec![
+                                    "lla plugin google_meet create-with-profile".to_string()
+                                ],
+                            },
+                            ActionInfo {
+                                name: "history".to_string(),
+                                usage: "history".to_string(),
+                                description: "Manage Meet history".to_string(),
+                                examples: vec!["lla plugin google_meet history".to_string()],
+                            },
+                            ActionInfo {
+                                name: "profiles".to_string(),
+                                usage: "profiles".to_string(),
+                                description: "Manage profiles".to_string(),
+                                examples: vec!["lla plugin google_meet profiles".to_string()],
+                            },
+                            ActionInfo {
+                                name: "preferences".to_string(),
+                                usage: "preferences".to_string(),
+                                description: "Configure preferences".to_string(),
+                                examples: vec!["lla plugin google_meet preferences".to_string()],
+                            },
+                            ActionInfo {
+                                name: "help".to_string(),
+                                usage: "help".to_string(),
+                                description: "Show help information".to_string(),
+                                examples: vec!["lla plugin google_meet help".to_string()],
+                            },
+                        ])
+                    }
                 };
                 self.encode_response(response)
             }

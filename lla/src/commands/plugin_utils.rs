@@ -64,7 +64,9 @@ pub fn handle_plugin_action(
     action: &str,
     args: &[String],
 ) -> Result<()> {
+    // Resolve plugin alias if exists
+    let resolved_plugin = config.resolve_plugin_alias(plugin_name);
     let mut plugin_manager = PluginManager::new(config.clone());
     plugin_manager.discover_plugins(&config.plugins_dir)?;
-    plugin_manager.perform_plugin_action(plugin_name, action, args)
+    plugin_manager.perform_plugin_action(&resolved_plugin, action, args)
 }

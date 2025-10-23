@@ -44,6 +44,15 @@ pub enum PluginRequest {
     Decorate(DecoratedEntry),
     FormatField(DecoratedEntry, String),
     PerformAction(String, Vec<String>),
+    GetAvailableActions,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ActionInfo {
+    pub name: String,
+    pub usage: String,
+    pub description: String,
+    pub examples: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,6 +64,7 @@ pub enum PluginResponse {
     Decorated(DecoratedEntry),
     FormattedField(Option<String>),
     ActionResult(Result<(), String>),
+    AvailableActions(Vec<ActionInfo>),
     Error(String),
 }
 

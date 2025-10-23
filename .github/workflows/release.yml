@@ -295,26 +295,72 @@ jobs:
         run: |
           echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
           sudo apt update
-          sudo apt install -y nfpm
+          sudo apt install -y nfpm gettext-base
           nfpm --version
 
       - name: Generate packages
         run: |
-          VERSION="${{ needs.check_release.outputs.current_version }}"
+          set -euo pipefail
+
+          export VERSION="${{ needs.check_release.outputs.current_version }}"
 
           for artifact in artifacts/*; do
             if [[ $artifact == *linux* ]]; then
+              artifact_name=$(basename "$artifact")
+              binary_path="$artifact/$artifact_name"
+
+              if [[ ! -f "$binary_path" ]]; then
+                echo "Expected binary $binary_path not found"
+                exit 1
+              fi
+
+              case "$artifact_name" in
+                *amd64)
+                  ARCH="amd64"
+                  DEB_ARCH="amd64"
+                  RPM_ARCH="x86_64"
+                  APK_ARCH="x86_64"
+                  PACMAN_ARCH="x86_64"
+                  ;;
+                *arm64)
+                  ARCH="arm64"
+                  DEB_ARCH="arm64"
+                  RPM_ARCH="aarch64"
+                  APK_ARCH="aarch64"
+                  PACMAN_ARCH="aarch64"
+                  ;;
+                *i686)
+                  ARCH="386"
+                  DEB_ARCH="i386"
+                  RPM_ARCH="i686"
+                  APK_ARCH="x86"
+                  PACMAN_ARCH="i686"
+                  ;;
+                *)
+                  echo "Unable to determine architecture for artifact $artifact_name"
+                  exit 1
+                  ;;
+              esac
+
+              export ARCH
+              export BINARY_PATH="$binary_path"
+
+              tmp_config=$(mktemp)
+              envsubst < nfpm.yaml > "$tmp_config"
+
               # Generate DEB package
-              nfpm pkg --packager deb --target "$artifact/lla_${VERSION}_amd64.deb"
-              
+              nfpm pkg --config "$tmp_config" --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
+
               # Generate RPM package
-              nfpm pkg --packager rpm --target "$artifact/lla-${VERSION}-1.x86_64.rpm"
-              
+              nfpm pkg --config "$tmp_config" --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
+
               # Generate APK package
-              nfpm pkg --packager apk --target "$artifact/lla-${VERSION}-r0.apk"
-              
+              nfpm pkg --config "$tmp_config" --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
+
               # Generate Pacman package
-              nfpm pkg --packager archlinux --target "$artifact/lla-${VERSION}-1-x86_64.pkg.tar.zst"
+              nfpm pkg --config "$tmp_config" --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
+
+              rm -f "$tmp_config"
             fi
           done
 

@@ -1,0 +1,38 @@
+name: lla
+arch: "${ARCH}"
+platform: linux
+version: "${VERSION}"
+section: utils
+priority: optional
+maintainer: "Achaq <hi@achaq.dev>"
+description: |
+  Blazing fast and highly customizable ls replacement with superpowers.
+homepage: "https://github.com/chaqchase/lla"
+license: "MIT"
+provides:
+  - lla
+contents:
+  - src: "${BINARY_PATH}"
+    dst: "/usr/bin/lla"
+    file_info:
+      mode: 0755
+  - src: "LICENSE"
+    dst: "/usr/share/licenses/lla/LICENSE"
+    file_info:
+      mode: 0644
+  - src: "completions/lla.bash"
+    dst: "/usr/share/bash-completion/completions/lla"
+    file_info:
+      mode: 0644
+  - src: "completions/_lla"
+    dst: "/usr/share/zsh/site-functions/_lla"
+    file_info:
+      mode: 0644
+  - src: "completions/lla.fish"
+    dst: "/usr/share/fish/vendor_completions.d/lla.fish"
+    file_info:
+      mode: 0644
+  - src: "completions/lla.elv"
+    dst: "/usr/share/elvish/lib/completions/lla.elv"
+    file_info:
+      mode: 0644

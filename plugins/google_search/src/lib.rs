@@ -149,7 +149,8 @@ impl GoogleSearchPlugin {
             encoded_query
         );
 
-        let response = self.http
+        let response = self
+            .http
             .get(&url)
             .send()
             .map_err(|e| format!("Failed to fetch suggestions: {}", e))?;
@@ -174,15 +175,11 @@ impl GoogleSearchPlugin {
         println!(
             "\n{} {}",
             "💡".bright_yellow(),
-            "Type to see live suggestions. Use arrows to pick or Enter to search."
-                .bright_cyan()
+            "Type to see live suggestions. Use arrows to pick or Enter to search.".bright_cyan()
         );
 
-        let query = interactive_suggest(
-            "Search Google:",
-            None,
-            |q| self.fetch_google_suggestions(q),
-        )?;
+        let query =
+            interactive_suggest("Search Google:", None, |q| self.fetch_google_suggestions(q))?;
 
         if query.trim().is_empty() {
             return Err("Search query cannot be empty".to_string());
@@ -217,11 +214,9 @@ impl GoogleSearchPlugin {
                 text.bright_yellow()
             );
 
-            let query = interactive_suggest(
-                "Search Google:",
-                Some(&text),
-                |q| self.fetch_google_suggestions(q),
-            )?;
+            let query = interactive_suggest("Search Google:", Some(&text), |q| {
+                self.fetch_google_suggestions(q)
+            })?;
 
             if query.trim().is_empty() {
                 return Err("Search query cannot be empty".to_string());
@@ -627,6 +622,43 @@ impl Plugin for GoogleSearchPlugin {
                             _ => Err(format!("Unknown action: {}", action)),
                         };
                         PluginResponse::ActionResult(result)
+                    }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo {
+                                name: "search".to_string(),
+                                usage: "search".to_string(),
+                                description: "Perform a search".to_string(),
+                                examples: vec!["lla plugin google_search search".to_string()],
+                            },
+                            ActionInfo {
+                                name: "search-selected".to_string(),
+                                usage: "search-selected".to_string(),
+                                description: "Search selected text".to_string(),
+                                examples: vec![
+                                    "lla plugin google_search search-selected".to_string()
+                                ],
+                            },
+                            ActionInfo {
+                                name: "history".to_string(),
+                                usage: "history".to_string(),
+                                description: "Manage search history".to_string(),
+                                examples: vec!["lla plugin google_search history".to_string()],
+                            },
+                            ActionInfo {
+                                name: "preferences".to_string(),
+                                usage: "preferences".to_string(),
+                                description: "Configure preferences".to_string(),
+                                examples: vec!["lla plugin google_search preferences".to_string()],
+                            },
+                            ActionInfo {
+                                name: "help".to_string(),
+                                usage: "help".to_string(),
+                                description: "Show help information".to_string(),
+                                examples: vec!["lla plugin google_search help".to_string()],
+                            },
+                        ])
                     }
                 };
                 self.encode_response(response)

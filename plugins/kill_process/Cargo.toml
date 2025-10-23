@@ -1,8 +1,8 @@
 [package]
-name = "file_remover"
-version = "0.5.0"
+name = "kill_process"
+version = "0.1.0"
 edition = "2021"
-description = "A plugin for lla that provides interactive file and directory removal"
+description = "A plugin for lla that allows killing processes with an interactive interface"
 
 [lib]
 crate-type = ["cdylib"]
@@ -16,3 +16,6 @@ dialoguer = "0.11"
 colored = "2.0"
 lazy_static = "1.4"
 parking_lot = "0.12"
+sysinfo = "0.33"
+fuzzy-matcher = "0.3.7"
+console = "0.15.8"

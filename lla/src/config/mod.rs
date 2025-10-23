@@ -182,6 +182,8 @@ pub struct Config {
     pub listers: ListerConfig,
     #[serde(default)]
     pub shortcuts: HashMap<String, ShortcutCommand>,
+    #[serde(default)]
+    pub plugin_aliases: HashMap<String, String>,
     #[serde(default = "default_theme_name")]
     pub theme: String,
     #[serde(default = "default_permission_format")]
@@ -561,6 +563,13 @@ ignore_patterns = {}"#,
         self.shortcuts.get(name)
     }
 
+    pub fn resolve_plugin_alias(&self, name: &str) -> String {
+        self.plugin_aliases
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
+    }
+
     pub fn validate(&self) -> Result<()> {
         if !["name", "size", "date"].contains(&self.default_sort.as_str()) {
             return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
@@ -912,6 +921,7 @@ impl Default for Config {
             formatters: FormatterConfig::default(),
             listers: ListerConfig::default(),
             shortcuts: HashMap::new(),
+            plugin_aliases: HashMap::new(),
             theme: default_theme_name(),
             permission_format: default_permission_format(),
         }

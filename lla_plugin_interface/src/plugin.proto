@@ -30,6 +30,7 @@ message PluginMessage {
         DecoratedEntry decorate = 5;
         FormatFieldRequest format_field = 6;
         ActionRequest action = 7;
+        bool list_actions = 8;
         string name_response = 101;
         string version_response = 102;
         string description_response = 103;
@@ -38,6 +39,7 @@ message PluginMessage {
         FormattedFieldResponse field_response = 106;
         ActionResponse action_response = 107;
         string error_response = 108;
+        ListActionsResponse list_actions_response = 109;
     }
 }
 
@@ -62,4 +64,15 @@ message FormattedFieldResponse {
 message ActionResponse {
     bool success = 1;
     optional string error = 2;
+}
+
+message ActionInfo {
+    string name = 1;
+    string usage = 2;
+    string description = 3;
+    repeated string examples = 4;
+}
+
+message ListActionsResponse {
+    repeated ActionInfo actions = 1;
 } 

@@ -722,6 +722,23 @@ impl Plugin for KeywordSearchPlugin {
                         };
                         response
                     }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo {
+                                name: "search".to_string(),
+                                usage: "search".to_string(),
+                                description: "Search for keywords in files".to_string(),
+                                examples: vec!["lla plugin keyword_search search".to_string()],
+                            },
+                            ActionInfo {
+                                name: "help".to_string(),
+                                usage: "help".to_string(),
+                                description: "Show help information".to_string(),
+                                examples: vec!["lla plugin keyword_search help".to_string()],
+                            },
+                        ])
+                    }
                 };
                 self.encode_response(response)
             }
