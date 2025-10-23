@@ -766,7 +766,9 @@ impl Plugin for GoogleMeetPlugin {
                                 name: "create-with-profile".to_string(),
                                 usage: "create-with-profile".to_string(),
                                 description: "Create a Meet with profile selection".to_string(),
-                                examples: vec!["lla plugin google_meet create-with-profile".to_string()],
+                                examples: vec![
+                                    "lla plugin google_meet create-with-profile".to_string()
+                                ],
                             },
                             ActionInfo {
                                 name: "history".to_string(),

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use lla_plugin_interface::ActionInfo;
+use std::collections::HashMap;
 
 pub struct Action {
     pub handler: Box<dyn Fn(&[String]) -> Result<(), String> + Send + Sync>,

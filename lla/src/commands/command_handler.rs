@@ -260,11 +260,14 @@ fn handle_shortcut_action(
 
             // Get all discovered plugins
             let all_plugins = plugin_manager.list_plugins();
-            let plugin_names: Vec<String> = all_plugins.iter().map(|(name, _, _)| name.clone()).collect();
+            let plugin_names: Vec<String> = all_plugins
+                .iter()
+                .map(|(name, _, _)| name.clone())
+                .collect();
 
             if plugin_names.is_empty() {
                 if color_state.is_enabled() {
-                    println!("✗ No plugins found. Install plugins first", );
+                    println!("✗ No plugins found. Install plugins first",);
                 } else {
                     println!("✗ No plugins found. Install plugins first");
                 }
@@ -313,9 +316,16 @@ fn handle_shortcut_action(
                             Ok(acts) => acts,
                             Err(e) => {
                                 if color_state.is_enabled() {
-                                    println!("✗ Failed to get actions for plugin '{}': {}", selected_plugin.red(), e);
+                                    println!(
+                                        "✗ Failed to get actions for plugin '{}': {}",
+                                        selected_plugin.red(),
+                                        e
+                                    );
                                 } else {
-                                    println!("✗ Failed to get actions for plugin '{}': {}", selected_plugin, e);
+                                    println!(
+                                        "✗ Failed to get actions for plugin '{}': {}",
+                                        selected_plugin, e
+                                    );
                                 }
                                 return Ok(());
                             }
@@ -323,16 +333,20 @@ fn handle_shortcut_action(
 
                         if actions.is_empty() {
                             if color_state.is_enabled() {
-                                println!("✗ No actions available for plugin '{}'", selected_plugin.red());
+                                println!(
+                                    "✗ No actions available for plugin '{}'",
+                                    selected_plugin.red()
+                                );
                             } else {
                                 println!("✗ No actions available for plugin '{}'", selected_plugin);
                             }
                             return Ok(());
                         }
 
-                        let mut action_items: Vec<String> = actions.iter().map(|a| {
-                            format!("{} - {}", a.name, a.description)
-                        }).collect();
+                        let mut action_items: Vec<String> = actions
+                            .iter()
+                            .map(|a| format!("{} - {}", a.name, a.description))
+                            .collect();
                         action_items.push("← Go Back".to_string());
 
                         let selection = Select::with_theme(&theme)
@@ -345,7 +359,10 @@ fn handle_shortcut_action(
                             // Go back to plugin selection
                             WizardState::SelectPlugin
                         } else {
-                            WizardState::EnterName(selected_plugin.clone(), actions[selection].name.clone())
+                            WizardState::EnterName(
+                                selected_plugin.clone(),
+                                actions[selection].name.clone(),
+                            )
                         }
                     }
                     WizardState::EnterName(ref plugin, ref action) => {
@@ -373,13 +390,23 @@ fn handle_shortcut_action(
                                 WizardState::EnterName(plugin.clone(), action.clone())
                             } else if config.get_shortcut(&shortcut_name).is_some() {
                                 if color_state.is_enabled() {
-                                    println!("✗ Shortcut '{}' already exists. Try a different name.\n", shortcut_name.red());
+                                    println!(
+                                        "✗ Shortcut '{}' already exists. Try a different name.\n",
+                                        shortcut_name.red()
+                                    );
                                 } else {
-                                    println!("✗ Shortcut '{}' already exists. Try a different name.\n", shortcut_name);
+                                    println!(
+                                        "✗ Shortcut '{}' already exists. Try a different name.\n",
+                                        shortcut_name
+                                    );
                                 }
                                 WizardState::EnterName(plugin.clone(), action.clone())
                             } else {
-                                WizardState::EnterDescription(plugin.clone(), action.clone(), shortcut_name)
+                                WizardState::EnterDescription(
+                                    plugin.clone(),
+                                    action.clone(),
+                                    shortcut_name,
+                                )
                             }
                         }
                     }
@@ -427,12 +454,7 @@ fn handle_shortcut_action(
                                     action.cyan()
                                 );
                             } else {
-                                println!(
-                                    "\n✓ Created shortcut '{}' → {} {}",
-                                    name,
-                                    plugin,
-                                    action
-                                );
+                                println!("\n✓ Created shortcut '{}' → {} {}", name, plugin, action);
                             }
                             if let Some(desc) = &final_description {
                                 println!("  Description: {}", desc);
@@ -469,9 +491,17 @@ fn handle_shortcut_action(
                     // Write to file
                     fs::write(path, toml_string)?;
                     if color_state.is_enabled() {
-                        println!("✓ Exported {} shortcuts to {}", config.shortcuts.len().to_string().green(), path.cyan());
+                        println!(
+                            "✓ Exported {} shortcuts to {}",
+                            config.shortcuts.len().to_string().green(),
+                            path.cyan()
+                        );
                     } else {
-                        println!("✓ Exported {} shortcuts to {}", config.shortcuts.len(), path);
+                        println!(
+                            "✓ Exported {} shortcuts to {}",
+                            config.shortcuts.len(),
+                            path
+                        );
                     }
                 }
                 None => {
@@ -483,8 +513,9 @@ fn handle_shortcut_action(
         }
         ShortcutAction::Import(file_path, merge) => {
             // Read and parse file
-            let content = fs::read_to_string(&file_path)
-                .map_err(|e| LlaError::Other(format!("Failed to read file '{}': {}", file_path, e)))?;
+            let content = fs::read_to_string(&file_path).map_err(|e| {
+                LlaError::Other(format!("Failed to read file '{}': {}", file_path, e))
+            })?;
 
             #[derive(serde::Deserialize)]
             struct ShortcutImport {
@@ -520,9 +551,16 @@ fn handle_shortcut_action(
                 config.save(&Config::get_config_path())?;
 
                 if color_state.is_enabled() {
-                    println!("✓ Imported {} shortcuts, skipped {} conflicts", added.to_string().green(), skipped.to_string().yellow());
+                    println!(
+                        "✓ Imported {} shortcuts, skipped {} conflicts",
+                        added.to_string().green(),
+                        skipped.to_string().yellow()
+                    );
                 } else {
-                    println!("✓ Imported {} shortcuts, skipped {} conflicts", added, skipped);
+                    println!(
+                        "✓ Imported {} shortcuts, skipped {} conflicts",
+                        added, skipped
+                    );
                 }
             } else {
                 // Replace mode: replace all shortcuts
@@ -531,9 +569,15 @@ fn handle_shortcut_action(
                 config.save(&Config::get_config_path())?;
 
                 if color_state.is_enabled() {
-                    println!("✓ Imported {} shortcuts (replaced existing)", config.shortcuts.len().to_string().green());
+                    println!(
+                        "✓ Imported {} shortcuts (replaced existing)",
+                        config.shortcuts.len().to_string().green()
+                    );
                 } else {
-                    println!("✓ Imported {} shortcuts (replaced existing)", config.shortcuts.len());
+                    println!(
+                        "✓ Imported {} shortcuts (replaced existing)",
+                        config.shortcuts.len()
+                    );
                 }
             }
             Ok(())
