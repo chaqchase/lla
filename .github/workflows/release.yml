@@ -226,11 +226,7 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
-          cd artifacts
-          for artifact in */*; do
-            sha256sum "$artifact" >> ../SHA256SUMS
-          done
-          cd ..
+          find artifacts -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
           sha256sum themes.zip >> SHA256SUMS
 
       - name: Create Release Notes
