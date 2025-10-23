@@ -272,6 +272,9 @@ impl Plugin for FileOrganizerPlugin {
                         let result = ACTION_REGISTRY.read().handle(&action, &args);
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::GetAvailableActions => {
+                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
+                    }
                 };
                 self.encode_response(response)
             }

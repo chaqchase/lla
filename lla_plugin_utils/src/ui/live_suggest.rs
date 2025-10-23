@@ -26,7 +26,7 @@ where
     let mut selected: usize = 0; // 0 = use current input
     let mut last_lines: usize = 0;
     let mut last_fetch_at = Instant::now() - Duration::from_millis(500);
-    let mut last_render_at = Instant::now();
+    let mut last_render_at;
     let mut last_sent_query = String::new();
     let mut fetching = false;
     let spinner_frames: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -193,7 +193,6 @@ where
                 fetching,
                 spinner_idx,
             )?;
-            last_render_at = Instant::now();
 
             match fetch(&input) {
                 Ok(list) => suggestions = list,

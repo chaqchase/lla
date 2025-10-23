@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use lla_plugin_interface::ActionInfo;
 
 pub struct Action {
     pub handler: Box<dyn Fn(&[String]) -> Result<(), String> + Send + Sync>,
@@ -46,6 +47,18 @@ impl ActionRegistry {
         self.actions
             .iter()
             .map(|(name, action)| (name.as_str(), &action.help))
+            .collect()
+    }
+
+    pub fn list_actions(&self) -> Vec<ActionInfo> {
+        self.actions
+            .iter()
+            .map(|(name, action)| ActionInfo {
+                name: name.clone(),
+                usage: action.help.usage.clone(),
+                description: action.help.description.clone(),
+                examples: action.help.examples.clone(),
+            })
             .collect()
     }
 }

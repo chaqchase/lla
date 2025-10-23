@@ -614,6 +614,16 @@ impl Plugin for YouTubePlugin {
                         };
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo { name: "search".to_string(), usage: "search".to_string(), description: "Search YouTube videos".to_string(), examples: vec!["lla plugin youtube search".to_string()] },
+                            ActionInfo { name: "search-selected".to_string(), usage: "search-selected".to_string(), description: "Search selected text on YouTube".to_string(), examples: vec!["lla plugin youtube search-selected".to_string()] },
+                            ActionInfo { name: "history".to_string(), usage: "history".to_string(), description: "Manage search history".to_string(), examples: vec!["lla plugin youtube history".to_string()] },
+                            ActionInfo { name: "preferences".to_string(), usage: "preferences".to_string(), description: "Configure preferences".to_string(), examples: vec!["lla plugin youtube preferences".to_string()] },
+                            ActionInfo { name: "help".to_string(), usage: "help".to_string(), description: "Show help information".to_string(), examples: vec!["lla plugin youtube help".to_string()] },
+                        ])
+                    }
                 };
                 self.encode_response(response)
             }

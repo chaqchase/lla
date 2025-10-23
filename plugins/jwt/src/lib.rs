@@ -977,6 +977,16 @@ impl Plugin for JwtPlugin {
                         };
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo { name: "decode".to_string(), usage: "decode".to_string(), description: "View decoded JWT tokens".to_string(), examples: vec!["lla plugin jwt decode".to_string()] },
+                            ActionInfo { name: "search".to_string(), usage: "search".to_string(), description: "Search decoded JWT tokens".to_string(), examples: vec!["lla plugin jwt search".to_string()] },
+                            ActionInfo { name: "history".to_string(), usage: "history".to_string(), description: "Manage token history".to_string(), examples: vec!["lla plugin jwt history".to_string()] },
+                            ActionInfo { name: "preferences".to_string(), usage: "preferences".to_string(), description: "Configure preferences".to_string(), examples: vec!["lla plugin jwt preferences".to_string()] },
+                            ActionInfo { name: "help".to_string(), usage: "help".to_string(), description: "Show help information".to_string(), examples: vec!["lla plugin jwt help".to_string()] },
+                        ])
+                    }
                 };
                 self.encode_response(response)
             }

@@ -119,6 +119,9 @@ pub trait ProtobufHandler {
             Some(proto::plugin_message::Message::Action(req)) => {
                 Ok(PluginRequest::PerformAction(req.action, req.args))
             }
+            Some(proto::plugin_message::Message::ListActions(_)) => {
+                Ok(PluginRequest::GetAvailableActions)
+            }
             _ => Err("Invalid request type".to_string()),
         }
     }
@@ -174,6 +177,20 @@ pub trait ProtobufHandler {
                     error: Some(e),
                 }),
             },
+            PluginResponse::AvailableActions(actions) => {
+                let proto_actions: Vec<proto::ActionInfo> = actions
+                    .into_iter()
+                    .map(|action| proto::ActionInfo {
+                        name: action.name,
+                        usage: action.usage,
+                        description: action.description,
+                        examples: action.examples,
+                    })
+                    .collect();
+                proto::plugin_message::Message::ListActionsResponse(proto::ListActionsResponse {
+                    actions: proto_actions,
+                })
+            }
             PluginResponse::Error(e) => proto::plugin_message::Message::ErrorResponse(e),
         };
 

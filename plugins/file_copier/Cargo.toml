@@ -1,6 +1,6 @@
 [package]
 name = "file_copier"
-version = "0.1.1"
+version = "0.5.0"
 edition = "2021"
 description = "A plugin for lla that provides clipboard functionality for copying files and directories"
 

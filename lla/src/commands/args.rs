@@ -74,6 +74,9 @@ pub enum ShortcutAction {
     Add(String, ShortcutCommand),
     Remove(String),
     List,
+    Create,
+    Export(Option<String>),
+    Import(String, bool),
     Run(String, Vec<String>),
 }
 
@@ -436,20 +439,34 @@ impl Args {
                 SubCommand::with_name("plugin")
                     .about("Run a plugin action")
                     .arg(
+                        Arg::with_name("plugin_name")
+                            .help("Name of the plugin")
+                            .index(1),
+                    )
+                    .arg(
+                        Arg::with_name("plugin_action")
+                            .help("Action to perform")
+                            .index(2),
+                    )
+                    .arg(
+                        Arg::with_name("plugin_args")
+                            .help("Arguments for the plugin action")
+                            .index(3)
+                            .multiple(true),
+                    )
+                    .arg(
                         Arg::with_name("name")
                             .long("name")
                             .short('n')
                             .takes_value(true)
-                            .required(true)
-                            .help("Name of the plugin"),
+                            .help("Name of the plugin (alternative to positional)"),
                     )
                     .arg(
                         Arg::with_name("action")
                             .long("action")
                             .short('a')
                             .takes_value(true)
-                            .required(true)
-                            .help("Action to perform"),
+                            .help("Action to perform (alternative to positional)"),
                     )
                     .arg(
                         Arg::with_name("args")
@@ -457,7 +474,7 @@ impl Args {
                             .short('r')
                             .takes_value(true)
                             .multiple(true)
-                            .help("Arguments for the plugin action"),
+                            .help("Arguments for the plugin action (alternative to positional)"),
                     ),
             )
             .subcommand(SubCommand::with_name("list-plugins").about("List all available plugins"))
@@ -520,6 +537,10 @@ impl Args {
                             ),
                     )
                     .subcommand(
+                        SubCommand::with_name("create")
+                            .about("Interactively create a new shortcut"),
+                    )
+                    .subcommand(
                         SubCommand::with_name("remove")
                             .about("Remove a shortcut")
                             .arg(
@@ -527,6 +548,30 @@ impl Args {
                                     .help("Name of the shortcut to remove")
                                     .required(true)
                                     .index(1),
+                            ),
+                    )
+                    .subcommand(
+                        SubCommand::with_name("export")
+                            .about("Export shortcuts to a file")
+                            .arg(
+                                Arg::with_name("output")
+                                    .help("Output file path (defaults to stdout)")
+                                    .index(1),
+                            ),
+                    )
+                    .subcommand(
+                        SubCommand::with_name("import")
+                            .about("Import shortcuts from a file")
+                            .arg(
+                                Arg::with_name("file")
+                                    .help("File path to import from")
+                                    .required(true)
+                                    .index(1),
+                            )
+                            .arg(
+                                Arg::with_name("merge")
+                                    .long("merge")
+                                    .help("Merge with existing shortcuts (skip conflicts)"),
                             ),
                     )
                     .subcommand(SubCommand::with_name("list").about("List all shortcuts")),
@@ -673,9 +718,20 @@ impl Args {
                         description: add_matches.value_of("description").map(String::from),
                     },
                 )))
+            } else if matches.subcommand_matches("create").is_some() {
+                Some(Command::Shortcut(ShortcutAction::Create))
             } else if let Some(remove_matches) = matches.subcommand_matches("remove") {
                 Some(Command::Shortcut(ShortcutAction::Remove(
                     remove_matches.value_of("name").unwrap().to_string(),
+                )))
+            } else if let Some(export_matches) = matches.subcommand_matches("export") {
+                Some(Command::Shortcut(ShortcutAction::Export(
+                    export_matches.value_of("output").map(String::from),
+                )))
+            } else if let Some(import_matches) = matches.subcommand_matches("import") {
+                Some(Command::Shortcut(ShortcutAction::Import(
+                    import_matches.value_of("file").unwrap().to_string(),
+                    import_matches.is_present("merge"),
                 )))
             } else if matches.subcommand_matches("list").is_some() {
                 Some(Command::Shortcut(ShortcutAction::List))
@@ -715,12 +771,25 @@ impl Args {
                 Some(Command::Config(Some(ConfigAction::View)))
             }
         } else if let Some(plugin_matches) = matches.subcommand_matches("plugin") {
-            let plugin_name = plugin_matches.value_of("name").unwrap().to_string();
-            let action = plugin_matches.value_of("action").unwrap().to_string();
+            // Support both positional and flag-based syntax
+            let plugin_name = plugin_matches
+                .value_of("plugin_name")
+                .or_else(|| plugin_matches.value_of("name"))
+                .expect("Plugin name is required (use 'lla plugin <name> <action>' or 'lla plugin --name <name> --action <action>')")
+                .to_string();
+
+            let action = plugin_matches
+                .value_of("plugin_action")
+                .or_else(|| plugin_matches.value_of("action"))
+                .expect("Plugin action is required (use 'lla plugin <name> <action>' or 'lla plugin --name <name> --action <action>')")
+                .to_string();
+
             let args = plugin_matches
-                .values_of("args")
+                .values_of("plugin_args")
+                .or_else(|| plugin_matches.values_of("args"))
                 .map(|v| v.map(String::from).collect())
                 .unwrap_or_default();
+
             Some(Command::PluginAction(plugin_name, action, args))
         } else if let Some(jump_matches) = matches.subcommand_matches("jump") {
             let action = if let Some(path) = jump_matches.value_of("add") {

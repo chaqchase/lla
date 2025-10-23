@@ -5,6 +5,167 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-01-24
+
+### Added
+
+- **Interactive Shortcut Builder** (`lla shortcut create`):
+
+  - Guided workflow to create shortcuts with plugin and action selection
+  - Auto-discovery of available plugin actions with descriptions
+  - Real-time validation of shortcut names (prevents duplicates and conflicts)
+  - Auto-fills descriptions from plugin metadata
+  - Beautiful UI with themed prompts using dialoguer
+
+- **Plugin Action Discovery API**:
+
+  - New `GetAvailableActions` protocol message for querying plugin capabilities
+  - Plugins can expose action metadata (name, usage, description, examples)
+  - `ActionRegistry::list_actions()` method for automatic action enumeration
+  - `PluginManager::get_plugin_actions()` for centralized action queries
+  - Full protobuf integration in `lla_plugin_interface` and `lla_plugin_utils`
+
+- **Shortcut Import/Export System**:
+
+  - `lla shortcut export [file]` - Export shortcuts and aliases to TOML file or stdout
+  - `lla shortcut import <file>` - Import shortcuts from file (replaces existing)
+  - `lla shortcut import <file> --merge` - Merge imported shortcuts (skips conflicts)
+  - Enables sharing shortcut collections across machines or with teams
+  - Export includes both shortcuts and plugin aliases in portable TOML format
+
+- **Plugin Aliases System**:
+
+  - Define short aliases for frequently used plugins in config
+  - Configure via `[plugin_aliases]` section in `config.toml`
+  - Automatic alias resolution in all plugin commands and shortcuts
+  - Example: `j = "jwt"` allows `lla plugin j decode` instead of `lla plugin jwt decode`
+
+- **Positional Plugin Command Syntax**:
+
+  - New simplified syntax: `lla plugin <name> <action> [args...]`
+  - Backward compatible with existing `--name`/`--action` flag syntax
+  - Significantly reduces typing for frequent plugin invocations
+  - Works seamlessly with plugin aliases
+
+- **Kill Process Plugin** (`kill_process`):
+
+  - Interactive process management inspired by Raycast's Kill Process command
+  - **Live fuzzy search** - Real-time filtering that updates as you type
+  - Full-screen terminal UI with instant process filtering
+  - Arrow key navigation through filtered results
+  - List all running processes with PID, name, CPU usage, and memory
+  - Interactive multi-select interface for killing processes
+  - Smart ranking by fuzzy match score for better search results
+  - Handles 1000+ processes efficiently with instant search
+  - Force kill support (SIGKILL on Unix, /F on Windows)
+  - Kill by name pattern or specific PID
+  - Cross-platform support (macOS, Linux, Windows)
+  - Confirmation dialogs before terminating processes
+  - Platform-specific error messages and help text
+
+- **Google Search Plugin** (`google_search`):
+
+  - Web search directly from the command line
+  - Interactive autosuggestions powered by Google
+  - Search history management (save, view, clear)
+  - Clipboard integration - fallback to clipboard content when no query provided
+  - Favorite searches management
+  - Opens results in default browser
+
+- **JWT Plugin** (`jwt`):
+
+  - Decode and analyze JWT tokens
+  - Display header, payload, and signature information
+  - Token validation and expiration checking
+  - Search through saved tokens
+  - Token history management
+  - Copy decoded content to clipboard
+  - Beautiful formatted JSON output
+
+- **YouTube Plugin** (`youtube`):
+
+  - Search YouTube videos from the command line
+  - Interactive autosuggestions
+  - View video details (title, channel, views, duration)
+  - Search history management
+  - Open videos in default browser
+  - Trending videos support
+
+- **Google Meet Plugin** (`google_meet`):
+
+  - Create instant Google Meet rooms
+  - Generate and manage meeting links
+  - Quick meeting creation workflow
+  - Copy meeting links to clipboard
+  - Open meetings directly in browser
+  - Meeting history tracking
+
+- **NPM Plugin** (`npm`):
+  - Search NPM packages from the command line
+  - Integration with Bundlephobia for package size info
+  - View package details (version, downloads, size)
+  - Bundle size analysis (minified and gzipped)
+  - Favorites management for frequently used packages
+  - Open package pages in browser
+  - Search history support
+
+### Changed
+
+- Plugin interface protocol extended with action discovery messages
+- `ProtobufHandler` trait updated to encode/decode action metadata
+- Config structure now includes `plugin_aliases: HashMap<String, String>`
+- Command parsing supports both positional and flag-based plugin invocations
+- Plugin commands now resolve aliases before execution
+
+### Improved
+
+- Enhanced `lla shortcut list` output with better formatting
+- Shortcut validation now checks plugin existence and action availability
+- Interactive UIs consistently use `LlaDialoguerTheme` for unified appearance
+
+### Developer Experience
+
+- Plugins using `ActionRegistry` automatically support action discovery
+- `ProtobufHandler::decode_request()` handles `GetAvailableActions` requests
+- `ProtobufHandler::encode_response()` serializes `AvailableActions` responses
+- Clear separation between plugin protocol and CLI argument handling
+
+### Examples
+
+**Before 0.5.0:**
+
+```bash
+# Long command syntax
+lla plugin --name jwt --action decode --args token123
+
+# Manual shortcut creation
+lla shortcut add decode-jwt jwt decode --description "Decode JWT tokens"
+```
+
+**After 0.5.0:**
+
+```bash
+# Interactive creation
+lla shortcut create
+# → Select plugin: jwt
+# → Select action: decode
+# → Enter name: decode-jwt
+# ✓ Created!
+
+# Short invocation
+lla decode-jwt token123
+
+# Positional syntax
+lla plugin jwt decode token123
+
+# With plugin alias (configure j = "jwt" in config)
+lla plugin j decode token123
+
+# Share shortcuts
+lla shortcut export team-shortcuts.toml
+lla shortcut import team-shortcuts.toml --merge
+```
+
 ## [0.4.2]
 
 ### Added

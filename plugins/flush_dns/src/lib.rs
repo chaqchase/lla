@@ -530,6 +530,16 @@ impl Plugin for FlushDnsPlugin {
                         };
                         PluginResponse::ActionResult(result)
                     }
+                    PluginRequest::GetAvailableActions => {
+                        use lla_plugin_interface::ActionInfo;
+                        PluginResponse::AvailableActions(vec![
+                            ActionInfo { name: "flush".to_string(), usage: "flush".to_string(), description: "Flush DNS cache".to_string(), examples: vec!["lla plugin flush_dns flush".to_string()] },
+                            ActionInfo { name: "history".to_string(), usage: "history".to_string(), description: "View flush history".to_string(), examples: vec!["lla plugin flush_dns history".to_string()] },
+                            ActionInfo { name: "clear-history".to_string(), usage: "clear-history".to_string(), description: "Clear flush history".to_string(), examples: vec!["lla plugin flush_dns clear-history".to_string()] },
+                            ActionInfo { name: "preferences".to_string(), usage: "preferences".to_string(), description: "Configure preferences".to_string(), examples: vec!["lla plugin flush_dns preferences".to_string()] },
+                            ActionInfo { name: "help".to_string(), usage: "help".to_string(), description: "Show help information".to_string(), examples: vec!["lla plugin flush_dns help".to_string()] },
+                        ])
+                    }
                 };
                 self.encode_response(response)
             }

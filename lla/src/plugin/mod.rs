@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use libloading::Library;
 use lla_plugin_interface::{
     proto::{self, plugin_message::Message, PluginMessage},
-    PluginApi, CURRENT_PLUGIN_API_VERSION,
+    ActionInfo, PluginApi, CURRENT_PLUGIN_API_VERSION,
 };
 use once_cell::sync::Lazy;
 use prost::Message as _;
@@ -99,10 +99,20 @@ impl PluginManager {
         args: &[String],
     ) -> Result<()> {
         if !self.enabled_plugins.contains(plugin_name) {
-            return Err(LlaError::Plugin(format!(
-                "Plugin '{}' is not enabled",
+            // Check if the plugin exists
+            if !self.plugins.contains_key(plugin_name) {
+                return Err(LlaError::Plugin(format!(
+                    "Plugin '{}' not found",
+                    plugin_name
+                )));
+            }
+
+            // Auto-enable the plugin with a warning
+            eprintln!(
+                "⚠️  Plugin '{}' was disabled. Enabling it now...",
                 plugin_name
-            )));
+            );
+            self.enable_plugin(plugin_name)?;
         }
 
         let request = PluginMessage {
@@ -179,6 +189,38 @@ impl PluginManager {
             result.push((name, version, description));
         }
         result
+    }
+
+    pub fn get_plugin_actions(&mut self, plugin_name: &str) -> Result<Vec<ActionInfo>> {
+        if !self.plugins.contains_key(plugin_name) {
+            return Err(LlaError::Plugin(format!(
+                "Plugin '{}' not found",
+                plugin_name
+            )));
+        }
+
+        let request = PluginMessage {
+            message: Some(Message::ListActions(true)),
+        };
+
+        match self.send_request(plugin_name, request)?.message {
+            Some(Message::ListActionsResponse(response)) => {
+                let actions = response
+                    .actions
+                    .into_iter()
+                    .map(|action| ActionInfo {
+                        name: action.name,
+                        usage: action.usage,
+                        description: action.description,
+                        examples: action.examples,
+                    })
+                    .collect();
+                Ok(actions)
+            }
+            _ => Err(LlaError::Plugin(
+                "Invalid response type for list actions".to_string(),
+            )),
+        }
     }
 
     pub fn load_plugin<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
