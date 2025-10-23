@@ -1,7 +1,7 @@
 name: lla
-arch: "{{ .Env.ARCH }}"
+arch: "${ARCH}"
 platform: linux
-version: "{{ .Env.VERSION }}"
+version: "${VERSION}"
 section: utils
 priority: optional
 maintainer: "Achaq <hi@achaq.dev>"
@@ -12,7 +12,7 @@ license: "MIT"
 provides:
   - lla
 contents:
-  - src: "{{ .Env.BINARY_PATH }}"
+  - src: "${BINARY_PATH}"
     dst: "/usr/bin/lla"
     file_info:
       mode: 0755

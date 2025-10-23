@@ -295,7 +295,7 @@ jobs:
         run: |
           echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
           sudo apt update
-          sudo apt install -y nfpm
+          sudo apt install -y nfpm gettext-base
           nfpm --version
 
       - name: Generate packages
@@ -345,17 +345,22 @@ jobs:
               export ARCH
               export BINARY_PATH="$binary_path"
 
+              tmp_config=$(mktemp)
+              envsubst < nfpm.yaml > "$tmp_config"
+
               # Generate DEB package
-              nfpm pkg --config nfpm.yaml --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
+              nfpm pkg --config "$tmp_config" --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
 
               # Generate RPM package
-              nfpm pkg --config nfpm.yaml --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
+              nfpm pkg --config "$tmp_config" --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
 
               # Generate APK package
-              nfpm pkg --config nfpm.yaml --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
+              nfpm pkg --config "$tmp_config" --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
 
               # Generate Pacman package
-              nfpm pkg --config nfpm.yaml --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
+              nfpm pkg --config "$tmp_config" --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
+
+              rm -f "$tmp_config"
             fi
           done
 

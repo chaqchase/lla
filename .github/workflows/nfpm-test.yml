@@ -35,7 +35,7 @@ jobs:
         run: |
           echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
           sudo apt update
-          sudo apt install -y nfpm
+          sudo apt install -y nfpm gettext-base
           nfpm --version
 
       - name: Package with nFPM
@@ -47,10 +47,15 @@ jobs:
           export ARCH=amd64
           export BINARY_PATH="${ARTIFACT_DIR}/${ARTIFACT_NAME}"
 
-          nfpm pkg --config nfpm.yaml --packager deb --target "${ARTIFACT_DIR}/lla_${VERSION}_amd64.deb"
-          nfpm pkg --config nfpm.yaml --packager rpm --target "${ARTIFACT_DIR}/lla-${VERSION}-1.x86_64.rpm"
-          nfpm pkg --config nfpm.yaml --packager apk --target "${ARTIFACT_DIR}/lla-${VERSION}-r0.x86_64.apk"
-          nfpm pkg --config nfpm.yaml --packager archlinux --target "${ARTIFACT_DIR}/lla-${VERSION}-1-x86_64.pkg.tar.zst"
+          tmp_config=$(mktemp)
+          envsubst < nfpm.yaml > "$tmp_config"
+
+          nfpm pkg --config "$tmp_config" --packager deb --target "${ARTIFACT_DIR}/lla_${VERSION}_amd64.deb"
+          nfpm pkg --config "$tmp_config" --packager rpm --target "${ARTIFACT_DIR}/lla-${VERSION}-1.x86_64.rpm"
+          nfpm pkg --config "$tmp_config" --packager apk --target "${ARTIFACT_DIR}/lla-${VERSION}-r0.x86_64.apk"
+          nfpm pkg --config "$tmp_config" --packager archlinux --target "${ARTIFACT_DIR}/lla-${VERSION}-1-x86_64.pkg.tar.zst"
+
+          rm -f "$tmp_config"
 
       - name: Upload packages (artifact)
         uses: actions/upload-artifact@v4
