@@ -113,12 +113,12 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --help 'Print help information'
         }
         &'lla;plugin'= {
-            cand -n 'Name of the plugin'
-            cand --name 'Name of the plugin'
-            cand -a 'Action to perform'
-            cand --action 'Action to perform'
-            cand -r 'Arguments for the plugin action'
-            cand --args 'Arguments for the plugin action'
+            cand -n 'Name of the plugin (alternative to positional)'
+            cand --name 'Name of the plugin (alternative to positional)'
+            cand -a 'Action to perform (alternative to positional)'
+            cand --action 'Action to perform (alternative to positional)'
+            cand -r 'Arguments for the plugin action (alternative to positional)'
+            cand --args 'Arguments for the plugin action (alternative to positional)'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
@@ -151,7 +151,10 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand -h 'Print help information'
             cand --help 'Print help information'
             cand add 'Add a new shortcut'
+            cand create 'Interactively create a new shortcut'
             cand remove 'Remove a shortcut'
+            cand export 'Export shortcuts to a file'
+            cand import 'Import shortcuts from a file'
             cand list 'List all shortcuts'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
@@ -161,7 +164,20 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
+        &'lla;shortcut;create'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
         &'lla;shortcut;remove'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;shortcut;export'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;shortcut;import'= {
+            cand --merge 'Merge with existing shortcuts (skip conflicts)'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
