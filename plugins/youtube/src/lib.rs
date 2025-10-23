@@ -1,11 +1,11 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use indicatif::{ProgressBar, ProgressStyle};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
+    ui::interactive_suggest,
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
 use reqwest::blocking::Client;
@@ -69,13 +69,19 @@ impl PluginConfig for YouTubeConfig {}
 
 pub struct YouTubePlugin {
     base: BasePlugin<YouTubeConfig>,
+    http: Client,
 }
 
 impl YouTubePlugin {
     pub fn new() -> Self {
         let plugin_name = env!("CARGO_PKG_NAME");
+        let client = Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            http: client,
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[YouTubePlugin] Failed to save config: {}", e);
@@ -112,17 +118,6 @@ impl YouTubePlugin {
         }
     }
 
-    fn get_clipboard_text(&self) -> Option<String> {
-        if !self.base.config().use_clipboard_fallback {
-            return None;
-        }
-
-        match Clipboard::new() {
-            Ok(mut clipboard) => clipboard.get_text().ok(),
-            Err(_) => None,
-        }
-    }
-
     fn open_youtube_search(&self, query: &str) -> Result<(), String> {
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -146,24 +141,10 @@ impl YouTubePlugin {
         Ok(())
     }
 
-    fn get_search_suggestions(&self) -> Vec<String> {
-        self.base
-            .config()
-            .search_history
-            .iter()
-            .map(|e| e.query.clone())
-            .collect()
-    }
-
     fn fetch_youtube_suggestions(&self, query: &str) -> Result<Vec<String>, String> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
-
-        let client = Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -172,7 +153,7 @@ impl YouTubePlugin {
             encoded_query
         );
 
-        let response = client
+        let response = self.http
             .get(&url)
             .send()
             .map_err(|e| format!("Failed to fetch suggestions: {}", e))?;
@@ -194,162 +175,45 @@ impl YouTubePlugin {
     }
 
     fn perform_search(&mut self, text: Option<String>) -> Result<(), String> {
-        let theme = LlaDialoguerTheme::default();
+        println!(
+            "\n{} {}",
+            "💡".bright_yellow(),
+            "Type to see live suggestions. Use arrows to pick or Enter to search."
+                .bright_cyan()
+        );
 
-        let query = if let Some(selected_text) = text {
-            // Use provided selected text
-            if selected_text.trim().is_empty() {
-                return Err("Selected text is empty".to_string());
-            }
-            selected_text
-        } else {
-            // Get search history for suggestions
-            let history = self.get_search_suggestions();
+        let initial = text.as_deref();
+        let query = interactive_suggest(
+            "Search YouTube:",
+            initial,
+            |q| self.fetch_youtube_suggestions(q),
+        )?;
 
-            // Check clipboard content as fallback
-            let clipboard_text = self.get_clipboard_text();
+        if query.trim().is_empty() {
+            return Err("Search query cannot be empty".to_string());
+        }
 
-            // Show options to user
-            let mut options = vec!["🔍 Enter new search query"];
-
-            if !history.is_empty() {
-                options.push("📜 Search from history");
-            }
-
-            if clipboard_text.is_some() {
-                options.push("📋 Search clipboard content");
-            }
-
-            let selection = Select::with_theme(&theme)
-                .with_prompt(format!("{} Choose search option", "🎬".bright_cyan()))
-                .items(&options)
-                .default(0)
-                .interact()
-                .map_err(|e| format!("Failed to show menu: {}", e))?;
-
-            match selection {
-                0 => {
-                    // Enter new search query and fetch live YouTube suggestions
-                    println!(
-                        "\n{} {}",
-                        "💡".bright_yellow(),
-                        "Enter a search query to see live YouTube suggestions".bright_cyan()
-                    );
-
-                    let input: String = Input::with_theme(&theme)
-                        .with_prompt("Search query")
-                        .interact_text()
-                        .map_err(|e| format!("Failed to get input: {}", e))?;
-
-                    if input.trim().is_empty() {
-                        return Err("Search query cannot be empty".to_string());
-                    }
-
-                    // Fetch live suggestions from YouTube
-                    println!(
-                        "\n{} Fetching suggestions from YouTube...",
-                        "🔄".bright_cyan()
-                    );
-                    let spinner = ProgressBar::new_spinner();
-                    spinner.set_style(
-                        ProgressStyle::default_spinner()
-                            .template("{spinner:.cyan} {msg}")
-                            .unwrap(),
-                    );
-                    spinner.set_message("Loading suggestions...");
-                    spinner.enable_steady_tick(Duration::from_millis(100));
-
-                    let suggestions = self.fetch_youtube_suggestions(&input).unwrap_or_default();
-                    spinner.finish_and_clear();
-
-                    if suggestions.is_empty() {
-                        println!(
-                            "{} No suggestions found, using your query: {}",
-                            "ℹ️ ".bright_blue(),
-                            input.bright_yellow()
-                        );
-                        input
-                    } else {
-                        println!(
-                            "\n{} {} suggestions found:",
-                            "✨".bright_green(),
-                            suggestions.len()
-                        );
-
-                        let mut items = vec![format!("🎬 {} (your input)", input)];
-                        items.extend(suggestions.iter().map(|s| format!("💡 {}", s)));
-
-                        let selection = Select::with_theme(&theme)
-                            .with_prompt("Select a search query")
-                            .items(&items)
-                            .default(0)
-                            .interact()
-                            .map_err(|e| format!("Failed to show suggestions: {}", e))?;
-
-                        if selection == 0 {
-                            input
-                        } else {
-                            suggestions[selection - 1].clone()
-                        }
-                    }
-                }
-                1 => {
-                    // Search from history
-                    if history.is_empty() {
-                        return Err("No search history available".to_string());
-                    }
-
-                    let items: Vec<String> = history
-                        .iter()
-                        .enumerate()
-                        .map(|(i, query)| {
-                            let entry = &self.base.config().search_history[i];
-                            format!(
-                                "{} {} {}",
-                                "🎬".bright_cyan(),
-                                query,
-                                format!("({})", entry.timestamp).bright_black()
-                            )
-                        })
-                        .collect();
-
-                    let history_selection = Select::with_theme(&theme)
-                        .with_prompt(format!("{} Select from history", "📜".bright_cyan()))
-                        .items(&items)
-                        .default(0)
-                        .interact()
-                        .map_err(|e| format!("Failed to show history: {}", e))?;
-
-                    history[history_selection].clone()
-                }
-                2 => {
-                    // Search clipboard content
-                    clipboard_text.ok_or("No clipboard content available")?
-                }
-                _ => unreachable!(),
-            }
-        };
-
-        // Perform the search
         println!(
             "{} Searching YouTube for: {}",
             "Info:".bright_cyan(),
             query.bright_yellow()
         );
-
         self.open_youtube_search(&query)?;
         self.add_to_history(&query);
-
-        println!(
-            "{} Search completed and added to history!",
-            "Success:".bright_green()
-        );
-
+        println!("{} Done!", "Success:".bright_green());
         Ok(())
     }
 
     fn search_selected_text(&mut self) -> Result<(), String> {
-        let clipboard_text = self.get_clipboard_text();
+        // Get text from clipboard
+        let clipboard_text = if self.base.config().use_clipboard_fallback {
+            match Clipboard::new() {
+                Ok(mut clipboard) => clipboard.get_text().ok(),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
 
         if let Some(text) = clipboard_text {
             println!(
@@ -645,20 +509,19 @@ impl YouTubePlugin {
 
         help.add_section("Description".to_string()).add_command(
             "".to_string(),
-            "Search YouTube with autosuggestions, history management, and clipboard support."
-                .to_string(),
+            "Search YouTube with live autosuggestions and history tracking.".to_string(),
             vec![],
         );
 
         help.add_section("Actions".to_string())
             .add_command(
                 "search".to_string(),
-                "Perform a YouTube search with suggestions".to_string(),
+                "Search YouTube (live suggestions; arrows to select)".to_string(),
                 vec!["search".to_string()],
             )
             .add_command(
                 "search-selected".to_string(),
-                "Search YouTube with selected/clipboard text".to_string(),
+                "Search YouTube with clipboard text".to_string(),
                 vec!["search-selected".to_string()],
             )
             .add_command(

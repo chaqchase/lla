@@ -1,11 +1,11 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use indicatif::{ProgressBar, ProgressStyle};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
+    ui::interactive_suggest,
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
 use reqwest::blocking::Client;
@@ -68,13 +68,19 @@ impl PluginConfig for GoogleSearchConfig {}
 
 pub struct GoogleSearchPlugin {
     base: BasePlugin<GoogleSearchConfig>,
+    http: Client,
 }
 
 impl GoogleSearchPlugin {
     pub fn new() -> Self {
         let plugin_name = env!("CARGO_PKG_NAME");
+        let client = Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            http: client,
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[GoogleSearchPlugin] Failed to save config: {}", e);
@@ -111,17 +117,6 @@ impl GoogleSearchPlugin {
         }
     }
 
-    fn get_clipboard_text(&self) -> Option<String> {
-        if !self.base.config().use_clipboard_fallback {
-            return None;
-        }
-
-        match Clipboard::new() {
-            Ok(mut clipboard) => clipboard.get_text().ok(),
-            Err(_) => None,
-        }
-    }
-
     fn open_google_search(&self, query: &str) -> Result<(), String> {
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -142,24 +137,10 @@ impl GoogleSearchPlugin {
         Ok(())
     }
 
-    fn get_search_suggestions(&self) -> Vec<String> {
-        self.base
-            .config()
-            .search_history
-            .iter()
-            .map(|e| e.query.clone())
-            .collect()
-    }
-
     fn fetch_google_suggestions(&self, query: &str) -> Result<Vec<String>, String> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
-
-        let client = Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -168,7 +149,7 @@ impl GoogleSearchPlugin {
             encoded_query
         );
 
-        let response = client
+        let response = self.http
             .get(&url)
             .send()
             .map_err(|e| format!("Failed to fetch suggestions: {}", e))?;
@@ -190,150 +171,74 @@ impl GoogleSearchPlugin {
     }
 
     fn perform_search(&mut self) -> Result<(), String> {
-        let theme = LlaDialoguerTheme::default();
+        println!(
+            "\n{} {}",
+            "💡".bright_yellow(),
+            "Type to see live suggestions. Use arrows to pick or Enter to search."
+                .bright_cyan()
+        );
 
-        // Get search history for suggestions
-        let history = self.get_search_suggestions();
+        let query = interactive_suggest(
+            "Search Google:",
+            None,
+            |q| self.fetch_google_suggestions(q),
+        )?;
 
-        // Check clipboard content as fallback
-        let clipboard_text = self.get_clipboard_text();
-
-        // Show options to user
-        let mut options = vec!["🔍 Enter new search query"];
-
-        if !history.is_empty() {
-            options.push("📜 Search from history");
+        if query.trim().is_empty() {
+            return Err("Search query cannot be empty".to_string());
         }
 
-        if clipboard_text.is_some() {
-            options.push("📋 Search clipboard content");
-        }
-
-        let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Choose search option", "🔎".bright_cyan()))
-            .items(&options)
-            .default(0)
-            .interact()
-            .map_err(|e| format!("Failed to show menu: {}", e))?;
-
-        let query = match selection {
-            0 => {
-                // Enter new search query and fetch live Google suggestions
-                println!(
-                    "\n{} {}",
-                    "💡".bright_yellow(),
-                    "Enter a search query to see live Google suggestions".bright_cyan()
-                );
-
-                let input: String = Input::with_theme(&theme)
-                    .with_prompt("Search query")
-                    .interact_text()
-                    .map_err(|e| format!("Failed to get input: {}", e))?;
-
-                if input.trim().is_empty() {
-                    return Err("Search query cannot be empty".to_string());
-                }
-
-                // Fetch live suggestions from Google
-                println!(
-                    "\n{} Fetching suggestions from Google...",
-                    "🔄".bright_cyan()
-                );
-                let spinner = ProgressBar::new_spinner();
-                spinner.set_style(
-                    ProgressStyle::default_spinner()
-                        .template("{spinner:.cyan} {msg}")
-                        .unwrap(),
-                );
-                spinner.set_message("Loading suggestions...");
-                spinner.enable_steady_tick(Duration::from_millis(100));
-
-                let suggestions = self.fetch_google_suggestions(&input).unwrap_or_default();
-                spinner.finish_and_clear();
-
-                if suggestions.is_empty() {
-                    println!(
-                        "{} No suggestions found, using your query: {}",
-                        "ℹ️ ".bright_blue(),
-                        input.bright_yellow()
-                    );
-                    input
-                } else {
-                    println!(
-                        "\n{} {} suggestions found:",
-                        "✨".bright_green(),
-                        suggestions.len()
-                    );
-
-                    let mut items = vec![format!("🔍 {} (your input)", input)];
-                    items.extend(suggestions.iter().map(|s| format!("💡 {}", s)));
-
-                    let selection = Select::with_theme(&theme)
-                        .with_prompt("Select a search query")
-                        .items(&items)
-                        .default(0)
-                        .interact()
-                        .map_err(|e| format!("Failed to show suggestions: {}", e))?;
-
-                    if selection == 0 {
-                        input
-                    } else {
-                        suggestions[selection - 1].clone()
-                    }
-                }
-            }
-            1 => {
-                // Search from history
-                if history.is_empty() {
-                    return Err("No search history available".to_string());
-                }
-
-                let items: Vec<String> = history
-                    .iter()
-                    .enumerate()
-                    .map(|(i, query)| {
-                        let entry = &self.base.config().search_history[i];
-                        format!(
-                            "{} {} {}",
-                            "🔍".bright_cyan(),
-                            query,
-                            format!("({})", entry.timestamp).bright_black()
-                        )
-                    })
-                    .collect();
-
-                let history_selection = Select::with_theme(&theme)
-                    .with_prompt(format!("{} Select from history", "📜".bright_cyan()))
-                    .items(&items)
-                    .default(0)
-                    .interact()
-                    .map_err(|e| format!("Failed to show history: {}", e))?;
-
-                history[history_selection].clone()
-            }
-            2 => {
-                // Search clipboard content
-                clipboard_text.ok_or("No clipboard content available")?
-            }
-            _ => unreachable!(),
-        };
-
-        // Perform the search
         println!(
             "{} Searching Google for: {}",
             "Info:".bright_cyan(),
             query.bright_yellow()
         );
-
         self.open_google_search(&query)?;
         self.add_to_history(&query);
-
-        println!(
-            "{} Search completed and added to history!",
-            "Success:".bright_green()
-        );
-
+        println!("{} Done!", "Success:".bright_green());
         Ok(())
+    }
+
+    fn search_selected_text(&mut self) -> Result<(), String> {
+        // Get text from clipboard (fallback behaviour aligns with YouTube plugin)
+        let clipboard_text = if self.base.config().use_clipboard_fallback {
+            match Clipboard::new() {
+                Ok(mut clipboard) => clipboard.get_text().ok(),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        if let Some(text) = clipboard_text {
+            println!(
+                "{} Using text from clipboard: {}",
+                "Info:".bright_cyan(),
+                text.bright_yellow()
+            );
+
+            let query = interactive_suggest(
+                "Search Google:",
+                Some(&text),
+                |q| self.fetch_google_suggestions(q),
+            )?;
+
+            if query.trim().is_empty() {
+                return Err("Search query cannot be empty".to_string());
+            }
+
+            println!(
+                "{} Searching Google for: {}",
+                "Info:".bright_cyan(),
+                query.bright_yellow()
+            );
+            self.open_google_search(&query)?;
+            self.add_to_history(&query);
+            println!("{} Done!", "Success:".bright_green());
+            Ok(())
+        } else {
+            Err("No text available in clipboard. Copy some text first.".to_string())
+        }
     }
 
     fn manage_history(&mut self) -> Result<(), String> {
@@ -618,16 +523,20 @@ impl GoogleSearchPlugin {
 
         help.add_section("Description".to_string()).add_command(
             "".to_string(),
-            "Search Google with autosuggestions, history management, and clipboard fallback."
-                .to_string(),
+            "Search Google with live autosuggestions and history tracking.".to_string(),
             vec![],
         );
 
         help.add_section("Actions".to_string())
             .add_command(
                 "search".to_string(),
-                "Perform a Google search with suggestions".to_string(),
+                "Search Google (live suggestions; arrows to select)".to_string(),
                 vec!["search".to_string()],
+            )
+            .add_command(
+                "search-selected".to_string(),
+                "Search Google with clipboard text (live suggestions)".to_string(),
+                vec!["search-selected".to_string()],
             )
             .add_command(
                 "history".to_string(),
@@ -711,6 +620,7 @@ impl Plugin for GoogleSearchPlugin {
                     PluginRequest::PerformAction(action, _args) => {
                         let result = match action.as_str() {
                             "search" => self.perform_search(),
+                            "search-selected" => self.search_selected_text(),
                             "history" => self.manage_history(),
                             "preferences" => self.configure_preferences(),
                             "help" => self.show_help(),

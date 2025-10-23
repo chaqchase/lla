@@ -12,8 +12,11 @@ Google search plugin for `lla` with live autosuggestions, history management, an
 ## Usage
 
 ```bash
-# Perform a Google search
+# Perform a Google search (live suggestions)
 lla plugin --name google_search --action search
+
+# Search with selected/clipboard text (prefills input; live suggestions)
+lla plugin --name google_search --action search-selected
 
 # Manage search history
 lla plugin --name google_search --action history
@@ -44,13 +47,13 @@ prompt = "bright_blue"
 
 ## Display Examples
 
-Live Autocomplete:
+Live Autocomplete (use ↑/↓ to select, Enter to confirm):
 
 ```
 💡 Enter a search query to see live Google suggestions
 Search query: rust programming
 
-🔄 Fetching suggestions from YouTube...
+🔄 Fetching suggestions from Google...
 ⠋ Loading suggestions...
 
 ✨ 10 suggestions found:
