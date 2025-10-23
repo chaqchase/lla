@@ -10,9 +10,13 @@ use lla_plugin_utils::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Represents a Google account for creating meetings
+/// Despite the name, this now stores Google account info (for authuser parameter)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserProfile {
+    /// Display name for the account (e.g., "Work", "Personal")
     pub name: String,
+    /// Google account identifier - email address or account number (e.g., "user@example.com" or "0")
     pub profile_path: String,
 }
 
@@ -87,18 +91,133 @@ impl GoogleMeetPlugin {
         plugin
     }
 
-    fn generate_meet_link(&self) -> String {
-        // Google Meet links follow the pattern: https://meet.google.com/xxx-xxxx-xxx
-        // Generate a random code (10 characters with dashes)
-        let code = uuid::Uuid::new_v4()
-            .to_string()
-            .replace("-", "")
-            .chars()
-            .take(10)
-            .collect::<String>();
+    fn get_browser_name(&self) -> Result<String, String> {
+        #[cfg(target_os = "macos")]
+        {
+            let script = r#"
+                set browserList to {"Google Chrome", "Safari", "Brave Browser", "Arc", "Firefox", "Microsoft Edge", "Chromium", "Opera"}
+                tell application "System Events"
+                    set frontApp to name of first application process whose frontmost is true
+                    repeat with browserName in browserList
+                        if frontApp contains browserName then
+                            return browserName
+                        end if
+                    end repeat
+                    return ""
+                end tell
+            "#;
 
-        // Format as xxx-xxxx-xxx
-        format!("{}-{}-{}", &code[0..3], &code[3..7], &code[7..10])
+            let output = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(script)
+                .output()
+                .map_err(|e| format!("Failed to run AppleScript: {}", e))?;
+
+            let browser = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if browser.is_empty() {
+                Err("No supported browser is currently active".to_string())
+            } else {
+                Ok(browser)
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err("Browser detection is only supported on macOS".to_string())
+        }
+    }
+
+    fn get_active_tab_url(&self, browser: &str) -> Result<String, String> {
+        #[cfg(target_os = "macos")]
+        {
+            let script = if browser.contains("Arc") {
+                r#"
+                    tell application "Arc"
+                        if (count of windows) > 0 then
+                            tell front window
+                                if (count of tabs) > 0 then
+                                    return URL of active tab
+                                end if
+                            end tell
+                        end if
+                    end tell
+                    return ""
+                "#
+            } else if browser.contains("Firefox") {
+                // Firefox doesn't support direct AppleScript URL access
+                // Fall back to copying from URL bar
+                r#"
+                    tell application "Firefox" to activate
+                    delay 0.2
+                    tell application "System Events"
+                        keystroke "l" using command down
+                        delay 0.1
+                        keystroke "c" using command down
+                    end tell
+                    delay 0.1
+                    return the clipboard
+                "#
+            } else {
+                // Works for Chrome, Safari, Brave, Edge, etc.
+                &format!(
+                    r#"
+                    tell application "{}"
+                        if (count of windows) > 0 then
+                            return URL of active tab of front window
+                        end if
+                    end tell
+                    return ""
+                "#,
+                    browser
+                )
+            };
+
+            let output = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(script)
+                .output()
+                .map_err(|e| format!("Failed to get tab URL: {}", e))?;
+
+            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if url.is_empty() {
+                Err("Could not get active tab URL".to_string())
+            } else {
+                Ok(url)
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = browser;
+            Err("Tab URL detection is only supported on macOS".to_string())
+        }
+    }
+
+    fn wait_for_meet_url(&self, browser: &str, max_attempts: u32) -> Result<String, String> {
+        use std::thread;
+        use std::time::Duration;
+
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                thread::sleep(Duration::from_millis(500));
+            }
+
+            match self.get_active_tab_url(browser) {
+                Ok(url) => {
+                    // Check if it's a meet.google.com URL and not the /new endpoint
+                    if url.contains("meet.google.com") && !url.ends_with("/new") {
+                        return Ok(url);
+                    }
+                }
+                Err(_) if attempt < max_attempts - 1 => {
+                    // Continue trying
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err("Timeout waiting for Google Meet to generate the meeting URL".to_string())
     }
 
     fn add_to_history(&mut self, link: &str) {
@@ -135,55 +254,94 @@ impl GoogleMeetPlugin {
         }
     }
 
-    fn open_meet_url(&self, url: &str, profile: Option<&str>) -> Result<(), String> {
-        #[cfg(target_os = "macos")]
-        let mut command = {
-            let mut cmd = std::process::Command::new("open");
-            if let Some(prof) = profile {
-                // Try to use Chrome profile on macOS
-                cmd.args(&[
-                    "-a",
-                    "Google Chrome",
-                    "--args",
-                    &format!("--profile-directory={}", prof),
-                ]);
-            }
-            cmd
+    fn open_meet_new_url(&self, authuser: Option<&str>) -> Result<(), String> {
+        let url = if let Some(user) = authuser {
+            format!("https://meet.google.com/new?authuser={}", user)
+        } else {
+            "https://meet.google.com/new".to_string()
         };
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
 
         #[cfg(target_os = "linux")]
-        let mut command = {
-            let mut cmd = std::process::Command::new("xdg-open");
-            if let Some(prof) = profile {
-                // For Linux, we'd need to handle browser-specific profile flags
-                cmd.env("BROWSER_PROFILE", prof);
-            }
-            cmd
-        };
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
 
         #[cfg(target_os = "windows")]
-        let mut command = {
-            let mut cmd = std::process::Command::new("cmd");
-            cmd.args(&["/C", "start"]);
-            if let Some(prof) = profile {
-                cmd.arg(&format!("--profile-directory={}", prof));
-            }
-            cmd
-        };
-
-        command
-            .arg(url)
-            .spawn()
-            .map_err(|e| format!("Failed to open browser: {}", e))?;
+        {
+            std::process::Command::new("cmd")
+                .args(&["/C", "start", &url])
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
 
         Ok(())
     }
 
-    fn create_meet(&mut self, profile: Option<&str>) -> Result<(), String> {
-        let meet_code = self.generate_meet_link();
-        let meet_url = format!("https://meet.google.com/{}", meet_code);
+    fn open_existing_meet_url(&self, url: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(url)
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
 
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(url)
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(&["/C", "start", url])
+                .spawn()
+                .map_err(|e| format!("Failed to open browser: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    fn create_meet(&mut self, authuser: Option<&str>) -> Result<(), String> {
         println!("{} Creating Google Meet room...", "Info:".bright_cyan());
+
+        // Open the /new endpoint
+        if let Some(user) = authuser {
+            println!(
+                "{} Opening with Google account: {}",
+                "Info:".bright_cyan(),
+                user.bright_magenta()
+            );
+        }
+
+        self.open_meet_new_url(authuser)?;
+
+        // Wait a moment for the browser to open
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
+        // Get the browser name and wait for the real URL
+        println!(
+            "{} Waiting for Google Meet to generate the link...",
+            "Info:".bright_cyan()
+        );
+
+        let browser = self.get_browser_name()?;
+        let meet_url = self.wait_for_meet_url(&browser, 20)?; // 20 attempts = 10 seconds max
+
         println!("{} {}", "Link:".bright_blue(), meet_url.bright_yellow());
 
         // Copy to clipboard if enabled
@@ -192,16 +350,6 @@ impl GoogleMeetPlugin {
             println!("{} Link copied to clipboard!", "Success:".bright_green());
         }
 
-        // Open in browser
-        if let Some(prof) = profile {
-            println!(
-                "{} Opening with profile: {}",
-                "Info:".bright_cyan(),
-                prof.bright_magenta()
-            );
-        }
-
-        self.open_meet_url(&meet_url, profile)?;
         self.add_to_history(&meet_url);
 
         println!(
@@ -217,11 +365,11 @@ impl GoogleMeetPlugin {
 
         if profiles.is_empty() {
             println!(
-                "{} No browser profiles configured. Use preferences to add profiles.",
+                "{} No Google accounts configured. Use preferences to add accounts.",
                 "Warning:".bright_yellow()
             );
             println!(
-                "{} Creating meeting with default browser...",
+                "{} Creating meeting with default account...",
                 "Info:".bright_cyan()
             );
             return self.create_meet(None);
@@ -231,14 +379,14 @@ impl GoogleMeetPlugin {
         let profile_names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
 
         let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Select browser profile", "👤".bright_cyan()))
+            .with_prompt(format!("{} Select Google account", "👤".bright_cyan()))
             .items(&profile_names)
             .default(0)
             .interact()
-            .map_err(|e| format!("Failed to show profile selector: {}", e))?;
+            .map_err(|e| format!("Failed to show account selector: {}", e))?;
 
-        let profile_path = profiles[selection].profile_path.clone();
-        self.create_meet(Some(&profile_path))
+        let authuser = profiles[selection].profile_path.clone();
+        self.create_meet(Some(&authuser))
     }
 
     fn manage_history(&mut self) -> Result<(), String> {
@@ -300,7 +448,7 @@ impl GoogleMeetPlugin {
                     .map_err(|e| format!("Failed to show selection: {}", e))?;
 
                 let link = &history[selection].link;
-                self.open_meet_url(link, None)?;
+                self.open_existing_meet_url(link)?;
                 println!("{} Meeting opened!", "Success:".bright_green());
             }
             2 => {
@@ -329,14 +477,14 @@ impl GoogleMeetPlugin {
         let theme = LlaDialoguerTheme::default();
 
         let actions = vec![
-            "➕ Add browser profile",
-            "📋 List profiles",
-            "🗑️  Remove profile",
+            "➕ Add Google account",
+            "📋 List accounts",
+            "🗑️  Remove account",
             "← Back",
         ];
 
         let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Manage Browser Profiles", "👤".bright_cyan()))
+            .with_prompt(format!("{} Manage Google Accounts", "👤".bright_cyan()))
             .items(&actions)
             .default(0)
             .interact()
@@ -344,33 +492,38 @@ impl GoogleMeetPlugin {
 
         match selection {
             0 => {
-                // Add profile
+                // Add account
                 let name: String = Input::with_theme(&theme)
-                    .with_prompt("Profile name")
+                    .with_prompt("Account name (e.g., 'Work', 'Personal')")
                     .interact_text()
                     .map_err(|e| format!("Failed to get input: {}", e))?;
 
-                let path: String = Input::with_theme(&theme)
-                    .with_prompt("Profile path (e.g., 'Default', 'Profile 1')")
+                let authuser: String = Input::with_theme(&theme)
+                    .with_prompt(
+                        "Google account (email or account number, e.g., 'user@example.com' or '0')",
+                    )
                     .interact_text()
                     .map_err(|e| format!("Failed to get input: {}", e))?;
 
                 let config = self.base.config_mut();
                 config.browser_profiles.push(BrowserProfile {
                     name,
-                    profile_path: path,
+                    profile_path: authuser,
                 });
 
                 self.base.save_config()?;
-                println!("{} Profile added successfully!", "Success:".bright_green());
+                println!(
+                    "{} Google account added successfully!",
+                    "Success:".bright_green()
+                );
             }
             1 => {
-                // List profiles
+                // List accounts
                 let profiles = &self.base.config().browser_profiles;
                 if profiles.is_empty() {
-                    println!("{} No profiles configured", "Info:".bright_cyan());
+                    println!("{} No Google accounts configured", "Info:".bright_cyan());
                 } else {
-                    println!("\n{} Browser Profiles:", "📋".bright_cyan());
+                    println!("\n{} Google Accounts:", "📋".bright_cyan());
                     for (i, profile) in profiles.iter().enumerate() {
                         println!(
                             " {}. {} {}",
@@ -382,17 +535,17 @@ impl GoogleMeetPlugin {
                 }
             }
             2 => {
-                // Remove profile
+                // Remove account
                 let profiles = &self.base.config().browser_profiles;
                 if profiles.is_empty() {
-                    println!("{} No profiles to remove", "Info:".bright_cyan());
+                    println!("{} No accounts to remove", "Info:".bright_cyan());
                     return Ok(());
                 }
 
                 let profile_names: Vec<String> = profiles.iter().map(|p| p.name.clone()).collect();
 
                 let selection = Select::with_theme(&theme)
-                    .with_prompt(format!("{} Select profile to remove", "🗑️ ".bright_cyan()))
+                    .with_prompt(format!("{} Select account to remove", "🗑️ ".bright_cyan()))
                     .items(&profile_names)
                     .default(0)
                     .interact()
@@ -400,7 +553,7 @@ impl GoogleMeetPlugin {
 
                 self.base.config_mut().browser_profiles.remove(selection);
                 self.base.save_config()?;
-                println!("{} Profile removed!", "Success:".bright_green());
+                println!("{} Google account removed!", "Success:".bright_green());
             }
             3 => {
                 // Back - do nothing
@@ -494,7 +647,7 @@ impl GoogleMeetPlugin {
 
         help.add_section("Description".to_string()).add_command(
             "".to_string(),
-            "Create Google Meet rooms and manage meeting links with browser profile support."
+            "Create real Google Meet rooms by opening meet.google.com/new and capturing the generated link. Supports multiple Google accounts."
                 .to_string(),
             vec![],
         );
@@ -502,27 +655,27 @@ impl GoogleMeetPlugin {
         help.add_section("Actions".to_string())
             .add_command(
                 "create".to_string(),
-                "Create a new meeting room".to_string(),
+                "Create a new meeting room with default account".to_string(),
                 vec!["create".to_string()],
             )
             .add_command(
                 "create-with-profile".to_string(),
-                "Create meeting with specified browser profile".to_string(),
+                "Create meeting with a specific Google account".to_string(),
                 vec!["create-with-profile".to_string()],
             )
             .add_command(
                 "history".to_string(),
-                "Manage meeting history".to_string(),
+                "View, copy, or reopen past meeting links".to_string(),
                 vec!["history".to_string()],
             )
             .add_command(
                 "profiles".to_string(),
-                "Manage browser profiles".to_string(),
+                "Manage Google accounts (add/list/remove)".to_string(),
                 vec!["profiles".to_string()],
             )
             .add_command(
                 "preferences".to_string(),
-                "Configure plugin preferences".to_string(),
+                "Configure auto-copy and history settings".to_string(),
                 vec!["preferences".to_string()],
             )
             .add_command(
@@ -530,6 +683,13 @@ impl GoogleMeetPlugin {
                 "Show this help information".to_string(),
                 vec!["help".to_string()],
             );
+
+        help.add_section("How It Works".to_string()).add_command(
+            "".to_string(),
+            "Opens https://meet.google.com/new in your browser, waits for Google to generate the real meeting link, then captures and saves it. Browser detection works on macOS."
+                .to_string(),
+            vec![],
+        );
 
         help.add_section("Preferences".to_string()).add_command(
             "Auto-copy Link".to_string(),

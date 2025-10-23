@@ -1,7 +1,7 @@
 [package]
 name = "google_meet"
 description = "Google Meet plugin for creating meeting rooms and managing links"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
