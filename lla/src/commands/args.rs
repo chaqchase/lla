@@ -70,6 +70,7 @@ pub enum Command {
     Install(InstallSource),
     ListPlugins,
     Use,
+    Diff(DiffCommand),
     InitConfig { wizard: bool },
     Config(Option<ConfigAction>),
     PluginAction(String, String, Vec<String>),
@@ -98,6 +99,18 @@ pub enum ShortcutAction {
     Export(Option<String>),
     Import(String, bool),
     Run(String, Vec<String>),
+}
+
+#[derive(Clone)]
+pub struct DiffCommand {
+    pub left: String,
+    pub target: DiffTarget,
+}
+
+#[derive(Clone)]
+pub enum DiffTarget {
+    Directory(String),
+    Git { reference: String },
 }
 
 #[derive(Clone, Debug)]
@@ -137,6 +150,33 @@ impl Args {
                     .help("The directory to list")
                     .index(1)
                     .default_value("."),
+            )
+            .subcommand(
+                SubCommand::with_name("diff")
+                    .about("Compare two directories or a directory against a git reference")
+                    .arg(
+                        Arg::with_name("left")
+                            .help("Base directory to compare")
+                            .required(true)
+                            .index(1),
+                    )
+                    .arg(
+                        Arg::with_name("right")
+                            .help("Directory to compare against")
+                            .index(2),
+                    )
+                    .arg(
+                        Arg::with_name("git")
+                            .long("git")
+                            .help("Compare the directory against a git reference instead of another directory"),
+                    )
+                    .arg(
+                        Arg::with_name("git-ref")
+                            .long("git-ref")
+                            .takes_value(true)
+                            .requires("git")
+                            .help("Git reference to compare against (default: HEAD)"),
+                    ),
             )
             .subcommand(
                 SubCommand::with_name("jump")
@@ -846,6 +886,36 @@ impl Args {
             }
         } else if matches.subcommand_matches("clean").is_some() {
             Some(Command::Clean)
+        } else if let Some(diff_matches) = matches.subcommand_matches("diff") {
+            let left = diff_matches
+                .value_of("left")
+                .expect("left argument is required")
+                .to_string();
+            if diff_matches.is_present("git") {
+                if diff_matches.value_of("right").is_some() {
+                    return Err(LlaError::Other(
+                        "Cannot specify a second directory when using --git".into(),
+                    ));
+                }
+                let reference = diff_matches
+                    .value_of("git-ref")
+                    .unwrap_or("HEAD")
+                    .to_string();
+                Some(Command::Diff(DiffCommand {
+                    left,
+                    target: DiffTarget::Git { reference },
+                }))
+            } else {
+                let right = diff_matches.value_of("right").ok_or_else(|| {
+                    LlaError::Other(
+                        "Provide a second directory (e.g. `lla diff src ../backup/src`) or pass --git to compare against git state".into(),
+                    )
+                })?;
+                Some(Command::Diff(DiffCommand {
+                    left,
+                    target: DiffTarget::Directory(right.to_string()),
+                }))
+            }
         } else if let Some(install_matches) = matches.subcommand_matches("install") {
             if install_matches.is_present("prebuilt") {
                 Some(Command::Install(InstallSource::Prebuilt))

@@ -48,6 +48,29 @@ impl Default for TreeFormatterConfig {
 pub struct SizeMapConfig {}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TableFormatterConfig {
+    #[serde(default = "default_table_columns")]
+    pub columns: Vec<String>,
+}
+
+impl Default for TableFormatterConfig {
+    fn default() -> Self {
+        Self {
+            columns: default_table_columns(),
+        }
+    }
+}
+
+fn default_table_columns() -> Vec<String> {
+    vec![
+        "permissions".to_string(),
+        "size".to_string(),
+        "modified".to_string(),
+        "name".to_string(),
+    ]
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FormatterConfig {
     #[serde(default)]
     pub tree: TreeFormatterConfig,
@@ -55,6 +78,8 @@ pub struct FormatterConfig {
     pub grid: GridFormatterConfig,
     #[serde(default)]
     pub long: LongFormatterConfig,
+    #[serde(default)]
+    pub table: TableFormatterConfig,
     #[serde(default)]
     pub sizemap: SizeMapConfig,
 }
@@ -65,6 +90,7 @@ impl Default for FormatterConfig {
             tree: TreeFormatterConfig::default(),
             grid: GridFormatterConfig::default(),
             long: LongFormatterConfig::default(),
+            table: TableFormatterConfig::default(),
             sizemap: SizeMapConfig::default(),
         }
     }
@@ -76,6 +102,8 @@ pub struct LongFormatterConfig {
     pub hide_group: bool,
     #[serde(default)]
     pub relative_dates: bool,
+    #[serde(default = "default_long_columns")]
+    pub columns: Vec<String>,
 }
 
 impl Default for LongFormatterConfig {
@@ -83,8 +111,20 @@ impl Default for LongFormatterConfig {
         Self {
             hide_group: false,
             relative_dates: false,
+            columns: default_long_columns(),
         }
     }
+}
+
+fn default_long_columns() -> Vec<String> {
+    vec![
+        "permissions".to_string(),
+        "size".to_string(),
+        "modified".to_string(),
+        "user".to_string(),
+        "group".to_string(),
+        "name".to_string(),
+    ]
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -350,6 +390,24 @@ impl Config {
         };
 
         let format_string = |value: &str| TomlValue::String(value.to_string()).to_string();
+        let long_columns = TomlValue::Array(
+            self.formatters
+                .long
+                .columns
+                .iter()
+                .map(|c| TomlValue::String(c.clone()))
+                .collect(),
+        )
+        .to_string();
+        let table_columns = TomlValue::Array(
+            self.formatters
+                .table
+                .columns
+                .iter()
+                .map(|c| TomlValue::String(c.clone()))
+                .collect(),
+        )
+        .to_string();
         let mut content = format!(
             r#"# lla Configuration File
 # This file controls the behavior and appearance of the lla command
@@ -487,6 +545,14 @@ hide_group = {}
 # Default: false
 relative_dates = {}
 
+# Column order for long view (use built-in keys or field:<custom_field> for plugin data)
+columns = {}
+
+# Table formatter configuration
+[formatters.table]
+# Columns rendered in table view (same keys as long view; include plugin fields via field:<name>)
+columns = {}
+
 # Lister-specific configurations
 [listers.recursive]
 # Maximum number of entries to process in recursive listing
@@ -545,6 +611,8 @@ ignore_patterns = {}"#,
             self.formatters.grid.max_width,
             self.formatters.long.hide_group,
             self.formatters.long.relative_dates,
+            long_columns,
+            table_columns,
             self.listers.recursive.max_entries.unwrap_or(0),
             serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
         );
@@ -982,6 +1050,26 @@ ignore_patterns = {}"#,
                     )));
                 }
                 self.formatters.tree.max_lines = Some(max_lines);
+            }
+            ["formatters", "long", "columns"] => {
+                let columns: Vec<String> = serde_json::from_str(value).map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be a JSON array of strings (e.g., [\"permissions\",\"size\"])"
+                            .to_string(),
+                    ))
+                })?;
+                self.formatters.long.columns = columns;
+            }
+            ["formatters", "table", "columns"] => {
+                let columns: Vec<String> = serde_json::from_str(value).map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be a JSON array of strings (e.g., [\"permissions\",\"name\"])"
+                            .to_string(),
+                    ))
+                })?;
+                self.formatters.table.columns = columns;
             }
 
             ["listers", "recursive", "max_entries"] => {

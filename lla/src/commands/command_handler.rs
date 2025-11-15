@@ -1,4 +1,5 @@
 use crate::commands::args::{Args, Command, InstallSource, ShortcutAction};
+use crate::commands::diff;
 use crate::commands::file_utils::list_directory;
 use crate::commands::init_wizard;
 use crate::commands::jump;
@@ -165,6 +166,7 @@ pub fn handle_command(
         }
         Some(Command::ListPlugins) => list_plugins(plugin_manager),
         Some(Command::Use) => list_plugins(plugin_manager),
+        Some(Command::Diff(diff_args)) => diff::run(diff_args.clone()),
         Some(Command::InitConfig { wizard }) => {
             if *wizard {
                 init_wizard::run_wizard()

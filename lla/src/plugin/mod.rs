@@ -16,6 +16,15 @@ use std::path::{Path, PathBuf};
 type DecorationCache = DashMap<(String, String), HashMap<String, String>>;
 static DECORATION_CACHE: Lazy<DecorationCache> = Lazy::new(DashMap::new);
 
+fn normalize_plugin_format(format: &str) -> Option<&'static str> {
+    match format {
+        "default" => Some("default"),
+        "long" => Some("long"),
+        "table" => Some("long"),
+        _ => None,
+    }
+}
+
 pub struct PluginManager {
     plugins: HashMap<String, (Library, *mut PluginApi)>,
     loaded_paths: HashSet<PathBuf>,
@@ -345,7 +354,10 @@ impl PluginManager {
     }
 
     pub fn decorate_entry(&mut self, entry: &mut proto::DecoratedEntry, format: &str) {
-        if self.enabled_plugins.is_empty() || (format != "default" && format != "long") {
+        let Some(plugin_format) = normalize_plugin_format(format) else {
+            return;
+        };
+        if self.enabled_plugins.is_empty() {
             return;
         }
 
@@ -367,7 +379,7 @@ impl PluginManager {
 
                 if let Ok(response) = self.send_request(name, request) {
                     if let Some(Message::FormatsResponse(formats_response)) = response.message {
-                        if formats_response.formats.contains(&format.to_string()) {
+                        if formats_response.formats.iter().any(|f| f == plugin_format) {
                             names.push(name.clone());
                         }
                     }
@@ -402,7 +414,10 @@ impl PluginManager {
     }
 
     pub fn format_fields(&mut self, entry: &proto::DecoratedEntry, format: &str) -> Vec<String> {
-        if self.enabled_plugins.is_empty() || (format != "default" && format != "long") {
+        let Some(plugin_format) = normalize_plugin_format(format) else {
+            return Vec::new();
+        };
+        if self.enabled_plugins.is_empty() {
             return Vec::new();
         }
 
@@ -416,7 +431,7 @@ impl PluginManager {
             ) {
                 Ok(response) => {
                     if let Some(Message::FormatsResponse(formats)) = response.message {
-                        formats.formats.contains(&format.to_string())
+                        formats.formats.iter().any(|f| f == plugin_format)
                     } else {
                         false
                     }
@@ -428,7 +443,7 @@ impl PluginManager {
                 let request = PluginMessage {
                     message: Some(Message::FormatField(proto::FormatFieldRequest {
                         entry: Some(entry.clone()),
-                        format: format.to_string(),
+                        format: plugin_format.to_string(),
                     })),
                 };
 

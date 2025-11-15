@@ -26,6 +26,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 ## Features
 
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
+- Directory Diff: Human-friendly directory vs directory/git comparisons with size deltas
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
 - Smart Navigation: Interactive directory jumper with bookmarks and history
@@ -133,7 +134,10 @@ To make these defaults, add to your config (`~/.config/lla/config.toml`):
 [formatters.long]
 hide_group = true
 relative_dates = true
+columns = ["permissions", "size", "modified", "user", "group", "name", "field:git_status", "field:tags"]
 ```
+
+The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `size`, `modified`, `user`, `group`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`).
 
 #### Tree Structure
 
@@ -177,6 +181,25 @@ lla -T
 ```
 
 <img src="https://github.com/user-attachments/assets/9f1d6d97-4074-4480-b242-a6a2eace4b38" className="rounded-2xl" alt="table" />
+
+The `[formatters.table].columns` setting mirrors the long-view syntax, so you can mix built-in fields with plugin-provided metadata:
+
+```toml
+[formatters.table]
+columns = ["permissions", "size", "modified", "name", "field:git_branch", "field:git_commit"]
+```
+
+#### Directory Diff View
+
+Compare two directories (or a directory against a git reference) with a one-line summary plus a compact diff table that highlights added, removed, and changed files along with their size deltas:
+
+```bash
+lla diff src ../backup/src
+lla diff apps/api --git              # compare working tree vs HEAD
+lla diff src --git --git-ref HEAD~1  # compare against another commit
+```
+
+The diff view groups entries by status, colors the change indicator, and shows left/right sizes plus the net delta so you can spot growth at a glance.
 
 #### Grid Display
 
@@ -456,6 +479,12 @@ lla --csv
 | `--git`       | `-G`  | Show git status and information         | `lla -G`                              |
 | `--fuzzy`     | `-F`  | Interactive fuzzy finder (Experimental) | `lla --fuzzy`                         |
 | `--recursive` | `-R`  | Recursive listing format                | `lla -R` <br> `lla -R -d 3`           |
+
+#### Comparison & Diff
+
+| Command | Description                                                     | Example                                                         |
+| ------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| `diff`  | Compare two directories or a directory vs git with size deltas | `lla diff src ../backup/src`<br>`lla diff src --git --git-ref HEAD~1` |
 
 #### Navigation Commands
 

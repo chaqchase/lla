@@ -5,6 +5,7 @@ use crate::filter::{
     CaseInsensitiveFilter, CompositeFilter, ExtensionFilter, FileFilter, FilterOperation,
     GlobFilter, PatternFilter, RegexFilter,
 };
+use crate::formatter::column_config::parse_columns;
 use crate::formatter::{csv as csv_writer, json as json_writer};
 use crate::formatter::{
     DefaultFormatter, FileFormatter, FuzzyFormatter, GitFormatter, GridFormatter, LongFormatter,
@@ -743,18 +744,22 @@ pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> 
             args.permission_format.clone(),
         ))
     } else if args.long_format {
+        let columns = parse_columns(&config.formatters.long.columns);
         Box::new(LongFormatter::new(
             args.show_icons,
             args.permission_format.clone(),
             args.hide_group,
             args.relative_dates,
+            columns,
         ))
     } else if args.tree_format {
         Box::new(TreeFormatter::new(args.show_icons))
     } else if args.table_format {
+        let columns = parse_columns(&config.formatters.table.columns);
         Box::new(TableFormatter::new(
             args.show_icons,
             args.permission_format.clone(),
+            columns,
         ))
     } else if args.grid_format {
         Box::new(GridFormatter::new(
