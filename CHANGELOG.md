@@ -15,10 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lla config show-effective` prints the merged configuration (global + profile) so you can see what actually applies in the current directory.
   - `lla config diff --default` highlights every overridden key, the default value, the effective value, and whether the change came from the global config or the profile file.
 - **Theme preview** (`lla theme preview <name>`) renders a sample directory listing plus a ripgrep-style match preview so you can compare color palettes without swapping themes.
+- **Range filter syntax** for size/modified/created metadata (`--size`, `--modified`, `--created`) with human-friendly comparisons like `>10M`, `2024-01-01..`.
+- **Named filter presets** via `[filter.presets.<name>]` blocks in the config, reusable through `--preset`.
+- **Result refinement** (`--refine`) that reuses cached listings so you can iteratively filter without re-scanning the filesystem.
+- **Search pipelines** (`--search-pipe plugin:action[:arg...]`) to feed ripgrep matches directly into plugins such as `file_tagger:list-tags` or `file_organizer:organize:type`.
 
 ## Docs
 
 - Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
+- Added README coverage for range filters, presets, cache-based refinement, and search→plugin pipelines.
 
 ## [0.5.0] - 2025-01-24
 

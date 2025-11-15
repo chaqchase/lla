@@ -1,12 +1,14 @@
-use crate::commands::args::{Args, OutputMode};
+use crate::commands::args::{Args, OutputMode, SearchPipelineSpec};
 use crate::config::Config;
 use crate::error::{LlaError, Result};
+use crate::plugin::PluginManager;
 use crate::theme::is_no_color;
 use crate::utils::color::colorize_file_name;
 use colored::*;
 use ignore::WalkBuilder;
 use lla_plugin_utils::syntax::CodeHighlighter;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use unicode_width::UnicodeWidthChar;
@@ -46,7 +48,7 @@ fn build_name_filter_args(args_cfg: &Args) -> Vec<String> {
     args
 }
 
-pub fn run_search(args: &Args, config: &Config) -> Result<()> {
+pub fn run_search(args: &Args, config: &Config, plugin_manager: &mut PluginManager) -> Result<()> {
     // Record visit of the search root for jump history
     crate::commands::jump::record_visit(&args.directory, config);
     let pattern = match &args.search {
@@ -174,16 +176,24 @@ pub fn run_search(args: &Args, config: &Config) -> Result<()> {
         return Err(LlaError::Other(format!("ripgrep error: {}", err.trim())));
     }
 
+    let stdout_data = output.stdout;
+    let matches = collect_matches(&stdout_data);
+
     match args.output_mode {
-        OutputMode::Human => render_pretty(&output.stdout, args),
+        OutputMode::Human => render_pretty(&matches, args),
         OutputMode::Json { .. } | OutputMode::Ndjson => {
-            // Pass-through ripgrep JSON
-            let s = String::from_utf8_lossy(&output.stdout);
+            let s = String::from_utf8_lossy(&stdout_data);
             print!("{}", s);
             Ok(())
         }
-        OutputMode::Csv => render_csv(&output.stdout),
+        OutputMode::Csv => render_csv(&matches),
+    }?;
+
+    if !args.search_pipelines.is_empty() {
+        run_search_pipelines(&matches, plugin_manager, &args.search_pipelines)?;
     }
+
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,19 +232,15 @@ struct RgSubMatch {
     end: usize,
 }
 
-fn render_pretty(stdout: &[u8], args: &Args) -> Result<()> {
+fn render_pretty(matches: &[RgMatch], args: &Args) -> Result<()> {
     use std::collections::BTreeMap;
     let mut matches_by_file: BTreeMap<String, Vec<RgMatch>> = BTreeMap::new();
 
-    for line in String::from_utf8_lossy(stdout).lines() {
-        if let Ok(ev) = serde_json::from_str::<RipgrepEvent>(line) {
-            if let RipgrepEvent::Match { data } = ev {
-                matches_by_file
-                    .entry(data.path.text.clone())
-                    .or_default()
-                    .push(data);
-            }
-        }
+    for data in matches.iter().cloned() {
+        matches_by_file
+            .entry(data.path.text.clone())
+            .or_default()
+            .push(data);
     }
 
     const TABSTOP: usize = 4;
@@ -319,22 +325,68 @@ fn render_pretty(stdout: &[u8], args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn render_csv(stdout: &[u8]) -> Result<()> {
+fn render_csv(matches: &[RgMatch]) -> Result<()> {
     println!("file,line,column,kind,text");
+    for data in matches {
+        let file = data.path.text.clone();
+        let line_no = data.line_number;
+        let col = data.submatches.get(0).map(|sm| sm.start + 1).unwrap_or(1);
+        let text = data.lines.text.replace('\n', "");
+        let text_escaped = text.replace('"', "\"\"");
+        println!(
+            "{} ,{} ,{} ,match ,\"{}\"",
+            file, line_no, col, text_escaped
+        );
+    }
+    Ok(())
+}
+
+fn collect_matches(stdout: &[u8]) -> Vec<RgMatch> {
+    let mut matches = Vec::new();
     for line in String::from_utf8_lossy(stdout).lines() {
         if let Ok(ev) = serde_json::from_str::<RipgrepEvent>(line) {
             if let RipgrepEvent::Match { data } = ev {
-                let file = data.path.text;
-                let line_no = data.line_number;
-                let col = data.submatches.get(0).map(|sm| sm.start + 1).unwrap_or(1);
-                let text = data.lines.text.replace('\n', "");
-                let text_escaped = text.replace('"', "\"\"");
-                println!(
-                    "{} ,{} ,{} ,match ,\"{}\"",
-                    file, line_no, col, text_escaped
-                );
+                matches.push(data);
             }
         }
+    }
+    matches
+}
+
+fn run_search_pipelines(
+    matches: &[RgMatch],
+    plugin_manager: &mut PluginManager,
+    pipelines: &[SearchPipelineSpec],
+) -> Result<()> {
+    if matches.is_empty() {
+        println!("No matches to feed into search pipelines.");
+        return Ok(());
+    }
+
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
+    for m in matches {
+        let path = m.path.text.clone();
+        if seen.insert(path.clone()) {
+            files.push(path);
+        }
+    }
+
+    if files.is_empty() {
+        println!("No files to feed into search pipelines.");
+        return Ok(());
+    }
+
+    for pipeline in pipelines {
+        let mut args = pipeline.args.clone();
+        args.extend(files.clone());
+        println!(
+            "↪ Running {}:{} on {} matched files",
+            pipeline.plugin,
+            pipeline.action,
+            files.len()
+        );
+        plugin_manager.perform_plugin_action(&pipeline.plugin, &pipeline.action, &args)?;
     }
     Ok(())
 }

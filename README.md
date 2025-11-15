@@ -35,6 +35,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Smart Sorting: Multiple criteria, directory-first option, natural sorting
 - Flexible Config: Easy initialization, plugin management, configuration tools
 - Rich Plugin Ecosystem: File ops and metadata enhancements, code analysis, git tools, and more
+- Smart Filters: Range-based size/time filters, reusable presets, cache-aware refinements
 
 ## Installation
 
@@ -493,15 +494,28 @@ lla --csv
 | Command            | Short | Description                     | Example                             |
 | ------------------ | ----- | ------------------------------- | ----------------------------------- |
 | `--filter`         | `-f`  | Filter files by pattern         | `lla -f "test"` <br> `lla -f ".rs"` |
+| `--preset`         |       | Apply named filter preset       | `lla --preset rust_sources`         |
+| `--size`           |       | Range filter on file size       | `lla --size 10M..1G`                |
+| `--modified`       |       | Range filter on modified time   | `lla --modified <7d`                |
+| `--created`        |       | Range filter on creation time   | `lla --created 2023-01-01..`        |
 | `--case-sensitive` | `-c`  | Enable case-sensitive filtering | `lla -f "test" -c`                  |
+| `--refine`         |       | Reuse cached listing w/ filter  | `lla --refine "regex:foo"`          |
 | `--depth`          | `-d`  | Set the depth for tree listing  | `lla -t -d 3` <br> `lla -d 2`       |
+
+##### Range Filters & Presets
+
+- Size filters understand human units and comparisons: `--size >10M`, `--size 512K..2G`, `--size ..100K`.
+- Time filters support ISO dates and relative durations: `--modified <7d`, `--created 2023-01-01..2023-12-31`.
+- Define reusable presets in `[filter.presets.<name>]` within your config, then reuse with `--preset <name>`.
+- `--refine` replays the last cached listing and applies new filters instantly—great for chaining explorations without touching the disk again.
 
 #### Content Search
 
-| Command            | Description                                | Example                                  |
-| ------------------ | ------------------------------------------ | ---------------------------------------- |
-| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                    |
-| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3` |
+| Command            | Description                                | Example                                                   |
+| ------------------ | ------------------------------------------ | --------------------------------------------------------- |
+| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                                     |
+| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3`                  |
+| `--search-pipe`    | Pipe matches into plugins                  | `lla --search "TODO" --search-pipe file_tagger:list-tags` |
 
 Content search uses literal string matching by default (safe for special characters). Use `regex:` prefix for regex patterns:
 
@@ -522,6 +536,8 @@ lla src/ --search "Error" --case-sensitive
 # Search with machine output
 lla --search "FIXME" --json
 ```
+
+- Automations: chain `--search` with `--search-pipe plugin:action[:arg...]` to send every matching file directly into plugins (e.g., `--search-pipe file_tagger:list-tags` or `--search-pipe file_organizer:organize:type`). The matched file paths are appended to the plugin arguments automatically.
 
 #### Advanced Filtering Patterns
 
@@ -567,12 +583,12 @@ lla --search "FIXME" --json
 
 #### Installation
 
-| Command         | Description                  | Example                                            |
-| --------------- | ---------------------------- | -------------------------------------------------- |
-| `install`       | Install from latest prebuilt release (default) | `lla install`                                 |
-| `install --prebuilt` | Install from latest prebuilt release | `lla install --prebuilt`                     |
-| `install --git` | Install from Git repository  | `lla install --git https://github.com/user/plugin` |
-| `install --dir` | Install from local directory | `lla install --dir path/to/plugin`                 |
+| Command              | Description                                    | Example                                            |
+| -------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| `install`            | Install from latest prebuilt release (default) | `lla install`                                      |
+| `install --prebuilt` | Install from latest prebuilt release           | `lla install --prebuilt`                           |
+| `install --git`      | Install from Git repository                    | `lla install --git https://github.com/user/plugin` |
+| `install --dir`      | Install from local directory                   | `lla install --dir path/to/plugin`                 |
 
 #### Plugin Controls
 
@@ -594,19 +610,19 @@ lla --search "FIXME" --json
 
 ### Configuration & Setup
 
-| Command         | Description                       | Example                                                                         |
-| --------------- | --------------------------------- | ------------------------------------------------------------------------------- |
-| `init`          | Initialize the configuration file | `lla init`                                                                      |
-| `init --wizard` | Interactive guided setup          | `lla init --wizard`                                                             |
-| `config`        | View or modify configuration      | `lla config`                                                                    |
-| `config show-effective` | Show merged global + profile config | `lla config show-effective`                                             |
-| `config diff --default` | List overrides vs built-in defaults | `lla config diff --default`                                           |
-| `theme`         | Interactive theme manager         | `lla theme`                                                                     |
-| `theme pull`    | Pull the built-in themes          | `lla theme pull`                                                                |
-| `theme install` | Install theme from file/directory | `lla theme install /path/to/theme.toml`<br>`lla theme install /path/to/themes/` |
-| `theme preview` | Render sample output for a theme  | `lla theme preview one_dark`                                                    |
-| `completion`    | Generate shell completion scripts | `lla completion bash`                                                           |
-| `clean`         | Clean up invalid plugins          | `lla clean`                                                                     |
+| Command                 | Description                         | Example                                                                         |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
+| `init`                  | Initialize the configuration file   | `lla init`                                                                      |
+| `init --wizard`         | Interactive guided setup            | `lla init --wizard`                                                             |
+| `config`                | View or modify configuration        | `lla config`                                                                    |
+| `config show-effective` | Show merged global + profile config | `lla config show-effective`                                                     |
+| `config diff --default` | List overrides vs built-in defaults | `lla config diff --default`                                                     |
+| `theme`                 | Interactive theme manager           | `lla theme`                                                                     |
+| `theme pull`            | Pull the built-in themes            | `lla theme pull`                                                                |
+| `theme install`         | Install theme from file/directory   | `lla theme install /path/to/theme.toml`<br>`lla theme install /path/to/themes/` |
+| `theme preview`         | Render sample output for a theme    | `lla theme preview one_dark`                                                    |
+| `completion`            | Generate shell completion scripts   | `lla completion bash`                                                           |
+| `clean`                 | Clean up invalid plugins            | `lla clean`                                                                     |
 
 ### General Options
 

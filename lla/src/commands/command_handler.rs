@@ -182,7 +182,7 @@ pub fn handle_command(
         Some(Command::Clean) => unreachable!(),
         None => {
             if args.search.is_some() {
-                run_search(args, config)
+                run_search(args, config, plugin_manager)
             } else {
                 list_directory(args, config, plugin_manager, config_error)
             }

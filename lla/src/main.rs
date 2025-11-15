@@ -22,7 +22,7 @@ fn main() -> Result<()> {
 
     set_theme(config.get_theme());
 
-    let args = Args::parse(&config);
+    let args = Args::parse(&config)?;
     theme::set_no_color(args.no_color);
 
     if let Some(Command::Clean) = args.command {

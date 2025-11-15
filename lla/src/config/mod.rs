@@ -159,6 +159,19 @@ pub struct FilterConfig {
     pub case_sensitive: bool,
     #[serde(default)]
     pub no_dotfiles: bool,
+    #[serde(default)]
+    pub presets: HashMap<String, FilterPreset>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct FilterPreset {
+    pub description: Option<String>,
+    pub filter: Option<String>,
+    pub size: Option<String>,
+    pub modified: Option<String>,
+    pub created: Option<String>,
+    #[serde(default)]
+    pub refine: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -336,6 +349,7 @@ impl Config {
             plugins_dir_str.to_string()
         };
 
+        let format_string = |value: &str| TomlValue::String(value.to_string()).to_string();
         let mut content = format!(
             r#"# lla Configuration File
 # This file controls the behavior and appearance of the lla command
@@ -435,6 +449,14 @@ case_sensitive = {}
 # Default: false
 no_dotfiles = {}
 
+# Named filter presets let you reuse complex filter combinations
+# Uncomment and customize the example below or define your own under [filter.presets.<name>]
+# [filter.presets.rust_sources]
+# description = "Common Rust sources"
+# filter = "glob:*.{{rs,toml}}"
+# size = "<2M"
+# modified = "<30d"
+
 # Formatter-specific configurations
 [formatters.tree]
 # Maximum number of entries to display in tree view
@@ -526,6 +548,41 @@ ignore_patterns = {}"#,
             self.listers.recursive.max_entries.unwrap_or(0),
             serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
         );
+
+        if !self.filter.presets.is_empty() {
+            content.push('\n');
+            content.push_str("# Saved filter presets\n");
+            for (name, preset) in &self.filter.presets {
+                content.push_str(&format!("[filter.presets.{}]\n", name));
+                if let Some(desc) = &preset.description {
+                    content.push_str(&format!("description = {}\n", format_string(desc)));
+                }
+                if let Some(pattern) = &preset.filter {
+                    content.push_str(&format!("filter = {}\n", format_string(pattern)));
+                }
+                if let Some(size) = &preset.size {
+                    content.push_str(&format!("size = {}\n", format_string(size)));
+                }
+                if let Some(modified) = &preset.modified {
+                    content.push_str(&format!("modified = {}\n", format_string(modified)));
+                }
+                if let Some(created) = &preset.created {
+                    content.push_str(&format!("created = {}\n", format_string(created)));
+                }
+                if !preset.refine.is_empty() {
+                    let arr = TomlValue::Array(
+                        preset
+                            .refine
+                            .iter()
+                            .map(|v| TomlValue::String(v.clone()))
+                            .collect(),
+                    )
+                    .to_string();
+                    content.push_str(&format!("refine = {}\n", arr));
+                }
+                content.push('\n');
+            }
+        }
 
         if !self.shortcuts.is_empty() {
             content.push_str("\n\n# Command shortcuts\n");
