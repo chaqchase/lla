@@ -51,7 +51,7 @@ pub enum Command {
     Install(InstallSource),
     ListPlugins,
     Use,
-    InitConfig,
+    InitConfig { wizard: bool },
     Config(Option<ConfigAction>),
     PluginAction(String, String, Vec<String>),
     Update(Option<String>),
@@ -62,6 +62,7 @@ pub enum Command {
     Theme,
     ThemePull,
     ThemeInstall(String),
+    ThemePreview(String),
 }
 
 pub enum InstallSource {
@@ -94,6 +95,8 @@ pub enum JumpAction {
 pub enum ConfigAction {
     View,
     Set(String, String),
+    ShowEffective,
+    DiffDefault,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -479,7 +482,15 @@ impl Args {
             )
             .subcommand(SubCommand::with_name("list-plugins").about("List all available plugins"))
             .subcommand(SubCommand::with_name("use").about("Interactive plugin manager"))
-            .subcommand(SubCommand::with_name("init").about("Initialize the configuration file"))
+            .subcommand(
+                SubCommand::with_name("init")
+                    .about("Initialize the configuration file")
+                    .arg(
+                        Arg::with_name("wizard")
+                            .long("wizard")
+                            .help("Launch the interactive configuration wizard"),
+                    ),
+            )
             .subcommand(
                 SubCommand::with_name("config")
                     .about("View or modify configuration")
@@ -490,6 +501,20 @@ impl Args {
                             .number_of_values(2)
                             .value_names(&["KEY", "VALUE"])
                             .help("Set a configuration value (e.g., --set plugins_dir /new/path)"),
+                    )
+                    .subcommand(
+                        SubCommand::with_name("show-effective")
+                            .about("Show the merged config (global + nearest .lla.toml)"),
+                    )
+                    .subcommand(
+                        SubCommand::with_name("diff")
+                            .about("Compare config overrides against defaults")
+                            .arg(
+                                Arg::with_name("default")
+                                    .long("default")
+                                    .help("Diff against the built-in defaults")
+                                    .required(true),
+                            ),
                     ),
             )
             .subcommand(
@@ -617,6 +642,16 @@ impl Args {
                                     .required(true)
                                     .index(1),
                             )
+                    )
+                    .subcommand(
+                        SubCommand::with_name("preview")
+                            .about("Preview a theme using sample output")
+                            .arg(
+                                Arg::with_name("name")
+                                    .help("Name of the theme to preview")
+                                    .required(true)
+                                    .index(1),
+                            ),
                     ),
             )
     }
@@ -705,6 +740,10 @@ impl Args {
                 Some(Command::ThemeInstall(
                     install_matches.value_of("path").unwrap().to_string(),
                 ))
+            } else if let Some(preview_matches) = theme_matches.subcommand_matches("preview") {
+                Some(Command::ThemePreview(
+                    preview_matches.value_of("name").unwrap().to_string(),
+                ))
             } else {
                 Some(Command::Theme)
             }
@@ -758,8 +797,10 @@ impl Args {
             Some(Command::ListPlugins)
         } else if matches.subcommand_matches("use").is_some() {
             Some(Command::Use)
-        } else if matches.subcommand_matches("init").is_some() {
-            Some(Command::InitConfig)
+        } else if let Some(init_matches) = matches.subcommand_matches("init") {
+            Some(Command::InitConfig {
+                wizard: init_matches.is_present("wizard"),
+            })
         } else if let Some(config_matches) = matches.subcommand_matches("config") {
             if let Some(values) = config_matches.values_of("set") {
                 let values: Vec<_> = values.collect();
@@ -767,6 +808,13 @@ impl Args {
                     values[0].to_string(),
                     values[1].to_string(),
                 ))))
+            } else if config_matches
+                .subcommand_matches("show-effective")
+                .is_some()
+            {
+                Some(Command::Config(Some(ConfigAction::ShowEffective)))
+            } else if config_matches.subcommand_matches("diff").is_some() {
+                Some(Command::Config(Some(ConfigAction::DiffDefault)))
             } else {
                 Some(Command::Config(Some(ConfigAction::View)))
             }

@@ -1,5 +1,6 @@
 use crate::commands::args::{Args, Command, InstallSource, ShortcutAction};
 use crate::commands::file_utils::list_directory;
+use crate::commands::init_wizard;
 use crate::commands::jump;
 use crate::commands::plugin_utils::{handle_plugin_action, list_plugins};
 use crate::commands::search::run_search;
@@ -155,6 +156,7 @@ pub fn handle_command(
         Some(Command::Theme) => crate::theme::select_theme(config),
         Some(Command::ThemePull) => crate::theme::pull_themes(&color_state),
         Some(Command::ThemeInstall(path)) => crate::theme::install_themes(&path, &color_state),
+        Some(Command::ThemePreview(name)) => crate::theme::preview_theme(name),
         Some(Command::Shortcut(action)) => handle_shortcut_action(action, config, &color_state),
         Some(Command::Install(source)) => handle_install(source, args),
         Some(Command::Update(plugin_name)) => {
@@ -163,7 +165,13 @@ pub fn handle_command(
         }
         Some(Command::ListPlugins) => list_plugins(plugin_manager),
         Some(Command::Use) => list_plugins(plugin_manager),
-        Some(Command::InitConfig) => config::initialize_config(),
+        Some(Command::InitConfig { wizard }) => {
+            if *wizard {
+                init_wizard::run_wizard()
+            } else {
+                config::initialize_config()
+            }
+        }
         Some(Command::Config(action)) => config::handle_config_command(action.clone()),
         Some(Command::PluginAction(plugin_name, action, action_args)) => {
             // Resolve plugin alias if exists

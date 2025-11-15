@@ -81,6 +81,9 @@ After installation, initialize your setup:
 # Create default config
 lla init
 
+# Guided setup with theme/format wizard
+lla init --wizard
+
 # View your config
 lla config
 ```
@@ -594,10 +597,14 @@ lla --search "FIXME" --json
 | Command         | Description                       | Example                                                                         |
 | --------------- | --------------------------------- | ------------------------------------------------------------------------------- |
 | `init`          | Initialize the configuration file | `lla init`                                                                      |
+| `init --wizard` | Interactive guided setup          | `lla init --wizard`                                                             |
 | `config`        | View or modify configuration      | `lla config`                                                                    |
+| `config show-effective` | Show merged global + profile config | `lla config show-effective`                                             |
+| `config diff --default` | List overrides vs built-in defaults | `lla config diff --default`                                           |
 | `theme`         | Interactive theme manager         | `lla theme`                                                                     |
 | `theme pull`    | Pull the built-in themes          | `lla theme pull`                                                                |
 | `theme install` | Install theme from file/directory | `lla theme install /path/to/theme.toml`<br>`lla theme install /path/to/themes/` |
+| `theme preview` | Render sample output for a theme  | `lla theme preview one_dark`                                                    |
 | `completion`    | Generate shell completion scripts | `lla completion bash`                                                           |
 | `clean`         | Clean up invalid plugins          | `lla clean`                                                                     |
 
@@ -629,6 +636,22 @@ Notes:
 
 - Tilde `~` is expanded to your home directory.
 - Exclusions are honored in recursive listings and top-level listings.
+
+### Project Profiles (`.lla.toml`)
+
+Keep repo-specific defaults local by dropping a `.lla.toml` file anywhere inside the project. lla walks up from your current working directory, finds the nearest profile, and overlays it on top of the global config without touching `~/.config/lla/config.toml`.
+
+Example `.lla.toml`:
+
+```toml
+show_icons = true
+default_format = "git"
+
+[sort]
+dirs_first = true
+```
+
+Use `lla config show-effective` to inspect the merged configuration (global + profile) and `lla config diff --default` to see exactly which keys diverge from the built-in defaults and whether the change came from the global config or the profile file.
 
 ## License
 

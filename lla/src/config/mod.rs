@@ -2,9 +2,12 @@ use crate::commands::args::ConfigAction;
 use crate::error::{ConfigErrorKind, LlaError, Result};
 use crate::theme::{load_theme, Theme};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::Value as JsonValue;
+use std::collections::{BTreeMap, HashMap};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use toml::Value as TomlValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TreeFormatterConfig {
@@ -237,6 +240,64 @@ pub struct ShortcutCommand {
     pub plugin_name: String,
     pub action: String,
     pub description: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ConfigLayers {
+    pub default: Config,
+    pub global: Config,
+    pub effective: Config,
+    pub profile_path: Option<PathBuf>,
+}
+
+pub fn load_config_layers(start_dir: Option<&Path>) -> Result<(ConfigLayers, Option<LlaError>)> {
+    let default_config = Config::default();
+    let config_path = Config::get_config_path();
+    let (global_config, config_error) = match Config::load(&config_path) {
+        Ok(cfg) => (cfg, None),
+        Err(err) => (Config::default(), Some(err)),
+    };
+
+    let mut effective_config = global_config.clone();
+    let profile_path = match find_profile_file(start_dir)? {
+        Some(path) => {
+            if let Err(profile_err) = effective_config.apply_profile_file(&path) {
+                return Err(profile_err);
+            }
+            Some(path)
+        }
+        None => None,
+    };
+
+    Ok((
+        ConfigLayers {
+            default: default_config,
+            global: global_config,
+            effective: effective_config,
+            profile_path,
+        },
+        config_error,
+    ))
+}
+
+pub fn find_profile_file(start_dir: Option<&Path>) -> Result<Option<PathBuf>> {
+    let mut current_dir = match start_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => env::current_dir()?,
+    };
+
+    loop {
+        let candidate = current_dir.join(".lla.toml");
+        if candidate.is_file() {
+            return Ok(Some(candidate));
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    Ok(None)
 }
 
 impl Config {
@@ -494,6 +555,34 @@ ignore_patterns = {}"#,
 
         self.ensure_plugins_dir()?;
         fs::write(path, self.generate_config_content())?;
+        Ok(())
+    }
+
+    pub fn apply_profile_file(&mut self, profile_path: &Path) -> Result<()> {
+        if !profile_path.is_file() {
+            return Err(LlaError::Config(ConfigErrorKind::InvalidPath(
+                profile_path.display().to_string(),
+            )));
+        }
+
+        let contents = fs::read_to_string(profile_path)?;
+        let overlay: TomlValue = toml::from_str(&contents)?;
+        self.apply_profile_value(&overlay)
+    }
+
+    fn apply_profile_value(&mut self, overlay: &TomlValue) -> Result<()> {
+        let mut base_value = TomlValue::try_from(self.clone())
+            .map_err(|err| LlaError::Config(ConfigErrorKind::InvalidFormat(err.to_string())))?;
+
+        merge_toml_values(&mut base_value, overlay);
+
+        let merged: Config = base_value.try_into().map_err(|err: toml::de::Error| {
+            LlaError::Config(ConfigErrorKind::InvalidFormat(err.to_string()))
+        })?;
+
+        *self = merged;
+        self.ensure_plugins_dir()?;
+        self.validate()?;
         Ok(())
     }
 
@@ -928,6 +1017,20 @@ impl Default for Config {
     }
 }
 
+fn merge_toml_values(base: &mut TomlValue, overlay: &TomlValue) {
+    if let (Some(base_table), TomlValue::Table(overlay_table)) = (base.as_table_mut(), overlay) {
+        for (key, overlay_value) in overlay_table {
+            if let Some(existing) = base_table.get_mut(key) {
+                merge_toml_values(existing, overlay_value);
+            } else {
+                base_table.insert(key.clone(), overlay_value.clone());
+            }
+        }
+    } else {
+        *base = overlay.clone();
+    }
+}
+
 pub fn initialize_config() -> Result<()> {
     let config_path = Config::get_config_path();
     let config_dir = config_path.parent().unwrap();
@@ -958,14 +1061,15 @@ pub fn initialize_config() -> Result<()> {
 pub fn handle_config_command(action: Option<ConfigAction>) -> Result<()> {
     let config_path = Config::get_config_path();
     match action {
-        Some(ConfigAction::View) => view_config(),
+        Some(ConfigAction::View) | None => view_config(),
         Some(ConfigAction::Set(key, value)) => {
             let mut config = Config::load(&config_path)?;
             config.set_value(&key, &value)?;
             println!("Updated {} = {}", key, value);
             Ok(())
         }
-        None => view_config(),
+        Some(ConfigAction::ShowEffective) => show_effective_config(),
+        Some(ConfigAction::DiffDefault) => diff_with_defaults(),
     }
 }
 
@@ -975,4 +1079,154 @@ pub fn view_config() -> Result<()> {
     println!("Current configuration at {:?}:", config_path);
     println!("{:#?}", config);
     Ok(())
+}
+
+fn show_effective_config() -> Result<()> {
+    let (layers, config_error) = load_config_layers(None)?;
+    if let Some(err) = config_error {
+        println!("⚠ Using default config due to load error: {}", err);
+    }
+    if let Some(profile) = &layers.profile_path {
+        println!("Profile overlay: {}", profile.display());
+    } else {
+        println!("Profile overlay: <none>");
+    }
+    let rendered = toml::to_string_pretty(&layers.effective)
+        .map_err(|err| LlaError::Config(ConfigErrorKind::InvalidFormat(err.to_string())))?;
+    println!("{}", rendered);
+    Ok(())
+}
+
+fn diff_with_defaults() -> Result<()> {
+    let (layers, config_error) = load_config_layers(None)?;
+    if let Some(err) = config_error {
+        println!(
+            "⚠ Global config could not be loaded cleanly ({}). Diffing may be incomplete.",
+            err
+        );
+    }
+
+    let diffs = collect_diff_entries(&layers)?;
+    if diffs.is_empty() {
+        println!("Effective configuration matches built-in defaults.");
+        if let Some(profile) = &layers.profile_path {
+            println!(
+                "Profile '{}' is present but does not override defaults.",
+                profile.display()
+            );
+        }
+        return Ok(());
+    }
+
+    println!("Effective overrides compared to built-in defaults:\n");
+    for diff in diffs {
+        println!("{}", diff.key);
+        println!("  default : {}", diff.default_value);
+        println!("  current : {}", diff.effective_value);
+        match diff.source {
+            DiffSource::Global => println!("  source  : global config"),
+            DiffSource::Profile(path) => println!("  source  : profile ({})", path.display()),
+        }
+        println!();
+    }
+    Ok(())
+}
+
+struct DiffEntry {
+    key: String,
+    default_value: String,
+    effective_value: String,
+    source: DiffSource,
+}
+
+enum DiffSource {
+    Global,
+    Profile(PathBuf),
+}
+
+fn collect_diff_entries(layers: &ConfigLayers) -> Result<Vec<DiffEntry>> {
+    let default_map = flatten_config(&layers.default)?;
+    let global_map = flatten_config(&layers.global)?;
+    let effective_map = flatten_config(&layers.effective)?;
+
+    let mut entries = Vec::new();
+    for (key, effective_value) in &effective_map {
+        let default_value = default_map.get(key);
+        if default_value == Some(effective_value) {
+            continue;
+        }
+
+        let global_value = global_map.get(key);
+        let source = if let Some(profile) = &layers.profile_path {
+            if global_value != Some(effective_value) {
+                DiffSource::Profile(profile.clone())
+            } else {
+                DiffSource::Global
+            }
+        } else {
+            DiffSource::Global
+        };
+
+        entries.push(DiffEntry {
+            key: key.clone(),
+            default_value: option_value_to_string(default_value),
+            effective_value: json_value_to_string(effective_value),
+            source,
+        });
+    }
+
+    Ok(entries)
+}
+
+fn flatten_config(config: &Config) -> Result<BTreeMap<String, JsonValue>> {
+    let root = serde_json::to_value(config)?;
+    let mut map = BTreeMap::new();
+    flatten_json("", &root, &mut map);
+    Ok(map)
+}
+
+fn flatten_json(prefix: &str, value: &JsonValue, map: &mut BTreeMap<String, JsonValue>) {
+    match value {
+        JsonValue::Object(obj) => {
+            for (key, child) in obj {
+                let next_prefix = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{}.{}", prefix, key)
+                };
+                flatten_json(&next_prefix, child, map);
+            }
+        }
+        _ => {
+            if !prefix.is_empty() {
+                map.insert(prefix.to_string(), value.clone());
+            }
+        }
+    }
+}
+
+fn option_value_to_string(value: Option<&JsonValue>) -> String {
+    value
+        .map(json_value_to_string)
+        .unwrap_or_else(|| "<unset>".to_string())
+}
+
+fn json_value_to_string(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(s) => format!("\"{}\"", s),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::Bool(b) => b.to_string(),
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(json_value_to_string).collect();
+            format!("[{}]", items.join(", "))
+        }
+        JsonValue::Object(obj) => {
+            let items: Vec<String> = obj
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, json_value_to_string(v)))
+                .collect();
+            format!("{{{}}}", items.join(", "))
+        }
+    }
 }

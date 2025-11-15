@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# [Unreleased]
+
+## Added
+
+- **Interactive Init Wizard** (`lla init --wizard`) that walks through icon, theme, default view, and Git-focused setup choices before writing a tailored config.
+- **Per-directory profiles** via `.lla.toml`. lla now searches upward from the current working directory and overlays the nearest profile on top of the global config for safe, opt-in repo defaults.
+- **Config introspection commands**:
+  - `lla config show-effective` prints the merged configuration (global + profile) so you can see what actually applies in the current directory.
+  - `lla config diff --default` highlights every overridden key, the default value, the effective value, and whether the change came from the global config or the profile file.
+- **Theme preview** (`lla theme preview <name>`) renders a sample directory listing plus a ripgrep-style match preview so you can compare color palettes without swapping themes.
+
+## Docs
+
+- Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
+
 ## [0.5.0] - 2025-01-24
 
 ### Added
