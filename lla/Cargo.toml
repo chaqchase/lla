@@ -57,3 +57,4 @@ flate2 = "1"
 libc = "0.2"
 ureq.workspace = true
 sha2.workspace = true
+similar = "2"

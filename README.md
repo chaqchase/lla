@@ -26,7 +26,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 ## Features
 
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
-- Directory Diff: Human-friendly directory vs directory/git comparisons with size deltas
+- Diff Command: Human-friendly directory or file comparisons (local ↔ local or git) with size/line deltas and unified diff output
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
 - Smart Navigation: Interactive directory jumper with bookmarks and history
@@ -189,17 +189,19 @@ The `[formatters.table].columns` setting mirrors the long-view syntax, so you ca
 columns = ["permissions", "size", "modified", "name", "field:git_branch", "field:git_commit"]
 ```
 
-#### Directory Diff View
+#### Diff View (Files & Directories)
 
-Compare two directories (or a directory against a git reference) with a one-line summary plus a compact diff table that highlights added, removed, and changed files along with their size deltas:
+Compare directories or individual files (including against git references) with compact, colorized summaries. Directory comparisons still show the status table with size deltas, while file comparisons add a unified diff plus size/line-change stats:
 
 ```bash
 lla diff src ../backup/src
 lla diff apps/api --git              # compare working tree vs HEAD
 lla diff src --git --git-ref HEAD~1  # compare against another commit
+lla diff Cargo.lock ../backup/Cargo.lock
+lla diff Cargo.lock --git --git-ref HEAD~1
 ```
 
-The diff view groups entries by status, colors the change indicator, and shows left/right sizes plus the net delta so you can spot growth at a glance.
+For directories, the diff view groups entries by status, colors the change indicator, and shows left/right sizes plus the net delta so you can spot growth at a glance. For files, lla prints a size summary, line-count delta, and a git-style unified diff (with automatic binary detection so unreadable data isn’t dumped to your terminal).
 
 #### Grid Display
 

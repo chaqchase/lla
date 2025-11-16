@@ -3,96 +3,371 @@ use crate::error::{LlaError, Result};
 use crate::theme;
 use crate::utils::color::colorize_size;
 use colored::Colorize;
+use ignore::WalkBuilder;
+use similar::TextDiff;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str;
 use unicode_width::UnicodeWidthStr;
-use walkdir::WalkDir;
 
 pub fn run(diff: DiffCommand) -> Result<()> {
     let DiffCommand { left, target } = diff;
+    let left_entry = resolve_path(&left)?;
+
     match target {
-        DiffTarget::Directory(right) => diff_directories(&left, &right),
-        DiffTarget::Git { reference } => diff_with_git(&left, &reference),
+        DiffTarget::Directory(right) => {
+            let right_entry = resolve_path(&right)?;
+            match (left_entry.kind, right_entry.kind) {
+                (PathKind::Directory, PathKind::Directory) => {
+                    diff_directories(&left_entry.path, &right_entry.path)
+                }
+                (PathKind::File, PathKind::File) => diff_files(&left_entry.path, &right_entry.path),
+                (PathKind::Directory, PathKind::File) => Err(LlaError::Other(format!(
+                    "Cannot diff directory '{}' against file '{}'",
+                    left_entry.path.display(),
+                    right_entry.path.display()
+                ))),
+                (PathKind::File, PathKind::Directory) => Err(LlaError::Other(format!(
+                    "Cannot diff file '{}' against directory '{}'",
+                    left_entry.path.display(),
+                    right_entry.path.display()
+                ))),
+            }
+        }
+        DiffTarget::Git { reference } => match left_entry.kind {
+            PathKind::Directory => diff_directory_with_git(&left_entry.path, &reference),
+            PathKind::File => diff_file_with_git(&left_entry.path, &reference),
+        },
     }
 }
 
-fn diff_directories(left: &str, right: &str) -> Result<()> {
-    let left_path = canonicalize_dir(left)?;
-    let right_path = canonicalize_dir(right)?;
-    let left_entries = collect_local_entries(&left_path)?;
-    let right_entries = collect_local_entries(&right_path)?;
+struct ResolvedPath {
+    path: PathBuf,
+    kind: PathKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathKind {
+    File,
+    Directory,
+}
+
+fn resolve_path(path: &str) -> Result<ResolvedPath> {
+    let pb = PathBuf::from(path);
+    let canonical = pb.canonicalize().map_err(|_| {
+        LlaError::Other(format!(
+            "Path '{}' does not exist or is not accessible",
+            path
+        ))
+    })?;
+    let metadata = canonical.metadata().map_err(|e| {
+        LlaError::Other(format!(
+            "Failed to inspect '{}': {}",
+            canonical.display(),
+            e
+        ))
+    })?;
+
+    let kind = if metadata.is_dir() {
+        PathKind::Directory
+    } else if metadata.is_file() {
+        PathKind::File
+    } else {
+        return Err(LlaError::Other(format!(
+            "Path '{}' is not a regular file or directory",
+            path
+        )));
+    };
+
+    Ok(ResolvedPath {
+        path: canonical,
+        kind,
+    })
+}
+
+fn diff_directories(left: &Path, right: &Path) -> Result<()> {
+    let left_entries = collect_local_entries(left)?;
+    let right_entries = collect_local_entries(right)?;
 
     render_diff(
-        &left_path.display().to_string(),
-        &right_path.display().to_string(),
+        &left.display().to_string(),
+        &right.display().to_string(),
         left_entries,
         right_entries,
     )
 }
 
-fn diff_with_git(left: &str, reference: &str) -> Result<()> {
-    let left_path = canonicalize_dir(left)?;
-    let left_entries = collect_local_entries(&left_path)?;
-    let git_entries = collect_git_entries(&left_path, reference)?;
+fn diff_directory_with_git(left: &Path, reference: &str) -> Result<()> {
+    let left_entries = collect_local_entries(left)?;
+    let git_entries = collect_git_entries(left, reference)?;
 
     // When comparing against git we treat the git reference as the "left"/baseline
     // side so that additions/removals are reported from the perspective of the
     // working tree (i.e. files that exist locally but not in git show up as added).
     render_diff(
         &format!("git:{}", reference),
-        &left_path.display().to_string(),
+        &left.display().to_string(),
         git_entries,
         left_entries,
     )
 }
 
-fn canonicalize_dir(path: &str) -> Result<PathBuf> {
-    let pb = PathBuf::from(path);
-    let canonical = pb.canonicalize().map_err(|_| {
+fn diff_files(left: &Path, right: &Path) -> Result<()> {
+    let left_bytes = read_file_bytes(left)?;
+    let right_bytes = read_file_bytes(right)?;
+
+    render_file_diff(
+        &left.display().to_string(),
+        &right.display().to_string(),
+        &left_bytes,
+        &right_bytes,
+        None,
+    )
+}
+
+fn diff_file_with_git(path: &Path, reference: &str) -> Result<()> {
+    let repo_root = git_repo_root(path)?;
+    verify_git_reference(&repo_root, reference)?;
+    let relative = path.strip_prefix(&repo_root).map_err(|_| {
         LlaError::Other(format!(
-            "Directory '{}' does not exist or is not accessible",
-            path
+            "File '{}' is outside the git repository",
+            path.display()
         ))
     })?;
-    if !canonical.is_dir() {
+    let git_path = to_git_path(relative);
+    let (baseline_bytes, missing_baseline) = match read_git_blob(&repo_root, reference, &git_path)?
+    {
+        Some(bytes) => (bytes, false),
+        None => (Vec::new(), true),
+    };
+    let working_bytes = read_file_bytes(path)?;
+    let note = missing_baseline.then_some(
+        "Note: file does not exist in the selected git reference; treating it as newly added.",
+    );
+
+    render_file_diff(
+        &format!("git:{}:{}", reference, git_path),
+        &path.display().to_string(),
+        &baseline_bytes,
+        &working_bytes,
+        note,
+    )
+}
+
+fn read_file_bytes(path: &Path) -> Result<Vec<u8>> {
+    fs::read(path)
+        .map_err(|e| LlaError::Other(format!("Failed to read file '{}': {}", path.display(), e)))
+}
+
+fn read_git_blob(repo_root: &Path, reference: &str, git_path: &str) -> Result<Option<Vec<u8>>> {
+    let spec = format!("{}:{}", reference, git_path);
+    let ls_output = Command::new("git")
+        .arg("ls-tree")
+        .arg(reference)
+        .arg("--")
+        .arg(git_path)
+        .current_dir(repo_root)
+        .output()?;
+    if !ls_output.status.success() {
         return Err(LlaError::Other(format!(
-            "Path '{}' is not a directory",
-            path
+            "git ls-tree failed: {}",
+            String::from_utf8_lossy(&ls_output.stderr).trim()
         )));
     }
-    Ok(canonical)
+    if ls_output.stdout.is_empty() {
+        return Ok(None);
+    }
+
+    let output = Command::new("git")
+        .arg("show")
+        .arg(&spec)
+        .current_dir(repo_root)
+        .output()?;
+    if !output.status.success() {
+        return Err(LlaError::Other(format!(
+            "git show failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    Ok(Some(output.stdout))
+}
+
+fn verify_git_reference(repo_root: &Path, reference: &str) -> Result<()> {
+    let output = Command::new("git")
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg(reference)
+        .current_dir(repo_root)
+        .output()?;
+    if !output.status.success() {
+        return Err(LlaError::Other(format!(
+            "Git reference '{}' is invalid: {}",
+            reference,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
+fn render_file_diff(
+    left_label: &str,
+    right_label: &str,
+    left_bytes: &[u8],
+    right_bytes: &[u8],
+    note: Option<&str>,
+) -> Result<()> {
+    println!(
+        "{}",
+        format!("Comparing {} → {}", left_label, right_label).bold()
+    );
+    if let Some(note) = note {
+        println!("{}", note.italic());
+    }
+
+    if left_bytes == right_bytes {
+        println!("No differences found.");
+        return Ok(());
+    }
+
+    let left_size = left_bytes.len() as u64;
+    let right_size = right_bytes.len() as u64;
+    let size_delta = right_size as i64 - left_size as i64;
+
+    println!("{}", "Summary:".bold());
+    println!(
+        "  Size     {} → {}   {}",
+        colorize_size(left_size),
+        colorize_size(right_size),
+        format_delta_with_percent(size_delta, Some(left_size), Some(right_size))
+    );
+
+    match (str::from_utf8(left_bytes), str::from_utf8(right_bytes)) {
+        (Ok(left_text), Ok(right_text)) => {
+            let left_lines = count_lines(left_text);
+            let right_lines = count_lines(right_text);
+            let line_delta = right_lines as i64 - left_lines as i64;
+            println!(
+                "  Lines    {} → {}   {}",
+                left_lines,
+                right_lines,
+                format_line_delta(line_delta)
+            );
+            println!();
+            print_text_diff(left_label, right_label, left_text, right_text);
+        }
+        _ => {
+            println!("  Content  Binary data (diff not shown)");
+            println!();
+            println!("Binary files differ.");
+        }
+    }
+
+    Ok(())
+}
+
+fn count_lines(text: &str) -> usize {
+    if text.is_empty() {
+        0
+    } else {
+        text.lines().count()
+    }
+}
+
+fn format_line_delta(delta: i64) -> String {
+    if delta == 0 {
+        "0".to_string()
+    } else if theme::is_no_color() {
+        format!("{:+}", delta)
+    } else if delta > 0 {
+        format!("+{}", delta).green().bold().to_string()
+    } else {
+        delta.to_string().red().bold().to_string()
+    }
+}
+
+fn print_text_diff(left_label: &str, right_label: &str, left_text: &str, right_text: &str) {
+    let diff = TextDiff::from_lines(left_text, right_text);
+    let diff_text = diff
+        .unified_diff()
+        .context_radius(3)
+        .header(left_label, right_label)
+        .to_string();
+
+    if theme::is_no_color() {
+        print!("{}", diff_text);
+        if !diff_text.ends_with('\n') {
+            println!();
+        }
+        return;
+    }
+
+    for line in diff_text.lines() {
+        let styled = if line.starts_with('+') && !line.starts_with("+++") {
+            line.green().to_string()
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            line.red().to_string()
+        } else if line.starts_with("@@") {
+            line.cyan().bold().to_string()
+        } else if line.starts_with("+++") || line.starts_with("---") {
+            line.bold().to_string()
+        } else {
+            line.to_string()
+        };
+        println!("{}", styled);
+    }
+    if !diff_text.ends_with('\n') {
+        println!();
+    }
 }
 
 fn collect_local_entries(root: &Path) -> Result<BTreeMap<String, u64>> {
     let mut entries = BTreeMap::new();
 
-    for entry in WalkDir::new(root).follow_links(false) {
-        let entry = entry.map_err(|e| {
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .follow_links(false)
+        .hidden(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .parents(true);
+
+    for dent in builder.build() {
+        let entry = dent.map_err(|e| {
             LlaError::Other(format!(
                 "Failed to read directory '{}': {}",
                 root.display(),
                 e
             ))
         })?;
-        if entry.path().is_dir() {
+
+        let path = entry.path();
+        if path == root {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(root)
-            .unwrap_or_else(|_| entry.path());
+
+        if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            continue;
+        }
+
+        if is_git_internal(path, root) {
+            continue;
+        }
+
+        let rel = path.strip_prefix(root).unwrap_or(path);
         if rel.as_os_str().is_empty() {
             continue;
         }
 
         let metadata = entry
             .metadata()
-            .or_else(|_| entry.path().symlink_metadata())
+            .or_else(|_| path.symlink_metadata())
             .map_err(|e| {
                 LlaError::Other(format!(
                     "Failed to read metadata for '{}': {}",
-                    entry.path().display(),
+                    path.display(),
                     e
                 ))
             })?;
@@ -102,6 +377,15 @@ fn collect_local_entries(root: &Path) -> Result<BTreeMap<String, u64>> {
     }
 
     Ok(entries)
+}
+
+fn is_git_internal(path: &Path, root: &Path) -> bool {
+    match path.strip_prefix(root) {
+        Ok(relative) => relative
+            .components()
+            .any(|component| component.as_os_str() == ".git"),
+        Err(_) => false,
+    }
 }
 
 fn collect_git_entries(root: &Path, reference: &str) -> Result<BTreeMap<String, u64>> {
@@ -173,10 +457,16 @@ fn collect_git_entries(root: &Path, reference: &str) -> Result<BTreeMap<String, 
 }
 
 fn git_repo_root(path: &Path) -> Result<PathBuf> {
+    let cd_target = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or_else(|| Path::new("/"))
+    };
+
     let output = Command::new("git")
         .arg("rev-parse")
         .arg("--show-toplevel")
-        .current_dir(path)
+        .current_dir(cd_target)
         .output()?;
     if !output.status.success() {
         return Err(LlaError::Other(format!(

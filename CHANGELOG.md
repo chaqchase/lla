@@ -19,14 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Named filter presets** via `[filter.presets.<name>]` blocks in the config, reusable through `--preset`.
 - **Result refinement** (`--refine`) that reuses cached listings so you can iteratively filter without re-scanning the filesystem.
 - **Search pipelines** (`--search-pipe plugin:action[:arg...]`) to feed ripgrep matches directly into plugins such as `file_tagger:list-tags` or `file_organizer:organize:type`.
-- **Directory diff command** (`lla diff`) to compare two directories or a directory against a git reference, highlighting added/removed/changed files with per-file size deltas.
+- **Diff command** (`lla diff`) can now compare directories _and_ individual files (local↔local or against git references), showing per-entry size deltas for directories plus size/line summaries and unified diffs for files.
 - **Column customization for long/table views** via `[formatters.long].columns` and `[formatters.table].columns`, including plugin-provided fields through `field:<name>` entries.
+
+## Changed
+
+- Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree’s perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
 
 ## Docs
 
 - Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
 - Added README coverage for range filters, presets, cache-based refinement, and search→plugin pipelines.
-- Documented the directory diff command and column customization examples in the README.
+- Documented the diff command’s directory and file workflows (including git examples) plus column customization examples in the README.
 
 ## [0.5.0] - 2025-01-24
 
