@@ -1,0 +1,191 @@
+name: Release Plugins
+
+on:
+  repository_dispatch:
+    types:
+      - release-plugins
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to target (e.g. v1.2.3)
+        required: false
+      release_version:
+        description: Release version without the v prefix
+        required: false
+
+jobs:
+  guard:
+    name: Resolve Release Context
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_VERSION: ${{ inputs.release_version }}
+          PAYLOAD_TAG: ${{ github.event.client_payload.tag }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${PAYLOAD_TAG:-}"
+          if [[ -z "$tag" ]]; then
+            tag="${INPUT_TAG:-}"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "::error::release_tag input is required when dispatch payload is absent"
+            exit 1
+          fi
+
+          version="${PAYLOAD_VERSION:-}"
+          if [[ -z "$version" ]]; then
+            version="${INPUT_VERSION:-}"
+          fi
+          if [[ -z "$version" ]]; then
+            version="${tag#v}"
+          fi
+
+          gh release view "$tag" >/dev/null
+
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_version=$version" >> "$GITHUB_OUTPUT"
+
+  build_plugins:
+    name: Build Plugins (${{ matrix.os_label }}-${{ matrix.arch_label }})
+    needs: guard
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            os_label: linux
+            arch_label: amd64
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            os_label: linux
+            arch_label: arm64
+          - runner: ubuntu-22.04
+            target: i686-unknown-linux-gnu
+            os_label: linux
+            arch_label: i686
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            os_label: macos
+            arch_label: amd64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            os_label: macos
+            arch_label: arm64
+    env:
+      RELEASE_TAG: ${{ needs.guard.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.guard.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.guard.outputs.release_tag }}
+
+      - name: Prepare helper scripts
+        run: chmod +x .github/scripts/release_helpers.sh
+
+      - name: Determine if build is required
+        id: asset_check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OS_LABEL: ${{ matrix.os_label }}
+          ARCH_LABEL: ${{ matrix.arch_label }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          tar_asset="plugins-${OS_LABEL}-${ARCH_LABEL}.tar.gz"
+          zip_asset="plugins-${OS_LABEL}-${ARCH_LABEL}.zip"
+          if asset_exists "$RELEASE_TAG" "$tar_asset" && asset_exists "$RELEASE_TAG" "$zip_asset"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            log_note "Both $tar_asset and $zip_asset already exist on $RELEASE_TAG"
+          else
+            log_note "Building plugins for ${OS_LABEL}/${ARCH_LABEL}"
+          fi
+
+      - name: Install Rust toolchain (stable)
+        if: steps.asset_check.outputs.skip != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        if: steps.asset_check.outputs.skip != 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross toolchain
+        if: steps.asset_check.outputs.skip != 'true' && runner.os == 'Linux' && (contains(matrix.target, 'aarch64') || contains(matrix.target, 'i686'))
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-i686-linux-gnu
+          sudo apt-get install -y crossbuild-essential-arm64 crossbuild-essential-i386
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          elif [[ "${{ matrix.target }}" == "i686-unknown-linux-gnu" ]]; then
+            echo "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=i686-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
+
+      - name: Make build script executable
+        if: steps.asset_check.outputs.skip != 'true'
+        run: chmod +x scripts/build_plugins.sh
+
+      - name: Build plugins
+        if: steps.asset_check.outputs.skip != 'true'
+        run: ./scripts/build_plugins.sh --target ${{ matrix.target }}
+
+      - name: Upload plugin archives to release
+        if: steps.asset_check.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          tar_asset="dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz"
+          zip_asset="dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip"
+          for asset in "$tar_asset" "$zip_asset"; do
+            if [[ -f "$asset" ]]; then
+              filename=$(basename "$asset")
+              if asset_exists "$RELEASE_TAG" "$filename"; then
+                log_note "Skipping upload for existing asset $filename"
+                continue
+              fi
+              gh release upload "$RELEASE_TAG" "$asset"
+            else
+              echo "::warning::Missing expected asset $asset"
+            fi
+          done
+
+  dispatch_packages:
+    name: Dispatch Packages Stage
+    needs: [guard, build_plugins]
+    if: ${{ needs.guard.result == 'success' && needs.build_plugins.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger packages workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.guard.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.guard.outputs.release_version }}
+        run: |
+          source .github/scripts/release_helpers.sh
+          dispatch_next_stage "release-packages" "$RELEASE_TAG" "$RELEASE_VERSION"
+

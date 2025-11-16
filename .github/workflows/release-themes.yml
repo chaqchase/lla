@@ -1,0 +1,98 @@
+name: Release Themes
+
+on:
+  repository_dispatch:
+    types:
+      - release-themes
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to target (e.g. v1.2.3)
+        required: false
+      release_version:
+        description: Release version without the v prefix
+        required: false
+
+jobs:
+  guard:
+    name: Resolve Release Context
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_VERSION: ${{ inputs.release_version }}
+          PAYLOAD_TAG: ${{ github.event.client_payload.tag }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${PAYLOAD_TAG:-}"
+          if [[ -z "$tag" ]]; then
+            tag="${INPUT_TAG:-}"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "::error::release_tag input is required when dispatch payload is absent"
+            exit 1
+          fi
+
+          version="${PAYLOAD_VERSION:-}"
+          if [[ -z "$version" ]]; then
+            version="${INPUT_VERSION:-}"
+          fi
+          if [[ -z "$version" ]]; then
+            version="${tag#v}"
+          fi
+
+          gh release view "$tag" >/dev/null
+
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_version=$version" >> "$GITHUB_OUTPUT"
+
+  themes:
+    name: Upload Themes Archive
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.guard.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare helper scripts
+        run: chmod +x .github/scripts/release_helpers.sh
+
+      - name: Check existing themes asset
+        id: themes_guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source .github/scripts/release_helpers.sh
+          if asset_exists "$RELEASE_TAG" "themes.zip"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            log_note "themes.zip already present on $RELEASE_TAG"
+          fi
+
+      - name: Create themes archive
+        if: steps.themes_guard.outputs.skip != 'true'
+        run: |
+          find themes -name "*.toml" -type f | zip themes.zip -@
+
+      - name: Upload themes archive
+        if: steps.themes_guard.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source .github/scripts/release_helpers.sh
+          gh release upload "$RELEASE_TAG" themes.zip
+

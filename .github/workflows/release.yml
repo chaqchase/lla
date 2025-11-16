@@ -1,4 +1,4 @@
-name: Release
+name: Release Core Bins
 
 on:
   pull_request_target:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   check_release:
+    name: Determine Release Status
     if: |
       (github.event_name == 'workflow_dispatch' && github.actor == 'chaqchase') ||
       (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release'))
@@ -17,6 +18,7 @@ jobs:
     outputs:
       should_release: ${{ steps.check_version.outputs.should_release }}
       current_version: ${{ steps.check_version.outputs.current_version }}
+      release_tag: ${{ steps.check_version.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,29 +26,27 @@ jobs:
 
       - name: Check version changes
         id: check_version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get the latest release version
-          OLD_VERSION=$(gh release view --json tagName --jq '.tagName' | sed 's/^v//' || echo "0.0.0")
+          set -euo pipefail
 
-          # Get the current version from Cargo.toml
+          OLD_VERSION=$(gh release view --json tagName --jq '.tagName' | sed 's/^v//' || echo "0.0.0")
           CURRENT_VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml | grep '^version = ' | cut -d '"' -f 2)
 
           echo "Old version: $OLD_VERSION"
           echo "Current version: $CURRENT_VERSION"
 
-          if [ "$OLD_VERSION" != "$CURRENT_VERSION" ]; then
-            echo "Version changed from $OLD_VERSION to $CURRENT_VERSION"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          else
-            echo "Version unchanged"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
 
-  build:
+          if [ "$OLD_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build_core:
     needs: check_release
     if: needs.check_release.outputs.should_release == 'true'
     name: Build Release Binaries
@@ -54,23 +54,17 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux builds
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: lla-linux-amd64
-            pkg_formats: "deb,rpm,apk,pacman"
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact_name: lla-linux-arm64
             cross_compile: true
-            pkg_formats: "deb,rpm,apk,pacman"
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
             artifact_name: lla-linux-i686
             cross_compile: true
-            pkg_formats: "deb,rpm,apk,pacman"
-
-          # macOS builds
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: lla-macos-amd64
@@ -137,8 +131,8 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}
 
-  publish:
-    needs: [check_release, build]
+  publish_crates:
+    needs: check_release
     if: needs.check_release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -162,210 +156,120 @@ jobs:
       - name: Update dependency version
         run: |
           VERSION="${{ needs.check_release.outputs.current_version }}"
-          # Update the version in lla/Cargo.toml
           sed -i 's/version = "[0-9]*\.[0-9]*\.[0-9]*"/version = "'$VERSION'"/' lla/Cargo.toml
 
       - name: Check and publish to crates.io
         env:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
+          set -euo pipefail
           cargo login ${{ secrets.CRATES_IO_TOKEN }}
 
-          # Get current version without 'v' prefix
           VERSION="${{ needs.check_release.outputs.current_version }}"
 
-          # Check if lla_plugin_interface version exists (using awk to get just the version)
-          PUBLISHED_VERSION=$(cargo search lla_plugin_interface --limit 1 | awk -F '"' '{print $2}')
+          publish_crate_if_needed() {
+            local crate_name="$1"
+            local sleep_after="${2:-false}"
+            local published
+            published=$(cargo search "$crate_name" --limit 1 | awk -F '"' '{print $2}')
+            if [ "$published" != "$VERSION" ]; then
+              echo "Publishing $crate_name v$VERSION"
+              cargo publish -p "$crate_name"
+              if [ "$sleep_after" = "true" ]; then
+                sleep 30
+              fi
+            else
+              echo "$crate_name v$VERSION already published, skipping"
+            fi
+          }
 
-          if [ "$PUBLISHED_VERSION" != "$VERSION" ]; then
-            echo "Publishing lla_plugin_interface v$VERSION"
-            cargo publish -p lla_plugin_interface
-            # Wait for crates.io indexing
-            sleep 30
-          else
-            echo "lla_plugin_interface v$VERSION already published, skipping..."
-          fi
+          publish_crate_if_needed "lla_plugin_interface" true
+          publish_crate_if_needed "lla_plugin_utils" true
+          publish_crate_if_needed "lla"
 
-          # Check and publish lla_plugin_utils
-          PUBLISHED_VERSION=$(cargo search lla_plugin_utils --limit 1 | awk -F '"' '{print $2}')
-          if [ "$PUBLISHED_VERSION" != "$VERSION" ]; then
-            echo "Publishing lla_plugin_utils v$VERSION"
-            cargo publish -p lla_plugin_utils
-            # Wait for crates.io indexing
-            sleep 30
-          else
-            echo "lla_plugin_utils v$VERSION already published, skipping..."
-          fi
-
-          # Check and publish lla
-          PUBLISHED_VERSION=$(cargo search lla --limit 1 | awk -F '"' '{print $2}')
-          if [ "$PUBLISHED_VERSION" != "$VERSION" ]; then
-            echo "Publishing lla v$VERSION"
-            cargo publish -p lla
-          else
-            echo "lla v$VERSION already published, skipping..."
-          fi
-
-  create_release:
-    needs: [check_release, build, publish]
+  release_core:
+    needs: [check_release, build_core, publish_crates]
     if: needs.check_release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.check_release.outputs.current_version }}
+      RELEASE_TAG: ${{ needs.check_release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Prepare helper scripts
+        run: chmod +x .github/scripts/release_helpers.sh
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create themes archive
+      - name: Build SHA256 sums file
         run: |
-          find themes -name "*.toml" -type f | zip themes.zip -@
-
-      - name: Generate SHA256 checksums
-        run: |
+          set -euo pipefail
           find artifacts -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-          sha256sum themes.zip >> SHA256SUMS
 
-      - name: Create Release Notes
+      - name: Create release notes
         run: |
           {
-            echo "# Release v${{ needs.check_release.outputs.current_version }}"
+            echo "# Release ${RELEASE_TAG}"
             echo
             if [ -f CHANGELOG.md ]; then
               echo "## Changelog"
               echo
-              sed -n "/## \[${{ needs.check_release.outputs.current_version }}\]/,/## \[/p" CHANGELOG.md | sed '$d'
+              sed -n "/## \[${RELEASE_VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$d' || true
               echo
             fi
-            echo "## SHA256 Checksums"
-            echo "\`\`\`"
-            cat SHA256SUMS
-            echo "\`\`\`"
+            if [ -f SHA256SUMS ]; then
+              echo "## SHA256 Checksums"
+              echo
+              echo '```'
+              cat SHA256SUMS
+              echo '```'
+            fi
           } > RELEASE_NOTES.md
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ needs.check_release.outputs.current_version }}
-          release_name: Release v${{ needs.check_release.outputs.current_version }}
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Assets
+      - name: Ensure GitHub release exists
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Upload binaries
-          for asset in artifacts/*/*; do
-            filename=$(basename "$asset")
-            echo "Uploading $filename..."
-            gh release upload "v${{ needs.check_release.outputs.current_version }}" "$asset" --clobber
-          done
+          source .github/scripts/release_helpers.sh
+          ensure_release_exists "$RELEASE_TAG" "Release ${RELEASE_TAG}" "RELEASE_NOTES.md"
 
-          # Upload themes archive
-          gh release upload "v${{ needs.check_release.outputs.current_version }}" themes.zip --clobber
-
-          # Upload checksums
-          gh release upload "v${{ needs.check_release.outputs.current_version }}" SHA256SUMS --clobber
-
-  package:
-    needs: [check_release, build]
-    if: needs.check_release.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Install nFPM
-        run: |
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt update
-          sudo apt install -y nfpm gettext-base
-          nfpm --version
-
-      - name: Generate packages
+      - name: Upload core binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          export VERSION="${{ needs.check_release.outputs.current_version }}"
-
-          for artifact in artifacts/*; do
-            if [[ $artifact == *linux* ]]; then
-              artifact_name=$(basename "$artifact")
-              binary_path="$artifact/$artifact_name"
-
-              if [[ ! -f "$binary_path" ]]; then
-                echo "Expected binary $binary_path not found"
-                exit 1
-              fi
-
-              case "$artifact_name" in
-                *amd64)
-                  ARCH="amd64"
-                  DEB_ARCH="amd64"
-                  RPM_ARCH="x86_64"
-                  APK_ARCH="x86_64"
-                  PACMAN_ARCH="x86_64"
-                  ;;
-                *arm64)
-                  ARCH="arm64"
-                  DEB_ARCH="arm64"
-                  RPM_ARCH="aarch64"
-                  APK_ARCH="aarch64"
-                  PACMAN_ARCH="aarch64"
-                  ;;
-                *i686)
-                  ARCH="386"
-                  DEB_ARCH="i386"
-                  RPM_ARCH="i686"
-                  APK_ARCH="x86"
-                  PACMAN_ARCH="i686"
-                  ;;
-                *)
-                  echo "Unable to determine architecture for artifact $artifact_name"
-                  exit 1
-                  ;;
-              esac
-
-              export ARCH
-              export BINARY_PATH="$binary_path"
-
-              tmp_config=$(mktemp)
-              envsubst < nfpm.yaml > "$tmp_config"
-
-              # Generate DEB package
-              nfpm pkg --config "$tmp_config" --packager deb --target "$artifact/lla_${VERSION}_${DEB_ARCH}.deb"
-
-              # Generate RPM package
-              nfpm pkg --config "$tmp_config" --packager rpm --target "$artifact/lla-${VERSION}-1.${RPM_ARCH}.rpm"
-
-              # Generate APK package
-              nfpm pkg --config "$tmp_config" --packager apk --target "$artifact/lla-${VERSION}-r0.${APK_ARCH}.apk"
-
-              # Generate Pacman package
-              nfpm pkg --config "$tmp_config" --packager archlinux --target "$artifact/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
-
-              rm -f "$tmp_config"
+          source .github/scripts/release_helpers.sh
+          shopt -s nullglob
+          for artifact in artifacts/*/*; do
+            filename=$(basename "$artifact")
+            if asset_exists "$RELEASE_TAG" "$filename"; then
+              log_note "Skipping existing asset $filename"
+              continue
             fi
+            gh release upload "$RELEASE_TAG" "$artifact"
           done
 
-      - name: Upload packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: packages
-          path: |
-            **/*.deb
-            **/*.rpm
-            **/*.apk
-            **/*.pkg.tar.zst
+      - name: Upload SHA256 sums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          if asset_exists "$RELEASE_TAG" "SHA256SUMS"; then
+            log_note "SHA256SUMS already present"
+            exit 0
+          fi
+          gh release upload "$RELEASE_TAG" SHA256SUMS
+
+      - name: Dispatch plugin workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source .github/scripts/release_helpers.sh
+          dispatch_next_stage "release-plugins" "$RELEASE_TAG" "$RELEASE_VERSION"

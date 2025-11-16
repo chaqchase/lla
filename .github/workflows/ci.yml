@@ -3,8 +3,28 @@ name: CI
 on:
   push:
     branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/*.proto"
+      - "**/*.sh"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - "nfpm.yaml"
+      - "rust-toolchain.toml"
   pull_request:
     branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/*.proto"
+      - "**/*.sh"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - "nfpm.yaml"
+      - "rust-toolchain.toml"
 
 env:
   CARGO_TERM_COLOR: always
