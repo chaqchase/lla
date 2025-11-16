@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-# [Unreleased]
+## [Unreleased]
 
-## Added
+## [0.5.1] - 2025-11-16
+
+### Added
 
 - **Interactive Init Wizard** (`lla init`, use `--default` to skip) that walks through icon, theme, default view, and Git-focused setup choices before writing a tailored config.
 - **Per-directory profiles** via `.lla.toml`. lla now searches upward from the current working directory and overlays the nearest profile on top of the global config for safe, opt-in repo defaults.
@@ -24,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Optional .gitignore filtering** for every listing format via `--respect-gitignore`, `--no-gitignore`, and a new `filter.respect_gitignore` config key (fuzzy view included).
 - **CLI upgrade command** (`lla upgrade`) that reuses the install script pipeline to download the latest release (or a specified tag), verify `SHA256SUMS`, render progress indicators, and atomically replace the local binary.
 
-## Changed
+### Changed
 
 - `lla init` now uses a multi-section guided flow with themed step banners, expanded prompts (sort order, directory inclusion, depth limits, sorting/filtering toggles, long-view columns, plugin directory + recursion guards), and a richer summary. Run `lla init --default` to write the stock config without launching the wizard.
 - `lla config` now renders a structured, colorized summary instead of dumping the raw struct, making it easy to review key defaults (view/sort/filter, formatter tweaks, plugin status, limits) at a glance.
@@ -32,11 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree's perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
 - Installation script (`install.sh`) now features polished visual styling matching the CLI upgrade command, with animated spinners, structured sections, consistent color theming, and improved error handling.
 
-## Fixed
+### Fixed
 
 - `lla --fuzzy` no longer captures plain `y`/`o` keystrokes while you type; the copy and open shortcuts now require `Ctrl+Y`/`Ctrl+O`, so search queries can include those characters without triggering actions. ([#142](https://github.com/chaqchase/lla/issues/142))
 
-## Docs
+### Docs
 
 - Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
 - Added README coverage for range filters, presets, cache-based refinement, and search→plugin pipelines.

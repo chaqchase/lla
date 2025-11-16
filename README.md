@@ -85,7 +85,7 @@ Upgrade to the latest (or a specific) release without leaving the terminal:
 lla upgrade
 
 # Target a specific tag or custom installation path
-lla upgrade --version v0.5.0 --path /usr/local/bin/lla
+lla upgrade --version v0.5.1 --path /usr/local/bin/lla
 ```
 
 The upgrade command reuses the official install script logic, renders animated progress indicators, verifies the `SHA256SUMS` manifest, and atomically swaps the `lla` binary in place (defaults to the path of the running executable—override with `--path` if needed).
