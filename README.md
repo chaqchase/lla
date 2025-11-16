@@ -482,8 +482,8 @@ lla --csv
 
 #### Comparison & Diff
 
-| Command | Description                                                     | Example                                                         |
-| ------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| Command | Description                                                    | Example                                                               |
+| ------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `diff`  | Compare two directories or a directory vs git with size deltas | `lla diff src ../backup/src`<br>`lla diff src --git --git-ref HEAD~1` |
 
 #### Navigation Commands

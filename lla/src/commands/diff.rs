@@ -36,11 +36,14 @@ fn diff_with_git(left: &str, reference: &str) -> Result<()> {
     let left_entries = collect_local_entries(&left_path)?;
     let git_entries = collect_git_entries(&left_path, reference)?;
 
+    // When comparing against git we treat the git reference as the "left"/baseline
+    // side so that additions/removals are reported from the perspective of the
+    // working tree (i.e. files that exist locally but not in git show up as added).
     render_diff(
-        &left_path.display().to_string(),
         &format!("git:{}", reference),
-        left_entries,
+        &left_path.display().to_string(),
         git_entries,
+        left_entries,
     )
 }
 
@@ -227,31 +230,8 @@ fn render_diff(
         return Ok(());
     }
 
-    let added = rows
-        .iter()
-        .filter(|r| r.status == DiffStatus::Added)
-        .count();
-    let removed = rows
-        .iter()
-        .filter(|r| r.status == DiffStatus::Removed)
-        .count();
-    let changed = rows
-        .iter()
-        .filter(|r| r.status == DiffStatus::Modified)
-        .count();
-    let total_delta: i64 = rows.iter().map(|r| r.delta()).sum();
-
-    let summary = format!(
-        "{} added, {} removed, {} changed (net {})",
-        colorize_count(added, DiffStatus::Added),
-        colorize_count(removed, DiffStatus::Removed),
-        colorize_count(changed, DiffStatus::Modified),
-        format_delta(total_delta)
-    );
-
-    println!("{}", summary);
-    println!();
-
+    let stats = calculate_stats(&rows);
+    print_summary(&stats);
     print_table(&rows);
     Ok(())
 }
@@ -321,7 +301,7 @@ fn print_table(rows: &[DiffRow]) {
             .right_size
             .map(|s| colorize_size(s).to_string())
             .unwrap_or_else(|| "-".to_string());
-        let delta = format_delta(row.delta());
+        let delta = format_delta_with_percent(row.delta(), row.left_size, row.right_size);
 
         update_width(&mut widths, 0, &status);
         update_width(&mut widths, 1, &path);
@@ -418,6 +398,41 @@ fn colorize_count(count: usize, status: DiffStatus) -> String {
     }
 }
 
+fn format_delta_with_percent(
+    delta: i64,
+    left_size: Option<u64>,
+    right_size: Option<u64>,
+) -> String {
+    if delta == 0 {
+        return "0B".to_string();
+    }
+    let magnitude = human_size(delta.abs() as u64);
+    let percent = match (left_size, right_size) {
+        (Some(left), Some(right)) if left > 0 => {
+            let pct = ((right as f64 - left as f64) / left as f64) * 100.0;
+            Some(pct)
+        }
+        _ => None,
+    };
+    let percent_str = percent
+        .map(|pct| format!(" ({:+.1}%)", pct))
+        .unwrap_or_default();
+
+    let text = if delta > 0 {
+        format!("+{}{}", magnitude, percent_str)
+    } else {
+        format!("-{}{}", magnitude, percent_str)
+    };
+
+    if theme::is_no_color() {
+        text
+    } else if delta > 0 {
+        text.green().bold().to_string()
+    } else {
+        text.red().bold().to_string()
+    }
+}
+
 fn format_delta(delta: i64) -> String {
     if delta == 0 {
         return "0B".to_string();
@@ -488,4 +503,103 @@ impl DiffRow {
         let right = self.right_size.unwrap_or(0) as i64;
         right - left
     }
+}
+
+struct DiffStats {
+    added_files: usize,
+    removed_files: usize,
+    modified_files: usize,
+    added_bytes: u64,
+    removed_bytes: u64,
+    net_bytes: i64,
+    largest_growth: Option<(String, i64)>,
+    largest_shrink: Option<(String, i64)>,
+}
+
+fn calculate_stats(rows: &[DiffRow]) -> DiffStats {
+    let mut stats = DiffStats {
+        added_files: 0,
+        removed_files: 0,
+        modified_files: 0,
+        added_bytes: 0,
+        removed_bytes: 0,
+        net_bytes: 0,
+        largest_growth: None,
+        largest_shrink: None,
+    };
+
+    for row in rows {
+        let delta = row.delta();
+        stats.net_bytes += delta;
+
+        match row.status {
+            DiffStatus::Added => {
+                stats.added_files += 1;
+                stats.added_bytes += row.right_size.unwrap_or(0);
+                if stats
+                    .largest_growth
+                    .as_ref()
+                    .map_or(true, |(_, d)| delta > *d)
+                {
+                    stats.largest_growth = Some((row.path.clone(), delta));
+                }
+            }
+            DiffStatus::Removed => {
+                stats.removed_files += 1;
+                stats.removed_bytes += row.left_size.unwrap_or(0);
+                if stats
+                    .largest_shrink
+                    .as_ref()
+                    .map_or(true, |(_, d)| delta < *d)
+                {
+                    stats.largest_shrink = Some((row.path.clone(), delta));
+                }
+            }
+            DiffStatus::Modified => {
+                stats.modified_files += 1;
+                if delta > 0
+                    && stats
+                        .largest_growth
+                        .as_ref()
+                        .map_or(true, |(_, d)| delta > *d)
+                {
+                    stats.largest_growth = Some((row.path.clone(), delta));
+                }
+                if delta < 0
+                    && stats
+                        .largest_shrink
+                        .as_ref()
+                        .map_or(true, |(_, d)| delta < *d)
+                {
+                    stats.largest_shrink = Some((row.path.clone(), delta));
+                }
+            }
+        }
+    }
+
+    stats
+}
+
+fn print_summary(stats: &DiffStats) {
+    println!("{}", "Summary:".bold());
+    println!(
+        "  Files    {} added, {} removed, {} changed",
+        colorize_count(stats.added_files, DiffStatus::Added),
+        colorize_count(stats.removed_files, DiffStatus::Removed),
+        colorize_count(stats.modified_files, DiffStatus::Modified)
+    );
+    println!(
+        "  Sizes    {} added, {} removed",
+        colorize_size(stats.added_bytes).to_string().green(),
+        colorize_size(stats.removed_bytes).to_string().red()
+    );
+    println!("  Net      {}", format_delta(stats.net_bytes));
+
+    if let Some((path, delta)) = &stats.largest_growth {
+        println!("  Largest+ {} {}", format_delta(*delta), path.cyan());
+    }
+    if let Some((path, delta)) = &stats.largest_shrink {
+        println!("  Largest- {} {}", format_delta(*delta), path.cyan());
+    }
+    println!();
 }
