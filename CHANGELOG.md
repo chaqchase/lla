@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
-- **Interactive Init Wizard** (`lla init --wizard`) that walks through icon, theme, default view, and Git-focused setup choices before writing a tailored config.
+- **Interactive Init Wizard** (`lla init`, use `--default` to skip) that walks through icon, theme, default view, and Git-focused setup choices before writing a tailored config.
 - **Per-directory profiles** via `.lla.toml`. lla now searches upward from the current working directory and overlays the nearest profile on top of the global config for safe, opt-in repo defaults.
 - **Config introspection commands**:
   - `lla config show-effective` prints the merged configuration (global + profile) so you can see what actually applies in the current directory.
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Changed
 
+- `lla init` now uses a multi-section guided flow with themed step banners, expanded prompts (sort order, directory inclusion, depth limits, sorting/filtering toggles, long-view columns, plugin directory + recursion guards), and a richer summary. Run `lla init --default` to write the stock config without launching the wizard.
 - Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree’s perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
 
 ## Fixed

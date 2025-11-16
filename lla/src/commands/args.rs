@@ -71,7 +71,7 @@ pub enum Command {
     ListPlugins,
     Use,
     Diff(DiffCommand),
-    InitConfig { wizard: bool },
+    InitConfig { defaults_only: bool },
     Config(Option<ConfigAction>),
     PluginAction(String, String, Vec<String>),
     Update(Option<String>),
@@ -584,9 +584,9 @@ impl Args {
                 SubCommand::with_name("init")
                     .about("Initialize the configuration file")
                     .arg(
-                        Arg::with_name("wizard")
-                            .long("wizard")
-                            .help("Launch the interactive configuration wizard"),
+                    Arg::with_name("default")
+                        .long("default")
+                        .help("Write the default config without launching the wizard"),
                     ),
             )
             .subcommand(
@@ -936,7 +936,7 @@ impl Args {
             Some(Command::Use)
         } else if let Some(init_matches) = matches.subcommand_matches("init") {
             Some(Command::InitConfig {
-                wizard: init_matches.is_present("wizard"),
+                defaults_only: init_matches.is_present("default"),
             })
         } else if let Some(config_matches) = matches.subcommand_matches("config") {
             if let Some(values) = config_matches.values_of("set") {

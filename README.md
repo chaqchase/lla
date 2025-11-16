@@ -80,15 +80,23 @@ sudo mv lla /usr/local/bin/lla
 After installation, initialize your setup:
 
 ```bash
-# Create default config
+# Guided setup with theme/format wizard (default)
 lla init
 
-# Guided setup with theme/format wizard
-lla init --wizard
+# Write the default config without prompts
+lla init --default
 
 # View your config
 lla config
 ```
+
+The revamped wizard (now the default) walks you through:
+
+- Look & feel choices (icons, theme, default view, permission format)
+- Listing defaults (sort order, directory inclusion, depth limits)
+- Sorting & filtering toggles (dirs-first, natural sort, dotfile visibility, case sensitivity)
+- Long-view behavior (relative dates, hide group column, column selection)
+- Plugin directory selection, plugin enablement, and recursion safety limits
 
 ## Display Formats
 
@@ -644,7 +652,7 @@ lla --search "FIXME" --json
 | Command                 | Description                         | Example                                                                         |
 | ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
 | `init`                  | Initialize the configuration file   | `lla init`                                                                      |
-| `init --wizard`         | Interactive guided setup            | `lla init --wizard`                                                             |
+| `init --default`        | Write defaults without the wizard   | `lla init --default`                                                            |
 | `config`                | View or modify configuration        | `lla config`                                                                    |
 | `config show-effective` | Show merged global + profile config | `lla config show-effective`                                                     |
 | `config diff --default` | List overrides vs built-in defaults | `lla config diff --default`                                                     |

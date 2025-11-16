@@ -167,11 +167,11 @@ pub fn handle_command(
         Some(Command::ListPlugins) => list_plugins(plugin_manager),
         Some(Command::Use) => list_plugins(plugin_manager),
         Some(Command::Diff(diff_args)) => diff::run(diff_args.clone()),
-        Some(Command::InitConfig { wizard }) => {
-            if *wizard {
-                init_wizard::run_wizard()
-            } else {
+        Some(Command::InitConfig { defaults_only }) => {
+            if *defaults_only {
                 config::initialize_config()
+            } else {
+                init_wizard::run_wizard()
             }
         }
         Some(Command::Config(action)) => config::handle_config_command(action.clone()),
