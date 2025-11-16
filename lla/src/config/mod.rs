@@ -202,6 +202,8 @@ pub struct FilterConfig {
     #[serde(default)]
     pub no_dotfiles: bool,
     #[serde(default)]
+    pub respect_gitignore: bool,
+    #[serde(default)]
     pub presets: HashMap<String, FilterPreset>,
 }
 
@@ -509,6 +511,10 @@ case_sensitive = {}
 # Default: false
 no_dotfiles = {}
 
+# Respect .gitignore (and git exclude) rules when listing files
+# Default: false
+respect_gitignore = {}
+
 # Named filter presets let you reuse complex filter combinations
 # Uncomment and customize the example below or define your own under [filter.presets.<name>]
 # [filter.presets.rust_sources]
@@ -608,6 +614,7 @@ ignore_patterns = {}"#,
             self.sort.natural,
             self.filter.case_sensitive,
             self.filter.no_dotfiles,
+            self.filter.respect_gitignore,
             self.formatters.tree.max_lines.unwrap_or(0),
             self.formatters.grid.ignore_width,
             self.formatters.grid.max_width,
@@ -1038,6 +1045,14 @@ ignore_patterns = {}"#,
                     ))
                 })?;
             }
+            ["filter", "respect_gitignore"] => {
+                self.filter.respect_gitignore = value.parse().map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be true or false".to_string(),
+                    ))
+                })?;
+            }
             ["formatters", "tree", "max_lines"] => {
                 let max_lines = value.parse().map_err(|_| {
                     LlaError::Config(ConfigErrorKind::InvalidValue(
@@ -1348,6 +1363,14 @@ fn print_config_summary(config_path: &Path, config: &Config) {
     print_row(
         "Hide dotfiles",
         format_toggle(config.filter.no_dotfiles, "hidden", "show"),
+    );
+    print_row(
+        "Gitignore filter",
+        format_toggle(
+            config.filter.respect_gitignore,
+            "respect .gitignore",
+            "show all files",
+        ),
     );
     print_row(
         "Filter presets",

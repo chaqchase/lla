@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Search pipelines** (`--search-pipe plugin:action[:arg...]`) to feed ripgrep matches directly into plugins such as `file_tagger:list-tags` or `file_organizer:organize:type`.
 - **Diff command** (`lla diff`) can now compare directories _and_ individual files (local↔local or against git references), showing per-entry size deltas for directories plus size/line summaries and unified diffs for files.
 - **Column customization for long/table views** via `[formatters.long].columns` and `[formatters.table].columns`, including plugin-provided fields through `field:<name>` entries.
+- **Optional .gitignore filtering** for every listing format via `--respect-gitignore`, `--no-gitignore`, and a new `filter.respect_gitignore` config key (fuzzy view included).
 
 ## Changed
 

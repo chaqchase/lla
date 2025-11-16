@@ -1,6 +1,6 @@
 use crate::commands::args::{Args, OutputMode};
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{LlaError, Result};
 use crate::filter::{
     CaseInsensitiveFilter, CompositeFilter, ExtensionFilter, FileFilter, FilterOperation,
     GlobFilter, PatternFilter, RegexFilter,
@@ -17,6 +17,7 @@ use crate::lister::{
 use crate::plugin::PluginManager;
 use crate::sorter::{AlphabeticalSorter, DateSorter, FileSorter, SizeSorter, SortOptions};
 use crate::utils::cache::ListingCache;
+use ignore::WalkBuilder;
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -24,7 +25,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -317,12 +318,17 @@ pub fn list_and_decorate_files(
     plugin_manager: &mut PluginManager,
     format: &str,
 ) -> Result<Vec<DecoratedEntry>> {
-    let entries: Vec<DecoratedEntry> = lister
-        .list_files(
+    let raw_paths = if args.respect_gitignore && !args.fuzzy_format {
+        list_files_with_gitignore(args, config)?
+    } else {
+        lister.list_files(
             &args.directory,
             args.tree_format || args.recursive_format,
             args.depth,
         )?
+    };
+
+    let entries: Vec<DecoratedEntry> = raw_paths
         .into_par_iter()
         .filter(|path| {
             // Exclude entries if they live under any excluded prefix
@@ -459,6 +465,70 @@ pub fn list_and_decorate_files(
     }
 
     Ok(decorated_entries)
+}
+
+fn list_files_with_gitignore(args: &Args, config: &Config) -> Result<Vec<PathBuf>> {
+    let should_recurse = args.tree_format || args.recursive_format;
+    let mut builder = WalkBuilder::new(&args.directory);
+    builder
+        .hidden(false)
+        .follow_links(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
+        .ignore(true)
+        .require_git(false)
+        .same_file_system(true);
+
+    if args.respect_gitignore {
+        builder.filter_entry(|entry| !path_contains_git_dir(entry.path()));
+    }
+
+    if !should_recurse {
+        builder.max_depth(Some(1));
+    } else if let Some(depth) = args.depth {
+        builder.max_depth(Some(depth));
+    }
+
+    let max_entries = config.listers.recursive.max_entries.unwrap_or(usize::MAX);
+
+    let mut entries = Vec::new();
+    let mut file_counter = 0usize;
+
+    for dent in builder.build() {
+        let entry = dent.map_err(|err| LlaError::Other(err.to_string()))?;
+
+        if args.respect_gitignore && path_contains_git_dir(entry.path()) {
+            if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                continue;
+            }
+            continue;
+        }
+        if entry.depth() == 0 {
+            continue;
+        }
+
+        if should_recurse {
+            if let Some(ft) = entry.file_type() {
+                if ft.is_file() {
+                    if file_counter >= max_entries {
+                        break;
+                    }
+                    file_counter += 1;
+                }
+            }
+        }
+
+        entries.push(entry.into_path());
+    }
+
+    Ok(entries)
+}
+
+fn path_contains_git_dir(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == ".git")
 }
 
 pub fn list_and_decorate_archive_entries(
@@ -669,7 +739,7 @@ pub fn sort_files(
 
 pub fn create_lister(args: &Args, config: &Config) -> Arc<dyn FileLister + Send + Sync> {
     if args.fuzzy_format {
-        Arc::new(FuzzyLister::new(config.clone()))
+        Arc::new(FuzzyLister::new(config.clone(), args.respect_gitignore))
     } else if args.tree_format || args.recursive_format {
         Arc::new(RecursiveLister::new(config.clone()))
     } else {
@@ -852,6 +922,7 @@ struct ListingContext {
     no_dotfiles: bool,
     almost_all: bool,
     dotfiles_only: bool,
+    respect_gitignore: bool,
     filter: Option<String>,
     size: Option<String>,
     modified: Option<String>,
@@ -879,6 +950,7 @@ impl ListingContext {
             no_dotfiles: args.no_dotfiles,
             almost_all: args.almost_all,
             dotfiles_only: args.dotfiles_only,
+            respect_gitignore: args.respect_gitignore,
             filter: args.filter.clone(),
             size: args.size_filter_raw.clone(),
             modified: args.modified_filter_raw.clone(),

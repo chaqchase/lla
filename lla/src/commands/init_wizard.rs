@@ -216,6 +216,10 @@ pub fn run_wizard() -> Result<()> {
         .with_prompt("Hide dotfiles unless explicitly requested?")
         .default(config.filter.no_dotfiles)
         .interact()?;
+    let respect_gitignore = Confirm::with_theme(&ui_theme)
+        .with_prompt("Respect .gitignore when listing files?")
+        .default(config.filter.respect_gitignore)
+        .interact()?;
 
     print_section_header(
         step,
@@ -350,6 +354,7 @@ pub fn run_wizard() -> Result<()> {
     config.sort.natural = natural_sort;
     config.filter.case_sensitive = filter_case_sensitive;
     config.filter.no_dotfiles = hide_dotfiles;
+    config.filter.respect_gitignore = respect_gitignore;
     config.formatters.long.hide_group = hide_group;
     config.formatters.long.relative_dates = relative_dates;
     config.formatters.long.columns = long_columns.clone();
@@ -407,6 +412,10 @@ pub fn run_wizard() -> Result<()> {
     print_summary_row(
         "Hide dotfiles",
         format_toggle(hide_dotfiles, "hidden", "show"),
+    );
+    print_summary_row(
+        "Gitignore filter",
+        format_toggle(respect_gitignore, "respect .gitignore", "show all files"),
     );
     print_summary_row("Long view columns", long_columns_preview.as_str().purple());
     print_summary_row("Plugin dir", plugin_dir_display.as_str().yellow());

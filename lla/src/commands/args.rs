@@ -49,6 +49,7 @@ pub struct Args {
     pub no_dotfiles: bool,
     pub almost_all: bool,
     pub dotfiles_only: bool,
+    pub respect_gitignore: bool,
     pub permission_format: String,
     pub hide_group: bool,
     pub relative_dates: bool,
@@ -493,6 +494,21 @@ impl Args {
                     .help("Show only dot files and directories (those starting with a dot)"),
             )
             .arg(
+                Arg::with_name("respect-gitignore")
+                    .long("respect-gitignore")
+                    .help("Hide files that match .gitignore (and git exclude) rules"),
+            )
+            .arg(
+                Arg::with_name("no-gitignore")
+                    .long("no-gitignore")
+                    .help("Disable .gitignore filtering even if enabled in config"),
+            )
+            .group(
+                ArgGroup::with_name("gitignore_handling")
+                    .args(&["respect-gitignore", "no-gitignore"])
+                    .multiple(false),
+            )
+            .arg(
                 Arg::with_name("permission-format")
                     .long("permission-format")
                     .help("Format for displaying permissions (symbolic, octal, binary, verbose, compact)")
@@ -802,6 +818,7 @@ impl Args {
                     no_dotfiles: config.filter.no_dotfiles,
                     almost_all: false,
                     dotfiles_only: false,
+                    respect_gitignore: config.filter.respect_gitignore,
                     permission_format: config.permission_format.clone(),
                     hide_group: config.formatters.long.hide_group,
                     relative_dates: config.formatters.long.relative_dates,
@@ -1152,6 +1169,13 @@ impl Args {
                 && config.filter.no_dotfiles,
             almost_all: matches.is_present("almost-all"),
             dotfiles_only: matches.is_present("dotfiles-only"),
+            respect_gitignore: if matches.is_present("respect-gitignore") {
+                true
+            } else if matches.is_present("no-gitignore") {
+                false
+            } else {
+                config.filter.respect_gitignore
+            },
             permission_format: matches
                 .value_of("permission-format")
                 .unwrap_or(&config.permission_format)

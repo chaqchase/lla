@@ -3,7 +3,7 @@ use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
 use crate::{error::Result, theme::color_value_to_color};
 use colored::*;
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, Sender};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::fs::Permissions;
 use std::io::{self, stdout, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
@@ -33,6 +33,63 @@ const WORKER_THREADS: usize = 8;
 const CHUNK_SIZE: usize = 1000;
 const SEARCH_DEBOUNCE_MS: u64 = 50;
 const RENDER_INTERVAL_MS: u64 = 16;
+
+fn path_contains_git_dir(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == ".git")
+}
+
+fn stream_gitignore_filtered_entries(
+    directory: &str,
+    sender: Sender<Vec<FileEntry>>,
+    total_indexed: &Arc<AtomicUsize>,
+) {
+    let mut builder = WalkBuilder::new(directory);
+    builder
+        .hidden(false)
+        .follow_links(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
+        .ignore(true)
+        .require_git(false)
+        .same_file_system(false)
+        .threads(1);
+
+    let mut batch = Vec::with_capacity(CHUNK_SIZE);
+
+    for dent in builder.build() {
+        let entry = match dent {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if entry.depth() == 0 {
+            continue;
+        }
+
+        if path_contains_git_dir(entry.path()) {
+            continue;
+        }
+
+        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+            continue;
+        }
+
+        batch.push(FileEntry::new(entry.into_path()));
+        total_indexed.fetch_add(1, AtomicOrdering::SeqCst);
+
+        if batch.len() >= CHUNK_SIZE {
+            let _ = sender.send(batch);
+            batch = Vec::with_capacity(CHUNK_SIZE);
+        }
+    }
+
+    if !batch.is_empty() {
+        let _ = sender.send(batch);
+    }
+}
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -171,20 +228,26 @@ struct SearchIndex {
     last_query: Arc<RwLock<String>>,
     last_results: Arc<RwLock<Vec<MatchResult>>>,
     config: crate::config::Config,
+    respect_gitignore: bool,
 }
 
 impl SearchIndex {
-    fn new(config: crate::config::Config) -> Self {
+    fn new(config: crate::config::Config, respect_gitignore: bool) -> Self {
         Self {
             entries: Arc::new(RwLock::new(Vec::with_capacity(10000))),
             matcher: Arc::new(SkimMatcherV2::default().ignore_case()),
             last_query: Arc::new(RwLock::new(String::new())),
             last_results: Arc::new(RwLock::new(Vec::new())),
             config,
+            respect_gitignore,
         }
     }
 
     fn should_ignore_path(&self, path: &std::path::Path) -> bool {
+        if self.respect_gitignore && path_contains_git_dir(path) {
+            return true;
+        }
+
         if self.config.listers.fuzzy.ignore_patterns.is_empty() {
             return false;
         }
@@ -333,13 +396,15 @@ impl SearchIndex {
 pub struct FuzzyLister {
     index: SearchIndex,
     config: crate::config::Config,
+    respect_gitignore: bool,
 }
 
 impl FuzzyLister {
-    pub fn new(config: crate::config::Config) -> Self {
+    pub fn new(config: crate::config::Config, respect_gitignore: bool) -> Self {
         Self {
-            index: SearchIndex::new(config.clone()),
+            index: SearchIndex::new(config.clone(), respect_gitignore),
             config,
+            respect_gitignore,
         }
     }
 
@@ -371,15 +436,25 @@ impl FuzzyLister {
         let indexing_complete_clone = Arc::clone(&indexing_complete);
         let directory = directory.to_string();
 
+        let respect_gitignore = self.respect_gitignore;
         thread::spawn(move || {
-            let walker = WalkBuilder::new(&directory)
+            if respect_gitignore {
+                stream_gitignore_filtered_entries(&directory, sender.clone(), &total_indexed_clone);
+                indexing_complete_clone.store(true, AtomicOrdering::SeqCst);
+                return;
+            }
+
+            let mut builder = WalkBuilder::new(&directory);
+            builder
                 .hidden(false)
                 .git_ignore(false)
+                .git_exclude(false)
+                .parents(false)
                 .ignore(false)
                 .follow_links(false)
                 .same_file_system(false)
-                .threads(num_cpus::get())
-                .build_parallel();
+                .threads(num_cpus::get());
+            let walker = builder.build_parallel();
 
             let (tx, rx) = std::sync::mpsc::channel();
 

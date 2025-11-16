@@ -37,6 +37,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Flexible Config: Easy initialization, plugin management, configuration tools
 - Rich Plugin Ecosystem: File ops and metadata enhancements, code analysis, git tools, and more
 - Smart Filters: Range-based size/time filters, reusable presets, cache-aware refinements
+- Git-aware Filtering: Optional `.gitignore` support via `--respect-gitignore` or config defaults
 
 ## Installation
 
@@ -604,12 +605,20 @@ lla --search "FIXME" --json
 
 #### Hide Filters
 
-| Command         | Description                    | Example             |
-| --------------- | ------------------------------ | ------------------- |
-| `--no-dirs`     | Hide directories               | `lla --no-dirs`     |
-| `--no-files`    | Hide regular files             | `lla --no-files`    |
-| `--no-symlinks` | Hide symbolic links            | `lla --no-symlinks` |
-| `--no-dotfiles` | Hide dot files and directories | `lla --no-dotfiles` |
+| Command               | Description                                     | Example                   |
+| --------------------- | ----------------------------------------------- | ------------------------- |
+| `--no-dirs`           | Hide directories                                | `lla --no-dirs`           |
+| `--no-files`          | Hide regular files                              | `lla --no-files`          |
+| `--no-symlinks`       | Hide symbolic links                             | `lla --no-symlinks`       |
+| `--no-dotfiles`       | Hide dot files and directories                  | `lla --no-dotfiles`       |
+| `--respect-gitignore` | Skip files excluded by .gitignore / git exclude | `lla --respect-gitignore` |
+
+> Tip: Set `filter.respect_gitignore = true` in your config to make this the default. Use `--no-gitignore` to override in a single run.
+
+```toml
+[filter]
+respect_gitignore = true
+```
 
 #### Combined Filters
 
