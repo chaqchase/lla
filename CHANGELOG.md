@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Changed
 
 - `lla init` now uses a multi-section guided flow with themed step banners, expanded prompts (sort order, directory inclusion, depth limits, sorting/filtering toggles, long-view columns, plugin directory + recursion guards), and a richer summary. Run `lla init --default` to write the stock config without launching the wizard.
+- `lla config` now renders a structured, colorized summary instead of dumping the raw struct, making it easy to review key defaults (view/sort/filter, formatter tweaks, plugin status, limits) at a glance.
 - Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree’s perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
 
 ## Fixed

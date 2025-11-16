@@ -1,10 +1,12 @@
 use crate::commands::args::ConfigAction;
 use crate::error::{ConfigErrorKind, LlaError, Result};
 use crate::theme::{load_theme, Theme};
+use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
+use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
@@ -1221,8 +1223,7 @@ pub fn handle_config_command(action: Option<ConfigAction>) -> Result<()> {
 pub fn view_config() -> Result<()> {
     let config_path = Config::get_config_path();
     let config = Config::load(&config_path)?;
-    println!("Current configuration at {:?}:", config_path);
-    println!("{:#?}", config);
+    print_config_summary(&config_path, &config);
     Ok(())
 }
 
@@ -1275,6 +1276,244 @@ fn diff_with_defaults() -> Result<()> {
         println!();
     }
     Ok(())
+}
+
+fn print_config_summary(config_path: &Path, config: &Config) {
+    println!(
+        "\n{}",
+        "╔══════════════════════════════════════════════════════════════╗".bright_black()
+    );
+    println!(
+        "{}",
+        "║                  lla configuration summary                   ║"
+            .cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════════════════╝".bright_black()
+    );
+    println!(
+        "{} {}",
+        "Config file:".bright_black(),
+        format!("{}", config_path.display()).cyan()
+    );
+    println!(
+        "{}",
+        "Tip: Use `lla config show-effective` for profile overlays.".bright_black()
+    );
+
+    print_section("Look & feel");
+    print_row("Theme", config.theme.as_str().cyan());
+    print_row(
+        "Default view",
+        describe_format(&config.default_format).green(),
+    );
+    print_row("Permissions", config.permission_format.as_str().green());
+    print_row(
+        "Icons",
+        format_toggle(config.show_icons, "enabled", "disabled"),
+    );
+    print_row(
+        "Include dirs",
+        format_toggle(config.include_dirs, "include", "files only"),
+    );
+    print_row(
+        "Depth limit",
+        format_optional_limit(config.default_depth, "levels"),
+    );
+
+    print_section("Sorting & filters");
+    print_row("Sort order", describe_sort(&config.default_sort).cyan());
+    print_row(
+        "Dirs first",
+        format_toggle(config.sort.dirs_first, "yes", "no"),
+    );
+    print_row(
+        "Sort casing",
+        format_toggle(config.sort.case_sensitive, "case sensitive", "ignore case"),
+    );
+    print_row(
+        "Natural sort",
+        format_toggle(config.sort.natural, "natural", "lexical"),
+    );
+    print_row(
+        "Filter casing",
+        format_toggle(
+            config.filter.case_sensitive,
+            "case sensitive",
+            "ignore case",
+        ),
+    );
+    print_row(
+        "Hide dotfiles",
+        format_toggle(config.filter.no_dotfiles, "hidden", "show"),
+    );
+    print_row(
+        "Filter presets",
+        format_count(config.filter.presets.len(), "preset"),
+    );
+
+    print_section("Formatter defaults");
+    print_row(
+        "Long columns",
+        format_column_preview(&config.formatters.long.columns),
+    );
+    print_row(
+        "Long relative",
+        format_toggle(
+            config.formatters.long.relative_dates,
+            "relative",
+            "absolute",
+        ),
+    );
+    print_row(
+        "Hide group",
+        format_toggle(config.formatters.long.hide_group, "hidden", "visible"),
+    );
+    print_row(
+        "Tree max lines",
+        format_optional_limit(config.formatters.tree.max_lines, "lines"),
+    );
+    print_row(
+        "Grid width cap",
+        format_plain_number(config.formatters.grid.max_width, "cols"),
+    );
+    print_row(
+        "Grid ignores width",
+        format_toggle(config.formatters.grid.ignore_width, "ignore", "respect"),
+    );
+
+    print_section("Plugins & automation");
+    print_row(
+        "Plugin dir",
+        format!("{}", config.plugins_dir.display()).yellow(),
+    );
+    print_row("Plugins", format_plugin_list(&config.enabled_plugins));
+    print_row(
+        "Shortcuts",
+        format_count(config.shortcuts.len(), "shortcut"),
+    );
+    print_row(
+        "Aliases",
+        format_count(config.plugin_aliases.len(), "alias"),
+    );
+
+    print_section("Safety & limits");
+    print_row(
+        "Recursive guard",
+        format_optional_limit(config.listers.recursive.max_entries, "entries"),
+    );
+    print_row(
+        "Exclude paths",
+        format_count(config.exclude_paths.len(), "path"),
+    );
+
+    println!(
+        "\n{}",
+        "Need the raw data? Try `lla config show-effective` or `lla config diff --default`."
+            .bright_black()
+    );
+}
+
+fn describe_format(format: &str) -> &str {
+    match format {
+        "tree" => "Tree (hierarchical)",
+        "long" => "Long (detailed)",
+        "grid" => "Grid (compact)",
+        "table" => "Table (columns)",
+        "timeline" => "Timeline",
+        "git" => "Git status",
+        "sizemap" => "Size map",
+        "fuzzy" => "Fuzzy finder",
+        _ => "Recommended default",
+    }
+}
+
+fn describe_sort(sort: &str) -> &str {
+    match sort {
+        "size" => "Size (small → large)",
+        "date" => "Date (newest first)",
+        _ => "Name (A→Z)",
+    }
+}
+
+fn print_section(title: &str) {
+    println!("\n{}", title.bold());
+    println!("{}", "─".repeat(title.len()).bright_black());
+}
+
+fn print_row(label: &str, value: impl Display) {
+    let key = format!("{:<16}", label);
+    println!("  {} {}", key.bold(), value);
+}
+
+fn format_toggle(value: bool, on_label: &str, off_label: &str) -> ColoredString {
+    if value {
+        on_label.green().bold()
+    } else {
+        off_label.bright_black()
+    }
+}
+
+fn format_optional_limit(value: Option<usize>, noun: &str) -> ColoredString {
+    match value {
+        Some(v) => format!("{} {}", v, noun).bold(),
+        None => "no limit".bright_black(),
+    }
+}
+
+fn format_plain_number(value: usize, noun: &str) -> ColoredString {
+    format!("{} {}", value, noun).bold()
+}
+
+fn format_plugin_list(plugins: &[String]) -> ColoredString {
+    if plugins.is_empty() {
+        "(none enabled)".bright_black()
+    } else {
+        let preview = format_preview_list(plugins, 5);
+        preview.as_str().magenta()
+    }
+}
+
+fn format_column_preview(columns: &[String]) -> ColoredString {
+    if columns.is_empty() {
+        "(none configured)".bright_black()
+    } else {
+        let preview = format_preview_list(columns, 6);
+        preview.as_str().purple()
+    }
+}
+
+fn format_count(count: usize, noun: &str) -> ColoredString {
+    if count == 0 {
+        "none".bright_black()
+    } else {
+        let plural = if count == 1 {
+            noun.to_string()
+        } else {
+            format!("{}s", noun)
+        };
+        format!("{} {}", count, plural).bold()
+    }
+}
+
+fn format_preview_list(items: &[String], limit: usize) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let show = items.len().min(limit);
+    let mut preview = items
+        .iter()
+        .take(show)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let remaining = items.len().saturating_sub(show);
+    if remaining > 0 {
+        preview.push_str(&format!(" … (+{} more)", remaining));
+    }
+    preview
 }
 
 struct DiffEntry {
