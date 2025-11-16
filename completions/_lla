@@ -23,7 +23,13 @@ _lla() {
 '--sort=[Sort files by name, size, or date]: :(name size date)' \
 '-f+[Filter files by name or extension]: : ' \
 '--filter=[Filter files by name or extension]: : ' \
+'*--preset=[Apply a named filter preset defined in your config]: : ' \
+'--size=[Filter by file size (e.g., '\''>10M'\'', '\''5K..2G'\'')]: : ' \
+'--modified=[Filter by modified time (e.g., '\''<7d'\'', '\''2023-01-01..2023-12-31'\'')]: : ' \
+'--created=[Filter by creation time using the same syntax as --modified]: : ' \
+'*--refine=[Refine a previous listing (or cache) without re-walking the filesystem using additional filters]: : ' \
 '*--enable-plugin=[Enable specific plugins]: : ' \
+'*--search-pipe=[After --search finishes, run plugin action(s) on matching files (syntax: plugin:action\[:arg...\])]: : ' \
 '*--disable-plugin=[Disable specific plugins]: : ' \
 '--plugins-dir=[Specify the plugins directory]: : ' \
 '--permission-format=[Format for displaying permissions (symbolic, octal, binary, verbose, compact)]: :(symbolic octal binary verbose compact)' \
@@ -76,6 +82,8 @@ _lla() {
 '-A[Show all files including dotfiles except . and .. (overrides no_dotfiles config)]' \
 '--almost-all[Show all files including dotfiles except . and .. (overrides no_dotfiles config)]' \
 '--dotfiles-only[Show only dot files and directories (those starting with a dot)]' \
+'--respect-gitignore[Hide files that match .gitignore (and git exclude) rules]' \
+'--no-gitignore[Disable .gitignore filtering even if enabled in config]' \
 '--hide-group[Hide group column in long format]' \
 '--relative-dates[Show relative dates (e.g., '\''2h ago'\'') in long format]' \
 '::directory -- The directory to list:' \
@@ -88,7 +96,17 @@ _lla() {
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:lla-command-$line[2]:"
         case $line[2] in
-            (jump)
+            (diff)
+_arguments "${_arguments_options[@]}" \
+'--git-ref=[Git reference to compare against (default: HEAD)]: : ' \
+'--git[Compare the directory against a git reference instead of another directory]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+':left -- Base directory to compare:' \
+'::right -- Directory to compare against:' \
+&& ret=0
+;;
+(jump)
 _arguments "${_arguments_options[@]}" \
 '--add=[Add a directory to bookmarks]: : ' \
 '--remove=[Remove a directory from bookmarks]: : ' \
@@ -138,6 +156,7 @@ _arguments "${_arguments_options[@]}" \
 ;;
 (init)
 _arguments "${_arguments_options[@]}" \
+'--default[Write the default config without launching the wizard]' \
 '-h[Print help information]' \
 '--help[Print help information]' \
 && ret=0
@@ -147,13 +166,52 @@ _arguments "${_arguments_options[@]}" \
 '--set=[Set a configuration value (e.g., --set plugins_dir /new/path)]:KEY: :KEY: ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
+":: :_lla__config_commands" \
+"*::: :->config" \
 && ret=0
+
+    case $state in
+    (config)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:lla-config-command-$line[1]:"
+        case $line[1] in
+            (show-effective)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+&& ret=0
+;;
+(diff)
+_arguments "${_arguments_options[@]}" \
+'--default[Diff against the built-in defaults]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (update)
 _arguments "${_arguments_options[@]}" \
 '-h[Print help information]' \
 '--help[Print help information]' \
 '::name -- Name of the plugin to update (updates all if not specified):' \
+&& ret=0
+;;
+(upgrade)
+_arguments "${_arguments_options[@]}" \
+'-v+[Upgrade to a specific release tag (defaults to the latest release)]: : ' \
+'--version=[Upgrade to a specific release tag (defaults to the latest release)]: : ' \
+'--path=[Install location for the lla binary (defaults to the current executable path)]: : ' \
+'-h[Print help information]' \
+'--help[Print help information]' \
 && ret=0
 ;;
 (clean)
@@ -268,6 +326,13 @@ _arguments "${_arguments_options[@]}" \
 ':path -- Path to theme file or directory containing themes:' \
 && ret=0
 ;;
+(preview)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+':name -- Name of the theme to preview:' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 '*::subcommand -- The subcommand whose help message to display:' \
@@ -290,6 +355,7 @@ esac
 (( $+functions[_lla_commands] )) ||
 _lla_commands() {
     local commands; commands=(
+'diff:Compare two directories or a directory against a git reference' \
 'jump:Jump to a bookmarked or recent directory' \
 'install:Install a plugin' \
 'plugin:Run a plugin action' \
@@ -298,6 +364,7 @@ _lla_commands() {
 'init:Initialize the configuration file' \
 'config:View or modify configuration' \
 'update:Update installed plugins' \
+'upgrade:Upgrade the lla CLI to the latest (or specified) release' \
 'clean:This command will clean up invalid plugins' \
 'shortcut:Manage command shortcuts' \
 'completion:Generate shell completion scripts' \
@@ -323,7 +390,11 @@ _lla__completion_commands() {
 }
 (( $+functions[_lla__config_commands] )) ||
 _lla__config_commands() {
-    local commands; commands=()
+    local commands; commands=(
+'show-effective:Show the merged config (global + nearest .lla.toml)' \
+'diff:Compare config overrides against defaults' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
     _describe -t commands 'lla config commands' commands "$@"
 }
 (( $+functions[_lla__shortcut__create_commands] )) ||
@@ -331,10 +402,25 @@ _lla__shortcut__create_commands() {
     local commands; commands=()
     _describe -t commands 'lla shortcut create commands' commands "$@"
 }
+(( $+functions[_lla__config__diff_commands] )) ||
+_lla__config__diff_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla config diff commands' commands "$@"
+}
+(( $+functions[_lla__diff_commands] )) ||
+_lla__diff_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla diff commands' commands "$@"
+}
 (( $+functions[_lla__shortcut__export_commands] )) ||
 _lla__shortcut__export_commands() {
     local commands; commands=()
     _describe -t commands 'lla shortcut export commands' commands "$@"
+}
+(( $+functions[_lla__config__help_commands] )) ||
+_lla__config__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla config help commands' commands "$@"
 }
 (( $+functions[_lla__help_commands] )) ||
 _lla__help_commands() {
@@ -391,6 +477,11 @@ _lla__plugin_commands() {
     local commands; commands=()
     _describe -t commands 'lla plugin commands' commands "$@"
 }
+(( $+functions[_lla__theme__preview_commands] )) ||
+_lla__theme__preview_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla theme preview commands' commands "$@"
+}
 (( $+functions[_lla__theme__pull_commands] )) ||
 _lla__theme__pull_commands() {
     local commands; commands=()
@@ -414,11 +505,17 @@ _lla__shortcut_commands() {
     )
     _describe -t commands 'lla shortcut commands' commands "$@"
 }
+(( $+functions[_lla__config__show-effective_commands] )) ||
+_lla__config__show-effective_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla config show-effective commands' commands "$@"
+}
 (( $+functions[_lla__theme_commands] )) ||
 _lla__theme_commands() {
     local commands; commands=(
 'pull:Pull and install themes from the official repository' \
 'install:Install theme(s) from a file or directory' \
+'preview:Preview a theme using sample output' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'lla theme commands' commands "$@"
@@ -427,6 +524,11 @@ _lla__theme_commands() {
 _lla__update_commands() {
     local commands; commands=()
     _describe -t commands 'lla update commands' commands "$@"
+}
+(( $+functions[_lla__upgrade_commands] )) ||
+_lla__upgrade_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla upgrade commands' commands "$@"
 }
 (( $+functions[_lla__use_commands] )) ||
 _lla__use_commands() {

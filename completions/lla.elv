@@ -26,7 +26,13 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --sort 'Sort files by name, size, or date'
             cand -f 'Filter files by name or extension'
             cand --filter 'Filter files by name or extension'
+            cand --preset 'Apply a named filter preset defined in your config'
+            cand --size 'Filter by file size (e.g., ''>10M'', ''5K..2G'')'
+            cand --modified 'Filter by modified time (e.g., ''<7d'', ''2023-01-01..2023-12-31'')'
+            cand --created 'Filter by creation time using the same syntax as --modified'
+            cand --refine 'Refine a previous listing (or cache) without re-walking the filesystem using additional filters'
             cand --enable-plugin 'Enable specific plugins'
+            cand --search-pipe 'After --search finishes, run plugin action(s) on matching files (syntax: plugin:action[:arg...])'
             cand --disable-plugin 'Disable specific plugins'
             cand --plugins-dir 'Specify the plugins directory'
             cand --permission-format 'Format for displaying permissions (symbolic, octal, binary, verbose, compact)'
@@ -79,8 +85,11 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand -A 'Show all files including dotfiles except . and .. (overrides no_dotfiles config)'
             cand --almost-all 'Show all files including dotfiles except . and .. (overrides no_dotfiles config)'
             cand --dotfiles-only 'Show only dot files and directories (those starting with a dot)'
+            cand --respect-gitignore 'Hide files that match .gitignore (and git exclude) rules'
+            cand --no-gitignore 'Disable .gitignore filtering even if enabled in config'
             cand --hide-group 'Hide group column in long format'
             cand --relative-dates 'Show relative dates (e.g., ''2h ago'') in long format'
+            cand diff 'Compare two directories or a directory against a git reference'
             cand jump 'Jump to a bookmarked or recent directory'
             cand install 'Install a plugin'
             cand plugin 'Run a plugin action'
@@ -89,11 +98,18 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand init 'Initialize the configuration file'
             cand config 'View or modify configuration'
             cand update 'Update installed plugins'
+            cand upgrade 'Upgrade the lla CLI to the latest (or specified) release'
             cand clean 'This command will clean up invalid plugins'
             cand shortcut 'Manage command shortcuts'
             cand completion 'Generate shell completion scripts'
             cand theme 'Interactive theme manager'
             cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'lla;diff'= {
+            cand --git-ref 'Git reference to compare against (default: HEAD)'
+            cand --git 'Compare the directory against a git reference instead of another directory'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
         }
         &'lla;jump'= {
             cand --add 'Add a directory to bookmarks'
@@ -131,6 +147,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --help 'Print help information'
         }
         &'lla;init'= {
+            cand --default 'Write the default config without launching the wizard'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
@@ -138,8 +155,29 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --set 'Set a configuration value (e.g., --set plugins_dir /new/path)'
             cand -h 'Print help information'
             cand --help 'Print help information'
+            cand show-effective 'Show the merged config (global + nearest .lla.toml)'
+            cand diff 'Compare config overrides against defaults'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'lla;config;show-effective'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;config;diff'= {
+            cand --default 'Diff against the built-in defaults'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;config;help'= {
         }
         &'lla;update'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;upgrade'= {
+            cand -v 'Upgrade to a specific release tag (defaults to the latest release)'
+            cand --version 'Upgrade to a specific release tag (defaults to the latest release)'
+            cand --path 'Install location for the lla binary (defaults to the current executable path)'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
@@ -200,6 +238,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --help 'Print help information'
             cand pull 'Pull and install themes from the official repository'
             cand install 'Install theme(s) from a file or directory'
+            cand preview 'Preview a theme using sample output'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'lla;theme;pull'= {
@@ -207,6 +246,10 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --help 'Print help information'
         }
         &'lla;theme;install'= {
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;theme;preview'= {
             cand -h 'Print help information'
             cand --help 'Print help information'
         }

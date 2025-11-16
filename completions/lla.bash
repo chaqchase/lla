@@ -27,6 +27,9 @@ _lla() {
             create)
                 cmd+="__create"
                 ;;
+            diff)
+                cmd+="__diff"
+                ;;
             export)
                 cmd+="__export"
                 ;;
@@ -54,6 +57,9 @@ _lla() {
             plugin)
                 cmd+="__plugin"
                 ;;
+            preview)
+                cmd+="__preview"
+                ;;
             pull)
                 cmd+="__pull"
                 ;;
@@ -63,11 +69,17 @@ _lla() {
             shortcut)
                 cmd+="__shortcut"
                 ;;
+            show-effective)
+                cmd+="__show__effective"
+                ;;
             theme)
                 cmd+="__theme"
                 ;;
             update)
                 cmd+="__update"
+                ;;
+            upgrade)
+                cmd+="__upgrade"
                 ;;
             use)
                 cmd+="__use"
@@ -79,7 +91,7 @@ _lla() {
 
     case "${cmd}" in
         lla)
-            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --case-sensitive --enable-plugin --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --permission-format --hide-group --relative-dates <directory> jump install plugin list-plugins use init config update clean shortcut completion theme help"
+            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --preset --size --modified --created --case-sensitive --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --relative-dates <directory> diff jump install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -117,7 +129,31 @@ _lla() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --preset)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --size)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --modified)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --created)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --refine)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --enable-plugin)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --search-pipe)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -185,13 +221,73 @@ _lla() {
             return 0
             ;;
         lla__config)
-            opts="-h --set --help"
+            opts="-h --set --help show-effective diff help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --set)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__config__diff)
+            opts="-h --default --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__config__help)
+            opts="<SUBCOMMAND>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__config__show__effective)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__diff)
+            opts="-h --git --git-ref --help <left> <right>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --git-ref)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -217,7 +313,7 @@ _lla() {
             return 0
             ;;
         lla__init)
-            opts="-h --help"
+            opts="-h --default --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -451,7 +547,7 @@ _lla() {
             return 0
             ;;
         lla__theme)
-            opts="-h --help pull install help"
+            opts="-h --help pull install preview help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -492,6 +588,20 @@ _lla() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        lla__theme__preview)
+            opts="-h --help <name>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         lla__theme__pull)
             opts="-h --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -513,6 +623,32 @@ _lla() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__upgrade)
+            opts="-v -h --version --path --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -v)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --path)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

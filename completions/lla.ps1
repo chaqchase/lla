@@ -29,7 +29,13 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--sort', 'sort', [CompletionResultType]::ParameterName, 'Sort files by name, size, or date')
             [CompletionResult]::new('-f', 'f', [CompletionResultType]::ParameterName, 'Filter files by name or extension')
             [CompletionResult]::new('--filter', 'filter', [CompletionResultType]::ParameterName, 'Filter files by name or extension')
+            [CompletionResult]::new('--preset', 'preset', [CompletionResultType]::ParameterName, 'Apply a named filter preset defined in your config')
+            [CompletionResult]::new('--size', 'size', [CompletionResultType]::ParameterName, 'Filter by file size (e.g., ''>10M'', ''5K..2G'')')
+            [CompletionResult]::new('--modified', 'modified', [CompletionResultType]::ParameterName, 'Filter by modified time (e.g., ''<7d'', ''2023-01-01..2023-12-31'')')
+            [CompletionResult]::new('--created', 'created', [CompletionResultType]::ParameterName, 'Filter by creation time using the same syntax as --modified')
+            [CompletionResult]::new('--refine', 'refine', [CompletionResultType]::ParameterName, 'Refine a previous listing (or cache) without re-walking the filesystem using additional filters')
             [CompletionResult]::new('--enable-plugin', 'enable-plugin', [CompletionResultType]::ParameterName, 'Enable specific plugins')
+            [CompletionResult]::new('--search-pipe', 'search-pipe', [CompletionResultType]::ParameterName, 'After --search finishes, run plugin action(s) on matching files (syntax: plugin:action[:arg...])')
             [CompletionResult]::new('--disable-plugin', 'disable-plugin', [CompletionResultType]::ParameterName, 'Disable specific plugins')
             [CompletionResult]::new('--plugins-dir', 'plugins-dir', [CompletionResultType]::ParameterName, 'Specify the plugins directory')
             [CompletionResult]::new('--permission-format', 'permission-format', [CompletionResultType]::ParameterName, 'Format for displaying permissions (symbolic, octal, binary, verbose, compact)')
@@ -82,8 +88,11 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('-A', 'A', [CompletionResultType]::ParameterName, 'Show all files including dotfiles except . and .. (overrides no_dotfiles config)')
             [CompletionResult]::new('--almost-all', 'almost-all', [CompletionResultType]::ParameterName, 'Show all files including dotfiles except . and .. (overrides no_dotfiles config)')
             [CompletionResult]::new('--dotfiles-only', 'dotfiles-only', [CompletionResultType]::ParameterName, 'Show only dot files and directories (those starting with a dot)')
+            [CompletionResult]::new('--respect-gitignore', 'respect-gitignore', [CompletionResultType]::ParameterName, 'Hide files that match .gitignore (and git exclude) rules')
+            [CompletionResult]::new('--no-gitignore', 'no-gitignore', [CompletionResultType]::ParameterName, 'Disable .gitignore filtering even if enabled in config')
             [CompletionResult]::new('--hide-group', 'hide-group', [CompletionResultType]::ParameterName, 'Hide group column in long format')
             [CompletionResult]::new('--relative-dates', 'relative-dates', [CompletionResultType]::ParameterName, 'Show relative dates (e.g., ''2h ago'') in long format')
+            [CompletionResult]::new('diff', 'diff', [CompletionResultType]::ParameterValue, 'Compare two directories or a directory against a git reference')
             [CompletionResult]::new('jump', 'jump', [CompletionResultType]::ParameterValue, 'Jump to a bookmarked or recent directory')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a plugin')
             [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run a plugin action')
@@ -92,11 +101,19 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('init', 'init', [CompletionResultType]::ParameterValue, 'Initialize the configuration file')
             [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'View or modify configuration')
             [CompletionResult]::new('update', 'update', [CompletionResultType]::ParameterValue, 'Update installed plugins')
+            [CompletionResult]::new('upgrade', 'upgrade', [CompletionResultType]::ParameterValue, 'Upgrade the lla CLI to the latest (or specified) release')
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'This command will clean up invalid plugins')
             [CompletionResult]::new('shortcut', 'shortcut', [CompletionResultType]::ParameterValue, 'Manage command shortcuts')
             [CompletionResult]::new('completion', 'completion', [CompletionResultType]::ParameterValue, 'Generate shell completion scripts')
             [CompletionResult]::new('theme', 'theme', [CompletionResultType]::ParameterValue, 'Interactive theme manager')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'lla;diff' {
+            [CompletionResult]::new('--git-ref', 'git-ref', [CompletionResultType]::ParameterName, 'Git reference to compare against (default: HEAD)')
+            [CompletionResult]::new('--git', 'git', [CompletionResultType]::ParameterName, 'Compare the directory against a git reference instead of another directory')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
         }
         'lla;jump' {
@@ -140,6 +157,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             break
         }
         'lla;init' {
+            [CompletionResult]::new('--default', 'default', [CompletionResultType]::ParameterName, 'Write the default config without launching the wizard')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
@@ -148,9 +166,34 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--set', 'set', [CompletionResultType]::ParameterName, 'Set a configuration value (e.g., --set plugins_dir /new/path)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('show-effective', 'show-effective', [CompletionResultType]::ParameterValue, 'Show the merged config (global + nearest .lla.toml)')
+            [CompletionResult]::new('diff', 'diff', [CompletionResultType]::ParameterValue, 'Compare config overrides against defaults')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'lla;config;show-effective' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;config;diff' {
+            [CompletionResult]::new('--default', 'default', [CompletionResultType]::ParameterName, 'Diff against the built-in defaults')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;config;help' {
             break
         }
         'lla;update' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;upgrade' {
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Upgrade to a specific release tag (defaults to the latest release)')
+            [CompletionResult]::new('--version', 'version', [CompletionResultType]::ParameterName, 'Upgrade to a specific release tag (defaults to the latest release)')
+            [CompletionResult]::new('--path', 'path', [CompletionResultType]::ParameterName, 'Install location for the lla binary (defaults to the current executable path)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
@@ -222,6 +265,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('pull', 'pull', [CompletionResultType]::ParameterValue, 'Pull and install themes from the official repository')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install theme(s) from a file or directory')
+            [CompletionResult]::new('preview', 'preview', [CompletionResultType]::ParameterValue, 'Preview a theme using sample output')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -231,6 +275,11 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             break
         }
         'lla;theme;install' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;theme;preview' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
