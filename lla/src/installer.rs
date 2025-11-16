@@ -6,7 +6,7 @@ use colored::{Color, Colorize};
 use console::Term;
 use dialoguer::MultiSelect;
 use flate2::read::GzDecoder;
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use libloading::Library;
 use lla_plugin_interface::{
     proto::{plugin_message::Message, PluginMessage},
@@ -253,6 +253,16 @@ impl<'a> InstallerUi<'a> {
         self.write_stdout(self.muted_text(&underline));
     }
 
+    fn banner(&self, title: &str) {
+        let padding = 10;
+        let width = title.chars().count() + padding;
+        let line = "═".repeat(width);
+        self.blank_line();
+        self.write_stdout(self.accent_text(&format!("╔{}╗", line)));
+        self.write_stdout(self.highlight_text(&format!("║{: ^width$}║", title, width = width)));
+        self.write_stdout(self.accent_text(&format!("╚{}╝", line)));
+    }
+
     fn bullet_line(&self, label: &str, value: &str) {
         let bullet = self.highlight_text("•");
         let label_text = self.highlight_text(&format!("{}:", label));
@@ -357,7 +367,7 @@ impl<'a> InstallerUi<'a> {
         kind: StatusKind,
         message: impl AsRef<str>,
     ) {
-        // This version is for standalone progress bars (not in MultiProgress)
+        // This version is for standalone progress bars (not grouped with others)
         // Stop the spinner animation
         pb.disable_steady_tick();
 
@@ -481,11 +491,28 @@ pub struct PluginInstaller {
 
 impl PluginInstaller {
     pub fn new(plugins_dir: &Path, args: &Args) -> Self {
+        let progress_pref = std::env::var("LLA_PROGRESS").unwrap_or_default();
+        let force_progress = matches!(
+            progress_pref.as_str(),
+            "1" | "true" | "TRUE" | "on" | "ON" | "yes" | "YES"
+        );
+        let force_quiet = matches!(
+            progress_pref.as_str(),
+            "0" | "false" | "FALSE" | "off" | "OFF" | "no" | "NO"
+        );
+        let interactive = atty::is(atty::Stream::Stderr);
+        let no_progress = if force_progress {
+            false
+        } else if force_quiet {
+            true
+        } else {
+            !interactive
+        };
+
         PluginInstaller {
             plugins_dir: plugins_dir.to_path_buf(),
             color_state: ColorState::new(args),
-            // Minimal output mode: no progress spinners
-            no_progress: true,
+            no_progress,
         }
     }
 
@@ -1100,7 +1127,8 @@ impl PluginInstaller {
 
     pub fn install_from_prebuilt(&self) -> Result<()> {
         let ui = self.ui();
-        ui.section("Prebuilt Plugin Installation");
+        ui.banner("Prebuilt Plugin Installation");
+        ui.section("Release Details");
 
         let host = HostTarget::detect()?;
         let agent = Self::github_agent();
@@ -1202,6 +1230,7 @@ impl PluginInstaller {
 
         let selected_plugins = self.select_prebuilt_plugins(&plugins)?;
         let selected_count = selected_plugins.len();
+        ui.blank_line();
         ui.print_status(
             StatusKind::Info,
             format!(
@@ -1215,20 +1244,16 @@ impl PluginInstaller {
             ),
         );
 
-        // One-line status spinner for the whole process
-        let status_pb = self.create_status_spinner(&ui.progress_message("Installing", "plugins"));
-
-        let m = MultiProgress::new();
-        m.set_draw_target(self.progress_draw_target());
         let mut summary = InstallSummary::default();
 
-        for (idx, plugin) in selected_plugins.into_iter().enumerate() {
-            status_pb.set_message(ui.progress_message(
-                "Installing",
-                &format!("{} ({}/{})", plugin.name, idx + 1, selected_count),
-            ));
-            let initial_message = ui.progress_message("Installing", &plugin.name);
-            let pb = m.add(self.create_spinner(&initial_message));
+        for plugin in selected_plugins.into_iter() {
+            let spinner = if self.no_progress {
+                None
+            } else {
+                let initial = ui.progress_message("Installing", &plugin.name);
+                Some(self.create_build_progress(&initial))
+            };
+
             match self.install_prebuilt_plugin(
                 &plugin,
                 &release.tag_name,
@@ -1236,19 +1261,48 @@ impl PluginInstaller {
                 checksum.as_deref(),
             ) {
                 Ok(_) => {
-                    ui.complete_progress(&pb);
+                    if let Some(ref pb) = spinner {
+                        let msg = format!(
+                            "Installed {}",
+                            ui.name_with_version(&plugin.name, &plugin.version)
+                        );
+                        ui.complete_progress_standalone(pb, StatusKind::Success, msg);
+                    } else {
+                        ui.print_status(
+                            StatusKind::Success,
+                            format!(
+                                "Installed {}",
+                                ui.name_with_version(&plugin.name, &plugin.version)
+                            ),
+                        );
+                    }
                     summary.add_success(plugin.name.clone(), plugin.version.clone());
                 }
                 Err(err) => {
                     let error_text = err.to_string();
-                    ui.complete_progress(&pb);
+                    if let Some(ref pb) = spinner {
+                        let msg = format!(
+                            "{} {}",
+                            ui.highlight_text(&plugin.name),
+                            ui.error_text("install failed")
+                        );
+                        ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                    } else {
+                        ui.print_status(
+                            StatusKind::Error,
+                            format!(
+                                "{} {}",
+                                ui.highlight_text(&plugin.name),
+                                ui.error_text("install failed")
+                            ),
+                        );
+                    }
                     summary.add_failure(plugin.name.clone(), error_text);
                 }
             }
         }
 
-        m.clear()?;
-        ui.complete_progress(&status_pb);
+        ui.blank_line();
         summary.display(&ui);
 
         if summary.failed.is_empty() {
@@ -1264,7 +1318,8 @@ impl PluginInstaller {
 
     pub fn install_from_git(&self, url: &str) -> Result<()> {
         let ui = self.ui();
-        ui.section("Git Installation");
+        ui.banner("Git Installation");
+        ui.section("Repository");
         ui.bullet_line("Repository", url);
         ui.blank_line();
 
@@ -1306,19 +1361,13 @@ impl PluginInstaller {
         );
         ui.complete_progress_standalone(&clone_pb, StatusKind::Success, cloned_msg);
 
-        let m = MultiProgress::new();
-        let result = self.install_plugins(
-            &temp_dir.path().join(repo_name),
-            Some((repo_name, url)),
-            Some(&m),
-        );
-        m.clear()?;
-        result
+        self.install_plugins(&temp_dir.path().join(repo_name), Some((repo_name, url)))
     }
 
     pub fn install_from_directory(&self, dir: &str) -> Result<()> {
         let ui = self.ui();
-        ui.section("Local Installation");
+        ui.banner("Local Installation");
+        ui.section("Directory");
         ui.bullet_line("Directory", dir);
         ui.blank_line();
 
@@ -1330,10 +1379,7 @@ impl PluginInstaller {
             return Err(LlaError::Plugin(format!("Not a valid directory: {}", dir)));
         }
 
-        let m = MultiProgress::new();
-        let result = self.install_plugins(&source_dir, None, Some(&m));
-        m.clear()?;
-        result
+        self.install_plugins(&source_dir, None)
     }
 
     fn is_workspace_member(&self, plugin_dir: &Path, silent: bool) -> Result<Option<PathBuf>> {
@@ -1661,12 +1707,7 @@ impl PluginInstaller {
         Ok(())
     }
 
-    fn install_plugins(
-        &self,
-        root_dir: &Path,
-        repo_info: Option<(&str, &str)>,
-        multi_progress: Option<&MultiProgress>,
-    ) -> Result<()> {
+    fn install_plugins(&self, root_dir: &Path, repo_info: Option<(&str, &str)>) -> Result<()> {
         let plugin_dirs = self.find_plugin_directories(root_dir)?;
         if plugin_dirs.is_empty() {
             return Err(LlaError::Plugin(format!(
@@ -1680,6 +1721,7 @@ impl PluginInstaller {
         let total_plugins = selected_plugins.len();
         let ui = self.ui();
 
+        ui.blank_line();
         ui.print_status(
             StatusKind::Info,
             format!(
@@ -1693,38 +1735,16 @@ impl PluginInstaller {
             ),
         );
 
-        // One-line status spinner for the entire build/install sequence
-        let status_pb = self.create_status_spinner(&ui.progress_message("Preparing", "plugins"));
-
-        let mut owned_multi_progress: Option<MultiProgress> = None;
-        let active_multi_progress = match multi_progress {
-            Some(existing) => existing,
-            None => {
-                owned_multi_progress = Some(MultiProgress::new());
-                owned_multi_progress
-                    .as_ref()
-                    .expect("owned MultiProgress should exist")
-            }
-        };
-
-        active_multi_progress.set_draw_target(self.progress_draw_target());
-
-        for (idx, plugin_dir) in selected_plugins.iter().enumerate() {
+        for plugin_dir in selected_plugins.iter() {
             let plugin_name = Self::get_display_name(plugin_dir);
-            status_pb.set_message(ui.progress_message(
-                "Building",
-                &format!("{} ({}/{})", plugin_name, idx + 1, total_plugins),
-            ));
-
-            let progress_bar = if let Some(m) = owned_multi_progress.as_ref() {
-                let initial = ui.progress_message("Building", &plugin_name);
-                Some(m.add(self.create_build_progress(&initial)))
+            let spinner = if self.no_progress {
+                None
             } else {
                 let initial = ui.progress_message("Building", &plugin_name);
-                Some(active_multi_progress.add(self.create_build_progress(&initial)))
+                Some(self.create_build_progress(&initial))
             };
 
-            match self.build_and_install_plugin(plugin_dir, progress_bar.as_ref(), None) {
+            match self.build_and_install_plugin(plugin_dir, spinner.as_ref(), None) {
                 Ok(_) => {
                     let version = self.get_plugin_version(plugin_dir)?;
                     let metadata = if let Some((repo_name, url)) = repo_info {
@@ -1753,34 +1773,65 @@ impl PluginInstaller {
                     if let Err(e) = self.update_plugin_metadata(&plugin_name, metadata) {
                         let error_text = format!("metadata error: {}", e);
                         summary.add_failure(plugin_name.clone(), error_text.clone());
-                        if let Some(ref pb) = progress_bar {
-                            ui.complete_progress(pb);
+                        if let Some(ref pb) = spinner {
+                            let msg = format!(
+                                "{} {}",
+                                ui.highlight_text(&plugin_name),
+                                ui.error_text("metadata update failed")
+                            );
+                            ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                        } else {
+                            ui.print_status(
+                                StatusKind::Error,
+                                format!(
+                                    "{} {}",
+                                    ui.highlight_text(&plugin_name),
+                                    ui.error_text("metadata update failed")
+                                ),
+                            );
                         }
                     } else {
                         summary.add_success(plugin_name.clone(), version.clone());
-                        if let Some(ref pb) = progress_bar {
-                            ui.complete_progress(pb);
+                        if let Some(ref pb) = spinner {
+                            let msg = format!(
+                                "Installed {}",
+                                ui.name_with_version(&plugin_name, &version)
+                            );
+                            ui.complete_progress_standalone(pb, StatusKind::Success, msg);
+                        } else {
+                            ui.print_status(
+                                StatusKind::Success,
+                                format!(
+                                    "Installed {}",
+                                    ui.name_with_version(&plugin_name, &version)
+                                ),
+                            );
                         }
                     }
                 }
                 Err(e) => {
                     let error_text = e.to_string();
                     summary.add_failure(plugin_name.clone(), error_text.clone());
-                    if let Some(ref pb) = progress_bar {
-                        ui.complete_progress(pb);
+                    if let Some(ref pb) = spinner {
+                        let msg = format!(
+                            "{} {}",
+                            ui.highlight_text(&plugin_name),
+                            ui.error_text("build failed")
+                        );
+                        ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                    } else {
+                        ui.print_status(
+                            StatusKind::Error,
+                            format!(
+                                "{} {}",
+                                ui.highlight_text(&plugin_name),
+                                ui.error_text("build failed")
+                            ),
+                        );
                     }
                 }
             }
         }
-
-        // Clear the MultiProgress if we own it
-        // This prevents leftover spinner lines from appearing in the output
-        if let Some(ref m) = owned_multi_progress {
-            m.clear()?;
-        }
-
-        // Clear the single-line status
-        ui.complete_progress(&status_pb);
 
         ui.blank_line();
         summary.display(&ui);
@@ -1818,7 +1869,7 @@ impl PluginInstaller {
         }
 
         let ui = self.ui();
-        ui.section("Update Plugins");
+        ui.banner("Update Plugins");
         ui.print_status(
             StatusKind::Info,
             format!(
@@ -1832,36 +1883,39 @@ impl PluginInstaller {
             ),
         );
 
-        // One-line status spinner for the whole update pass
-        let status_pb = self.create_status_spinner(&ui.progress_message("Updating", "plugins"));
-
-        let m = MultiProgress::new();
-        m.set_draw_target(self.progress_draw_target());
         let mut success = false;
-
-        let plugins_len = plugins.len();
-        for (idx, (name, metadata)) in plugins.into_iter().enumerate() {
+        for (name, metadata) in plugins.into_iter() {
             let plugin_label = ui.highlight_text(name);
-            let pb = m.add(self.create_spinner(&ui.progress_message("Updating", name)));
-            status_pb.set_message(ui.progress_message(
-                "Updating",
-                &format!("{} ({}/{})", name, idx + 1, plugins_len),
-            ));
+
+            let spinner = if self.no_progress {
+                None
+            } else {
+                let initial = ui.progress_message("Updating", name);
+                Some(self.create_build_progress(&initial))
+            };
 
             match &metadata.source {
                 PluginSource::Git { url } => {
                     let temp_dir = match tempfile::tempdir() {
                         Ok(dir) => dir,
                         Err(e) => {
-                            ui.complete_progress(&pb);
-                            ui.print_status(
-                                StatusKind::Error,
-                                format!(
+                            if let Some(ref pb) = spinner {
+                                let msg = format!(
                                     "{} {}",
                                     plugin_label,
                                     ui.error_text(&format!("temp directory error: {}", e))
-                                ),
-                            );
+                                );
+                                ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                            } else {
+                                ui.print_status(
+                                    StatusKind::Error,
+                                    format!(
+                                        "{} {}",
+                                        plugin_label,
+                                        ui.error_text(&format!("temp directory error: {}", e))
+                                    ),
+                                );
+                            }
                             continue;
                         }
                     };
@@ -1872,15 +1926,23 @@ impl PluginInstaller {
                         .output()?;
 
                     if !output.status.success() {
-                        ui.complete_progress(&pb);
-                        ui.print_status(
-                            StatusKind::Error,
-                            format!(
+                        if let Some(ref pb) = spinner {
+                            let msg = format!(
                                 "{} {}",
                                 plugin_label,
                                 ui.error_text("Failed to clone repository")
-                            ),
-                        );
+                            );
+                            ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                        } else {
+                            ui.print_status(
+                                StatusKind::Error,
+                                format!(
+                                    "{} {}",
+                                    plugin_label,
+                                    ui.error_text("Failed to clone repository")
+                                ),
+                            );
+                        }
                         continue;
                     }
 
@@ -1899,19 +1961,27 @@ impl PluginInstaller {
                             .map(|n| n == name)
                             .unwrap_or(false)
                     }) else {
-                        ui.complete_progress(&pb);
-                        ui.print_status(
-                            StatusKind::Error,
-                            format!(
+                        if let Some(ref pb) = spinner {
+                            let msg = format!(
                                 "{} {}",
                                 plugin_label,
                                 ui.error_text("Plugin not found in repository")
-                            ),
-                        );
+                            );
+                            ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                        } else {
+                            ui.print_status(
+                                StatusKind::Error,
+                                format!(
+                                    "{} {}",
+                                    plugin_label,
+                                    ui.error_text("Plugin not found in repository")
+                                ),
+                            );
+                        }
                         continue;
                     };
 
-                    match self.build_and_install_plugin(plugin_dir, Some(&pb), None) {
+                    match self.build_and_install_plugin(plugin_dir, spinner.as_ref(), None) {
                         Ok(_) => {
                             let new_version = self.get_plugin_version(plugin_dir)?;
                             let mut updated_metadata = metadata.clone();
@@ -1943,15 +2013,24 @@ impl PluginInstaller {
                             updated_metadata.update_timestamp();
                             self.update_plugin_metadata(name, updated_metadata)?;
                             success = true;
-                            ui.complete_progress(&pb);
-                            ui.print_status(kind, message);
+
+                            if let Some(ref pb) = spinner {
+                                ui.complete_progress_standalone(pb, kind, message);
+                            } else {
+                                ui.print_status(kind, message);
+                            }
                         }
                         Err(e) => {
-                            ui.complete_progress(&pb);
-                            ui.print_status(
-                                StatusKind::Error,
-                                format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
-                            );
+                            if let Some(ref pb) = spinner {
+                                let msg =
+                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string()));
+                                ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                            } else {
+                                ui.print_status(
+                                    StatusKind::Error,
+                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
+                                );
+                            }
                         }
                     }
                 }
@@ -1959,19 +2038,27 @@ impl PluginInstaller {
                     let source_dir = PathBuf::from(directory);
 
                     if !source_dir.exists() {
-                        ui.complete_progress(&pb);
-                        ui.print_status(
-                            StatusKind::Error,
-                            format!(
+                        if let Some(ref pb) = spinner {
+                            let msg = format!(
                                 "{} {}",
                                 plugin_label,
                                 ui.error_text("Source directory not found")
-                            ),
-                        );
+                            );
+                            ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                        } else {
+                            ui.print_status(
+                                StatusKind::Error,
+                                format!(
+                                    "{} {}",
+                                    plugin_label,
+                                    ui.error_text("Source directory not found")
+                                ),
+                            );
+                        }
                         continue;
                     }
 
-                    match self.build_and_install_plugin(&source_dir, Some(&pb), None) {
+                    match self.build_and_install_plugin(&source_dir, spinner.as_ref(), None) {
                         Ok(_) => {
                             let new_version = self.get_plugin_version(&source_dir)?;
                             let mut updated_metadata = metadata.clone();
@@ -2003,36 +2090,51 @@ impl PluginInstaller {
                             updated_metadata.update_timestamp();
                             self.update_plugin_metadata(name, updated_metadata)?;
                             success = true;
-                            ui.complete_progress(&pb);
-                            ui.print_status(kind, message);
+
+                            if let Some(ref pb) = spinner {
+                                ui.complete_progress_standalone(pb, kind, message);
+                            } else {
+                                ui.print_status(kind, message);
+                            }
                         }
                         Err(e) => {
-                            ui.complete_progress(&pb);
-                            ui.print_status(
-                                StatusKind::Error,
-                                format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
-                            );
+                            if let Some(ref pb) = spinner {
+                                let msg =
+                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string()));
+                                ui.complete_progress_standalone(pb, StatusKind::Error, msg);
+                            } else {
+                                ui.print_status(
+                                    StatusKind::Error,
+                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
+                                );
+                            }
                         }
                     }
                 }
                 PluginSource::Prebuilt { .. } => {
-                    ui.complete_progress(&pb);
-                    ui.print_status(
-                        StatusKind::Info,
-                        format!(
+                    if let Some(ref pb) = spinner {
+                        let msg = format!(
                             "{} {}\n  {}",
                             plugin_label,
                             ui.muted_text("uses prebuilt binaries"),
                             ui.muted_text("Run `lla install --prebuilt` to refresh")
-                        ),
-                    );
+                        );
+                        ui.complete_progress_standalone(pb, StatusKind::Info, msg);
+                    } else {
+                        ui.print_status(
+                            StatusKind::Info,
+                            format!(
+                                "{} {}\n  {}",
+                                plugin_label,
+                                ui.muted_text("uses prebuilt binaries"),
+                                ui.muted_text("Run `lla install --prebuilt` to refresh")
+                            ),
+                        );
+                    }
                     success = true;
                 }
             }
         }
-
-        m.clear()?;
-        ui.complete_progress(&status_pb);
 
         if success {
             Ok(())
