@@ -26,6 +26,7 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 ## Features
 
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
+- Diff Command: Human-friendly directory or file comparisons (local ↔ local or git) with size/line deltas and unified diff output
 - Git Integration: Built-in status visualization and repository insights
 - Advanced Organization: Timeline view, storage analysis, recursive exploration
 - Smart Navigation: Interactive directory jumper with bookmarks and history
@@ -35,6 +36,8 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 - Smart Sorting: Multiple criteria, directory-first option, natural sorting
 - Flexible Config: Easy initialization, plugin management, configuration tools
 - Rich Plugin Ecosystem: File ops and metadata enhancements, code analysis, git tools, and more
+- Smart Filters: Range-based size/time filters, reusable presets, cache-aware refinements
+- Git-aware Filtering: Optional `.gitignore` support via `--respect-gitignore` or config defaults
 
 ## Installation
 
@@ -73,17 +76,42 @@ sudo chown root:root lla
 sudo mv lla /usr/local/bin/lla
 ```
 
+### Upgrading
+
+Upgrade to the latest (or a specific) release without leaving the terminal:
+
+```bash
+# Upgrade to the latest release (auto-detects OS/arch, verifies checksums)
+lla upgrade
+
+# Target a specific tag or custom installation path
+lla upgrade --version v0.5.1 --path /usr/local/bin/lla
+```
+
+The upgrade command reuses the official install script logic, renders animated progress indicators, verifies the `SHA256SUMS` manifest, and atomically swaps the `lla` binary in place (defaults to the path of the running executable—override with `--path` if needed).
+
 ### Post Installation
 
 After installation, initialize your setup:
 
 ```bash
-# Create default config
+# Guided setup with theme/format wizard (default)
 lla init
+
+# Write the default config without prompts
+lla init --default
 
 # View your config
 lla config
 ```
+
+The revamped wizard (now the default) walks you through:
+
+- Look & feel choices (icons, theme, default view, permission format)
+- Listing defaults (sort order, directory inclusion, depth limits)
+- Sorting & filtering toggles (dirs-first, natural sort, dotfile visibility, case sensitivity)
+- Long-view behavior (relative dates, hide group column, column selection)
+- Plugin directory selection, plugin enablement, and recursion safety limits
 
 ## Display Formats
 
@@ -129,7 +157,10 @@ To make these defaults, add to your config (`~/.config/lla/config.toml`):
 [formatters.long]
 hide_group = true
 relative_dates = true
+columns = ["permissions", "size", "modified", "user", "group", "name", "field:git_status", "field:tags"]
 ```
+
+The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `size`, `modified`, `user`, `group`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`).
 
 #### Tree Structure
 
@@ -173,6 +204,27 @@ lla -T
 ```
 
 <img src="https://github.com/user-attachments/assets/9f1d6d97-4074-4480-b242-a6a2eace4b38" className="rounded-2xl" alt="table" />
+
+The `[formatters.table].columns` setting mirrors the long-view syntax, so you can mix built-in fields with plugin-provided metadata:
+
+```toml
+[formatters.table]
+columns = ["permissions", "size", "modified", "name", "field:git_branch", "field:git_commit"]
+```
+
+#### Diff View (Files & Directories)
+
+Compare directories or individual files (including against git references) with compact, colorized summaries. Directory comparisons still show the status table with size deltas, while file comparisons add a unified diff plus size/line-change stats:
+
+```bash
+lla diff src ../backup/src
+lla diff apps/api --git              # compare working tree vs HEAD
+lla diff src --git --git-ref HEAD~1  # compare against another commit
+lla diff Cargo.lock ../backup/Cargo.lock
+lla diff Cargo.lock --git --git-ref HEAD~1
+```
+
+For directories, the diff view groups entries by status, colors the change indicator, and shows left/right sizes plus the net delta so you can spot growth at a glance. For files, lla prints a size summary, line-count delta, and a git-style unified diff (with automatic binary detection so unreadable data isn’t dumped to your terminal).
 
 #### Grid Display
 
@@ -306,8 +358,8 @@ Keyboard shortcuts:
 
 - Space: toggle select
 - Enter: confirm (returns the highlighted file or all selected files)
-- y: copy selected path(s) to clipboard
-- o: open selected file(s) with the system opener (open/xdg-open/start)
+- Ctrl+Y: copy selected path(s) to clipboard
+- Ctrl+O: open selected file(s) with the system opener (open/xdg-open/start)
 
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 
@@ -453,6 +505,12 @@ lla --csv
 | `--fuzzy`     | `-F`  | Interactive fuzzy finder (Experimental) | `lla --fuzzy`                         |
 | `--recursive` | `-R`  | Recursive listing format                | `lla -R` <br> `lla -R -d 3`           |
 
+#### Comparison & Diff
+
+| Command | Description                                                    | Example                                                               |
+| ------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `diff`  | Compare two directories or a directory vs git with size deltas | `lla diff src ../backup/src`<br>`lla diff src --git --git-ref HEAD~1` |
+
 #### Navigation Commands
 
 | Command                    | Description                       | Example                               |
@@ -490,15 +548,28 @@ lla --csv
 | Command            | Short | Description                     | Example                             |
 | ------------------ | ----- | ------------------------------- | ----------------------------------- |
 | `--filter`         | `-f`  | Filter files by pattern         | `lla -f "test"` <br> `lla -f ".rs"` |
+| `--preset`         |       | Apply named filter preset       | `lla --preset rust_sources`         |
+| `--size`           |       | Range filter on file size       | `lla --size 10M..1G`                |
+| `--modified`       |       | Range filter on modified time   | `lla --modified <7d`                |
+| `--created`        |       | Range filter on creation time   | `lla --created 2023-01-01..`        |
 | `--case-sensitive` | `-c`  | Enable case-sensitive filtering | `lla -f "test" -c`                  |
+| `--refine`         |       | Reuse cached listing w/ filter  | `lla --refine "regex:foo"`          |
 | `--depth`          | `-d`  | Set the depth for tree listing  | `lla -t -d 3` <br> `lla -d 2`       |
+
+##### Range Filters & Presets
+
+- Size filters understand human units and comparisons: `--size >10M`, `--size 512K..2G`, `--size ..100K`.
+- Time filters support ISO dates and relative durations: `--modified <7d`, `--created 2023-01-01..2023-12-31`.
+- Define reusable presets in `[filter.presets.<name>]` within your config, then reuse with `--preset <name>`.
+- `--refine` replays the last cached listing and applies new filters instantly—great for chaining explorations without touching the disk again.
 
 #### Content Search
 
-| Command            | Description                                | Example                                  |
-| ------------------ | ------------------------------------------ | ---------------------------------------- |
-| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                    |
-| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3` |
+| Command            | Description                                | Example                                                   |
+| ------------------ | ------------------------------------------ | --------------------------------------------------------- |
+| `--search`         | Search file contents for pattern (ripgrep) | `lla --search "TODO"`                                     |
+| `--search-context` | Number of context lines (default: 2)       | `lla --search "TODO" --search-context 3`                  |
+| `--search-pipe`    | Pipe matches into plugins                  | `lla --search "TODO" --search-pipe file_tagger:list-tags` |
 
 Content search uses literal string matching by default (safe for special characters). Use `regex:` prefix for regex patterns:
 
@@ -519,6 +590,8 @@ lla src/ --search "Error" --case-sensitive
 # Search with machine output
 lla --search "FIXME" --json
 ```
+
+- Automations: chain `--search` with `--search-pipe plugin:action[:arg...]` to send every matching file directly into plugins (e.g., `--search-pipe file_tagger:list-tags` or `--search-pipe file_organizer:organize:type`). The matched file paths are appended to the plugin arguments automatically.
 
 #### Advanced Filtering Patterns
 
@@ -546,12 +619,20 @@ lla --search "FIXME" --json
 
 #### Hide Filters
 
-| Command         | Description                    | Example             |
-| --------------- | ------------------------------ | ------------------- |
-| `--no-dirs`     | Hide directories               | `lla --no-dirs`     |
-| `--no-files`    | Hide regular files             | `lla --no-files`    |
-| `--no-symlinks` | Hide symbolic links            | `lla --no-symlinks` |
-| `--no-dotfiles` | Hide dot files and directories | `lla --no-dotfiles` |
+| Command               | Description                                     | Example                   |
+| --------------------- | ----------------------------------------------- | ------------------------- |
+| `--no-dirs`           | Hide directories                                | `lla --no-dirs`           |
+| `--no-files`          | Hide regular files                              | `lla --no-files`          |
+| `--no-symlinks`       | Hide symbolic links                             | `lla --no-symlinks`       |
+| `--no-dotfiles`       | Hide dot files and directories                  | `lla --no-dotfiles`       |
+| `--respect-gitignore` | Skip files excluded by .gitignore / git exclude | `lla --respect-gitignore` |
+
+> Tip: Set `filter.respect_gitignore = true` in your config to make this the default. Use `--no-gitignore` to override in a single run.
+
+```toml
+[filter]
+respect_gitignore = true
+```
 
 #### Combined Filters
 
@@ -564,12 +645,12 @@ lla --search "FIXME" --json
 
 #### Installation
 
-| Command         | Description                  | Example                                            |
-| --------------- | ---------------------------- | -------------------------------------------------- |
-| `install`       | Install from latest prebuilt release (default) | `lla install`                                 |
-| `install --prebuilt` | Install from latest prebuilt release | `lla install --prebuilt`                     |
-| `install --git` | Install from Git repository  | `lla install --git https://github.com/user/plugin` |
-| `install --dir` | Install from local directory | `lla install --dir path/to/plugin`                 |
+| Command              | Description                                    | Example                                            |
+| -------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| `install`            | Install from latest prebuilt release (default) | `lla install`                                      |
+| `install --prebuilt` | Install from latest prebuilt release           | `lla install --prebuilt`                           |
+| `install --git`      | Install from Git repository                    | `lla install --git https://github.com/user/plugin` |
+| `install --dir`      | Install from local directory                   | `lla install --dir path/to/plugin`                 |
 
 #### Plugin Controls
 
@@ -591,15 +672,19 @@ lla --search "FIXME" --json
 
 ### Configuration & Setup
 
-| Command         | Description                       | Example                                                                         |
-| --------------- | --------------------------------- | ------------------------------------------------------------------------------- |
-| `init`          | Initialize the configuration file | `lla init`                                                                      |
-| `config`        | View or modify configuration      | `lla config`                                                                    |
-| `theme`         | Interactive theme manager         | `lla theme`                                                                     |
-| `theme pull`    | Pull the built-in themes          | `lla theme pull`                                                                |
-| `theme install` | Install theme from file/directory | `lla theme install /path/to/theme.toml`<br>`lla theme install /path/to/themes/` |
-| `completion`    | Generate shell completion scripts | `lla completion bash`                                                           |
-| `clean`         | Clean up invalid plugins          | `lla clean`                                                                     |
+| Command                 | Description                         | Example                                                                         |
+| ----------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
+| `init`                  | Initialize the configuration file   | `lla init`                                                                      |
+| `init --default`        | Write defaults without the wizard   | `lla init --default`                                                            |
+| `config`                | View or modify configuration        | `lla config`                                                                    |
+| `config show-effective` | Show merged global + profile config | `lla config show-effective`                                                     |
+| `config diff --default` | List overrides vs built-in defaults | `lla config diff --default`                                                     |
+| `theme`                 | Interactive theme manager           | `lla theme`                                                                     |
+| `theme pull`            | Pull the built-in themes            | `lla theme pull`                                                                |
+| `theme install`         | Install theme from file/directory   | `lla theme install /path/to/theme.toml`<br>`lla theme install /path/to/themes/` |
+| `theme preview`         | Render sample output for a theme    | `lla theme preview one_dark`                                                    |
+| `completion`            | Generate shell completion scripts   | `lla completion bash`                                                           |
+| `clean`                 | Clean up invalid plugins            | `lla clean`                                                                     |
 
 ### General Options
 
@@ -629,6 +714,22 @@ Notes:
 
 - Tilde `~` is expanded to your home directory.
 - Exclusions are honored in recursive listings and top-level listings.
+
+### Project Profiles (`.lla.toml`)
+
+Keep repo-specific defaults local by dropping a `.lla.toml` file anywhere inside the project. lla walks up from your current working directory, finds the nearest profile, and overlays it on top of the global config without touching `~/.config/lla/config.toml`.
+
+Example `.lla.toml`:
+
+```toml
+show_icons = true
+default_format = "git"
+
+[sort]
+dirs_first = true
+```
+
+Use `lla config show-effective` to inspect the merged configuration (global + profile) and `lla config diff --default` to see exactly which keys diverge from the built-in defaults and whether the change came from the global config or the profile file.
 
 ## License
 

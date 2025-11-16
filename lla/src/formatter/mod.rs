@@ -11,6 +11,7 @@ pub trait FileFormatter {
     ) -> Result<String>;
 }
 
+pub mod column_config;
 pub mod csv;
 mod default;
 mod fuzzy;

@@ -632,3 +632,286 @@ pub fn install_themes(path: &str, color_state: &ColorState) -> Result<()> {
 
     Ok(())
 }
+
+pub fn preview_theme(theme_name: &str) -> Result<()> {
+    let theme = load_theme(theme_name).ok_or_else(|| {
+        LlaError::Other(format!(
+            "Theme '{}' not found. Install it with `lla theme pull` or place it in ~/.config/lla/themes",
+            theme_name
+        ))
+    })?;
+
+    println!();
+    println!(
+        "{} {}",
+        "Theme preview:".cyan().bold(),
+        theme.name.as_str().bold()
+    );
+    if let Some(author) = &theme.author {
+        println!("Author : {}", author);
+    }
+    if let Some(desc) = &theme.description {
+        println!("Notes  : {}", desc);
+    }
+
+    println!("\n{}", "Core palette".bright_black());
+    render_palette(&theme);
+
+    println!("\n{}", "Sample directory listing".bright_black());
+    render_directory_sample(&theme);
+
+    println!("\n{}", "Sample search output".bright_black());
+    render_search_sample(&theme);
+    println!();
+    Ok(())
+}
+
+fn render_palette(theme: &Theme) {
+    let palette = [
+        ("Files", &theme.colors.file),
+        ("Dirs", &theme.colors.directory),
+        ("Symlinks", &theme.colors.symlink),
+        ("Exec", &theme.colors.executable),
+        ("Size", &theme.colors.size),
+        ("Date", &theme.colors.date),
+    ];
+    for (label, color_value) in palette {
+        let block = format!(" {:<10} ", label);
+        print!("{}", paint(&block, color_value).bold());
+    }
+    println!();
+}
+
+#[derive(Clone, Copy)]
+enum PreviewEntryKind {
+    Directory,
+    File,
+    Executable,
+    Symlink,
+    Dotfile,
+}
+
+fn render_directory_sample(theme: &Theme) {
+    struct SampleEntry<'a> {
+        perms: &'a str,
+        user: &'a str,
+        group: &'a str,
+        size: &'a str,
+        date: &'a str,
+        icon: &'a str,
+        name: &'a str,
+        kind: PreviewEntryKind,
+    }
+
+    let entries = [
+        SampleEntry {
+            perms: "drwxr-xr-x",
+            user: "mona",
+            group: "staff",
+            size: "4.0K",
+            date: "Nov 15 10:22",
+            icon: "\u{f07b}", // folder
+            name: "src/",
+            kind: PreviewEntryKind::Directory,
+        },
+        SampleEntry {
+            perms: "-rw-r--r--",
+            user: "mona",
+            group: "staff",
+            size: "2.4K",
+            date: "Nov 14 18:02",
+            icon: "\u{e7a8}", // Cargo/Rust icon
+            name: "Cargo.toml",
+            kind: PreviewEntryKind::File,
+        },
+        SampleEntry {
+            perms: "-rwxr-xr-x",
+            user: "mona",
+            group: "staff",
+            size: "8.8K",
+            date: "Nov 13 09:10",
+            icon: "\u{f0ad}", // gear/executable
+            name: "scripts/build.sh",
+            kind: PreviewEntryKind::Executable,
+        },
+        SampleEntry {
+            perms: "lrwxrwxrwx",
+            user: "mona",
+            group: "staff",
+            size: "9B",
+            date: "Nov 12 08:01",
+            icon: "\u{f0c1}", // link
+            name: "current -> releases/2025",
+            kind: PreviewEntryKind::Symlink,
+        },
+        SampleEntry {
+            perms: "-rw-r--r--",
+            user: "mona",
+            group: "staff",
+            size: "640B",
+            date: "Nov 11 21:58",
+            icon: "\u{f462}", // .env / config icon
+            name: ".env",
+            kind: PreviewEntryKind::Dotfile,
+        },
+    ];
+
+    println!("{}", "Default view (lla)".bright_black());
+    for entry in &entries {
+        let name = format_name(entry.icon, entry.name, entry.kind, theme);
+        println!("  {}", name);
+    }
+
+    println!("\n{}", "Long view (lla -l)".bright_black());
+    let max_size_len = entries
+        .iter()
+        .map(|e| e.size.len())
+        .max()
+        .unwrap_or(0)
+        .max(4);
+    let max_date_len = entries
+        .iter()
+        .map(|e| e.date.len())
+        .max()
+        .unwrap_or(0)
+        .max(8);
+    let max_user_len = entries
+        .iter()
+        .map(|e| e.user.len())
+        .max()
+        .unwrap_or(0)
+        .max(4);
+    let max_group_len = entries
+        .iter()
+        .map(|e| e.group.len())
+        .max()
+        .unwrap_or(0)
+        .max(5);
+
+    println!(
+        "{} {} {} {} {} {}",
+        pad_right_plain("Permissions", 12),
+        pad_left_plain("Size", max_size_len),
+        pad_right_plain("Modified", max_date_len),
+        pad_right_plain("User", max_user_len),
+        pad_right_plain("Group", max_group_len),
+        "Name"
+    );
+    for entry in &entries {
+        let perms = format_permissions_sample(entry.perms, theme);
+        let size_colored = paint(entry.size, &theme.colors.size).to_string();
+        let size_field = pad_left_colored(&size_colored, entry.size.len(), max_size_len);
+        let date_colored = paint(entry.date, &theme.colors.date).to_string();
+        let date_field = pad_right_colored(&date_colored, entry.date.len(), max_date_len);
+        let user_colored = paint(entry.user, &theme.colors.user).to_string();
+        let user_field = pad_right_colored(&user_colored, entry.user.len(), max_user_len);
+        let group_colored = paint(entry.group, &theme.colors.group).to_string();
+        let group_field = pad_right_colored(&group_colored, entry.group.len(), max_group_len);
+        let name = format_name(entry.icon, entry.name, entry.kind, theme);
+        println!(
+            "{} {} {} {} {} {}",
+            pad_right_colored(&perms, entry.perms.len(), 12),
+            size_field,
+            date_field,
+            user_field,
+            group_field,
+            name
+        );
+    }
+}
+
+fn render_search_sample(theme: &Theme) {
+    let path = paint("src/main.rs", &theme.colors.directory).bold();
+    let line_no = paint("42", &theme.colors.date);
+    let line = "    let theme = load_theme(name)?;";
+    let highlighted = highlight_match(line, "theme", &theme.colors.executable);
+    let caret = paint("^^^^", &theme.colors.permission_exec).bold();
+
+    println!("{}", "rg --search \"theme\"".bright_black());
+    println!("{}:{} {}", path, line_no, highlighted);
+    println!("         {}", caret);
+    println!(
+        "{}",
+        "1 match across 1 file".color(color_value_to_color(&theme.colors.permission_none))
+    );
+}
+
+fn highlight_match(line: &str, needle: &str, color: &ColorValue) -> String {
+    if let Some(index) = line.find(needle) {
+        let before = &line[..index];
+        let after = &line[index + needle.len()..];
+        format!(
+            "{}{}{}",
+            before,
+            paint(needle, color).bold(),
+            highlight_match(after, needle, color)
+        )
+    } else {
+        line.to_string()
+    }
+}
+
+fn format_name(icon: &str, name: &str, kind: PreviewEntryKind, theme: &Theme) -> ColoredString {
+    let text = format!("{} {}", icon, name);
+    match kind {
+        PreviewEntryKind::Directory => paint(&text, &theme.colors.directory).bold(),
+        PreviewEntryKind::File => paint(&text, &theme.colors.file),
+        PreviewEntryKind::Executable => paint(&text, &theme.colors.executable).bold(),
+        PreviewEntryKind::Symlink => paint(&text, &theme.colors.symlink).italic(),
+        PreviewEntryKind::Dotfile => paint(&text, &theme.colors.permission_none),
+    }
+}
+
+fn format_permissions_sample(symbolic: &str, theme: &Theme) -> String {
+    symbolic
+        .chars()
+        .map(|ch| match ch {
+            'd' | 'l' => paint_char(ch, &theme.colors.permission_dir),
+            'r' => paint_char(ch, &theme.colors.permission_read),
+            'w' => paint_char(ch, &theme.colors.permission_write),
+            'x' => paint_char(ch, &theme.colors.permission_exec),
+            _ => paint_char(ch, &theme.colors.permission_none),
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn pad_left_colored(text: &str, plain_len: usize, width: usize) -> String {
+    if plain_len >= width {
+        text.to_string()
+    } else {
+        format!("{}{}", " ".repeat(width - plain_len), text)
+    }
+}
+
+fn pad_right_colored(text: &str, plain_len: usize, width: usize) -> String {
+    if plain_len >= width {
+        text.to_string()
+    } else {
+        format!("{}{}", text, " ".repeat(width - plain_len))
+    }
+}
+
+fn pad_right_plain(text: &str, width: usize) -> String {
+    if text.len() >= width {
+        text.to_string()
+    } else {
+        format!("{:<width$}", text, width = width)
+    }
+}
+
+fn pad_left_plain(text: &str, width: usize) -> String {
+    if text.len() >= width {
+        text.to_string()
+    } else {
+        format!("{:>width$}", text, width = width)
+    }
+}
+
+fn paint_char(ch: char, color: &ColorValue) -> String {
+    paint(&ch.to_string(), color).to_string()
+}
+
+fn paint(text: &str, color_value: &ColorValue) -> ColoredString {
+    text.color(color_value_to_color(color_value))
+}

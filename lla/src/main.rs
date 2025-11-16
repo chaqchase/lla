@@ -22,7 +22,7 @@ fn main() -> Result<()> {
 
     set_theme(config.get_theme());
 
-    let args = Args::parse(&config);
+    let args = Args::parse(&config)?;
     theme::set_no_color(args.no_color);
 
     if let Some(Command::Clean) = args.command {
@@ -36,10 +36,8 @@ fn main() -> Result<()> {
 }
 
 fn load_config() -> Result<(Config, Option<error::LlaError>)> {
-    match Config::load(&Config::get_config_path()) {
-        Ok(config) => Ok((config, None)),
-        Err(e) => Ok((Config::default(), Some(e))),
-    }
+    let (layers, config_error) = config::load_config_layers(None)?;
+    Ok((layers.effective, config_error))
 }
 
 fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManager> {

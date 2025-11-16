@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.5.1] - 2025-11-16
+
+### Added
+
+- **Interactive Init Wizard** (`lla init`, use `--default` to skip) that walks through icon, theme, default view, and Git-focused setup choices before writing a tailored config.
+- **Per-directory profiles** via `.lla.toml`. lla now searches upward from the current working directory and overlays the nearest profile on top of the global config for safe, opt-in repo defaults.
+- **Config introspection commands**:
+  - `lla config show-effective` prints the merged configuration (global + profile) so you can see what actually applies in the current directory.
+  - `lla config diff --default` highlights every overridden key, the default value, the effective value, and whether the change came from the global config or the profile file.
+- **Theme preview** (`lla theme preview <name>`) renders a sample directory listing plus a ripgrep-style match preview so you can compare color palettes without swapping themes.
+- **Range filter syntax** for size/modified/created metadata (`--size`, `--modified`, `--created`) with human-friendly comparisons like `>10M`, `2024-01-01..`.
+- **Named filter presets** via `[filter.presets.<name>]` blocks in the config, reusable through `--preset`.
+- **Result refinement** (`--refine`) that reuses cached listings so you can iteratively filter without re-scanning the filesystem.
+- **Search pipelines** (`--search-pipe plugin:action[:arg...]`) to feed ripgrep matches directly into plugins such as `file_tagger:list-tags` or `file_organizer:organize:type`.
+- **Diff command** (`lla diff`) can now compare directories _and_ individual files (local↔local or against git references), showing per-entry size deltas for directories plus size/line summaries and unified diffs for files.
+- **Column customization for long/table views** via `[formatters.long].columns` and `[formatters.table].columns`, including plugin-provided fields through `field:<name>` entries.
+- **Optional .gitignore filtering** for every listing format via `--respect-gitignore`, `--no-gitignore`, and a new `filter.respect_gitignore` config key (fuzzy view included).
+- **CLI upgrade command** (`lla upgrade`) that reuses the install script pipeline to download the latest release (or a specified tag), verify `SHA256SUMS`, render progress indicators, and atomically replace the local binary.
+
+### Changed
+
+- `lla init` now uses a multi-section guided flow with themed step banners, expanded prompts (sort order, directory inclusion, depth limits, sorting/filtering toggles, long-view columns, plugin directory + recursion guards), and a richer summary. Run `lla init --default` to write the stock config without launching the wizard.
+- `lla config` now renders a structured, colorized summary instead of dumping the raw struct, making it easy to review key defaults (view/sort/filter, formatter tweaks, plugin status, limits) at a glance.
+- Plugin installation/update workflows now show animated banners plus per-plugin progress bars/spinners, along with success/error callouts so you can follow downloads, builds, and updates in real time.
+- Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree's perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
+- Installation script (`install.sh`) now features polished visual styling matching the CLI upgrade command, with animated spinners, structured sections, consistent color theming, and improved error handling.
+
+### Fixed
+
+- `lla --fuzzy` no longer captures plain `y`/`o` keystrokes while you type; the copy and open shortcuts now require `Ctrl+Y`/`Ctrl+O`, so search queries can include those characters without triggering actions. ([#142](https://github.com/chaqchase/lla/issues/142))
+
+### Docs
+
+- Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
+- Added README coverage for range filters, presets, cache-based refinement, and search→plugin pipelines.
+- Documented the diff command’s directory and file workflows (including git examples) plus column customization examples in the README.
+
 ## [0.5.0] - 2025-01-24
 
 ### Added

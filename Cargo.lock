@@ -1529,7 +1529,7 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "lla"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "atty",
  "chrono",
@@ -1563,6 +1563,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "similar",
  "strip-ansi-escapes 0.1.1",
  "tar",
  "tempfile",
@@ -1578,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_interface"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "prost",
  "prost-build",
@@ -1587,7 +1588,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_utils"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -2480,6 +2481,12 @@ name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "sizeviz"
