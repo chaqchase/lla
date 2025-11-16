@@ -1,4 +1,4 @@
-use crate::commands::args::Args;
+use crate::commands::args::{Args, UpgradeCommand};
 use crate::error::{LlaError, Result};
 use crate::theme::color_value_to_color;
 use crate::utils::color::{get_theme, ColorState};
@@ -24,7 +24,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tar::Archive;
 use toml::{self, Value};
 use ureq::{Agent, AgentBuilder, Error as UreqError, Request};
@@ -103,6 +103,59 @@ impl HostTarget {
             format!("plugins-{}-{}.tar.gz", self.os_label, self.arch_label),
             format!("plugins-{}-{}.zip", self.os_label, self.arch_label),
         ]
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CliBinaryTarget {
+    os_label: &'static str,
+    arch_label: &'static str,
+    display_os: &'static str,
+}
+
+impl CliBinaryTarget {
+    fn detect() -> Result<Self> {
+        use std::env::consts::{ARCH, OS};
+
+        match (OS, ARCH) {
+            ("macos", "x86_64") => Ok(Self {
+                os_label: "macos",
+                arch_label: "amd64",
+                display_os: "macOS",
+            }),
+            ("macos", "aarch64") => Ok(Self {
+                os_label: "macos",
+                arch_label: "arm64",
+                display_os: "macOS",
+            }),
+            ("linux", "x86_64") => Ok(Self {
+                os_label: "linux",
+                arch_label: "amd64",
+                display_os: "Linux",
+            }),
+            ("linux", "aarch64") => Ok(Self {
+                os_label: "linux",
+                arch_label: "arm64",
+                display_os: "Linux",
+            }),
+            ("linux", arch) if arch == "i686" || arch == "x86" => Ok(Self {
+                os_label: "linux",
+                arch_label: "i686",
+                display_os: "Linux",
+            }),
+            _ => Err(LlaError::Other(format!(
+                "Unsupported platform for CLI upgrades: {}-{} (supported: macOS/Linux on amd64, arm64, i686)",
+                OS, ARCH
+            ))),
+        }
+    }
+
+    fn asset_name(&self) -> String {
+        format!("lla-{}-{}", self.os_label, self.arch_label)
+    }
+
+    fn human_label(&self) -> String {
+        format!("{} ({})", self.display_os, self.arch_label)
     }
 }
 
@@ -487,6 +540,274 @@ pub struct PluginInstaller {
     plugins_dir: PathBuf,
     color_state: ColorState,
     no_progress: bool,
+}
+
+pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
+    let installer = PluginInstaller::new(&args.plugins_dir, args);
+    let ui = installer.ui();
+
+    ui.banner("lla upgrade");
+
+    let target = CliBinaryTarget::detect()?;
+    let install_path = determine_install_path(options)?;
+
+    let requested_version = options.version.as_deref().unwrap_or("latest").to_string();
+    let normalized_version = options
+        .version
+        .as_ref()
+        .map(|value| normalize_release_tag(value));
+
+    let install_path_display = install_path.display().to_string();
+
+    ui.section("Environment");
+    ui.bullet_line("Platform", &target.human_label());
+    ui.bullet_line("Install Path", &install_path_display);
+    ui.bullet_line("Requested", &requested_version);
+
+    let release_message = match normalized_version.as_deref() {
+        Some(tag) => format!("Fetching release {}", tag),
+        None => "Fetching latest release".to_string(),
+    };
+    let release_spinner = installer.create_status_spinner(&release_message);
+    let release = PluginInstaller::fetch_release(normalized_version.as_deref()).map_err(|err| {
+        ui.complete_progress_standalone(
+            &release_spinner,
+            StatusKind::Error,
+            format!("Failed to fetch release: {}", err),
+        );
+        err
+    })?;
+    ui.complete_progress_standalone(
+        &release_spinner,
+        StatusKind::Success,
+        format!("Release {}", ui.highlight_text(&release.tag_name)),
+    );
+
+    let asset_name = target.asset_name();
+    let asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name.eq_ignore_ascii_case(&asset_name))
+        .ok_or_else(|| {
+            LlaError::Other(format!(
+                "Release {} does not contain the {} binary",
+                release.tag_name, asset_name
+            ))
+        })?;
+
+    ui.section("Download");
+    let agent = PluginInstaller::github_agent();
+    let temp_dir = tempfile::tempdir()?;
+    let download_path = temp_dir.path().join(&asset_name);
+    installer.download_to_path(&agent, &asset.browser_download_url, &download_path, &ui)?;
+    mark_file_executable(&download_path)?;
+
+    ui.section("Verification");
+    verify_cli_checksum(
+        &installer,
+        &agent,
+        &release,
+        &asset_name,
+        &download_path,
+        &ui,
+    )?;
+
+    ui.section("Installation");
+    install_cli_binary(
+        &installer,
+        &download_path,
+        &install_path,
+        &release.tag_name,
+        &ui,
+    )?;
+
+    ui.section("Summary");
+    let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    ui.print_status(
+        StatusKind::Info,
+        format!("Previously running {}", ui.highlight_text(&current_version)),
+    );
+    ui.print_status(
+        StatusKind::Success,
+        format!("Now running {}", ui.highlight_text(&release.tag_name)),
+    );
+    ui.print_status(
+        StatusKind::Info,
+        format!(
+            "Binary installed to {}",
+            ui.highlight_text(&install_path_display)
+        ),
+    );
+    ui.print_status(
+        StatusKind::Info,
+        "Run `lla --version` to verify the upgrade",
+    );
+
+    // Keep the temporary directory alive until here so the downloaded file is not removed mid-install
+    drop(temp_dir);
+
+    Ok(())
+}
+
+fn determine_install_path(options: &UpgradeCommand) -> Result<PathBuf> {
+    if let Some(path) = &options.install_path {
+        return Ok(path.clone());
+    }
+
+    std::env::current_exe().map_err(|err| {
+        LlaError::Other(format!(
+            "Failed to determine current executable path: {}. Pass --path to specify the install location.",
+            err
+        ))
+    })
+}
+
+fn normalize_release_tag(tag: &str) -> String {
+    let trimmed = tag.trim();
+    if trimmed.starts_with('v') || trimmed.is_empty() {
+        trimmed.to_string()
+    } else {
+        format!("v{}", trimmed)
+    }
+}
+
+fn verify_cli_checksum(
+    installer: &PluginInstaller,
+    agent: &Agent,
+    release: &GithubRelease,
+    asset_name: &str,
+    binary_path: &Path,
+    ui: &InstallerUi,
+) -> Result<()> {
+    let spinner = installer.create_status_spinner("Verifying checksum…");
+    match PluginInstaller::fetch_asset_checksum(agent, release, asset_name)? {
+        Some(expected) => {
+            let actual = PluginInstaller::calculate_sha256(binary_path)?;
+            if actual.eq_ignore_ascii_case(&expected) {
+                ui.complete_progress_standalone(
+                    &spinner,
+                    StatusKind::Success,
+                    format!(
+                        "Checksum OK ({})",
+                        ui.muted_text(&expected[..expected.len().min(12)])
+                    ),
+                );
+                Ok(())
+            } else {
+                ui.complete_progress_standalone(&spinner, StatusKind::Error, "Checksum mismatch");
+                Err(LlaError::Other(format!(
+                    "Checksum verification failed. Expected {}, got {}",
+                    expected, actual
+                )))
+            }
+        }
+        None => {
+            ui.complete_progress_standalone(
+                &spinner,
+                StatusKind::Info,
+                "No checksum published for this release; skipping verification",
+            );
+            Ok(())
+        }
+    }
+}
+
+fn install_cli_binary(
+    installer: &PluginInstaller,
+    source: &Path,
+    destination: &Path,
+    release_tag: &str,
+    ui: &InstallerUi,
+) -> Result<()> {
+    let install_message = ui.progress_message("Installing", &destination.display().to_string());
+    let spinner = installer.create_status_spinner(&install_message);
+
+    let parent = destination.parent().ok_or_else(|| {
+        LlaError::Other(format!(
+            "Invalid install path '{}': missing parent directory",
+            destination.display()
+        ))
+    })?;
+    fs::create_dir_all(parent).map_err(|err| {
+        ui.complete_progress_standalone(
+            &spinner,
+            StatusKind::Error,
+            format!("Failed to prepare {}: {}", parent.display(), err),
+        );
+        LlaError::Other(format!(
+            "Unable to create parent directory {}: {}",
+            parent.display(),
+            err
+        ))
+    })?;
+
+    let unique_suffix = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_target = parent.join(format!(
+        ".lla-upgrade-{}-{}",
+        unique_suffix,
+        std::process::id()
+    ));
+
+    fs::copy(source, &temp_target).map_err(|err| {
+        ui.complete_progress_standalone(
+            &spinner,
+            StatusKind::Error,
+            format!("Failed to copy binary: {}", err),
+        );
+        LlaError::Other(format!(
+            "Failed to copy binary to {}: {}",
+            temp_target.display(),
+            err
+        ))
+    })?;
+    mark_file_executable(&temp_target)?;
+
+    let rename_result = fs::rename(&temp_target, destination);
+    if let Err(err) = rename_result {
+        let _ = fs::remove_file(&temp_target);
+        ui.complete_progress_standalone(
+            &spinner,
+            StatusKind::Error,
+            format!("Failed to install binary: {}", err),
+        );
+        return Err(LlaError::Other(format!(
+            "Failed to install to {}: {}. Try re-running with elevated permissions or provide --path.",
+            destination.display(),
+            err
+        )));
+    }
+
+    ui.complete_progress_standalone(
+        &spinner,
+        StatusKind::Success,
+        format!(
+            "Installed {} to {}",
+            ui.highlight_text(release_tag),
+            ui.highlight_text(&destination.display().to_string())
+        ),
+    );
+    Ok(())
+}
+
+fn mark_file_executable(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(path, perms)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_readonly(false);
+        fs::set_permissions(path, perms)?;
+    }
+
+    Ok(())
 }
 
 impl PluginInstaller {

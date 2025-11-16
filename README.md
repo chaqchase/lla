@@ -76,6 +76,20 @@ sudo chown root:root lla
 sudo mv lla /usr/local/bin/lla
 ```
 
+### Upgrading
+
+Upgrade to the latest (or a specific) release without leaving the terminal:
+
+```bash
+# Upgrade to the latest release (auto-detects OS/arch, verifies checksums)
+lla upgrade
+
+# Target a specific tag or custom installation path
+lla upgrade --version v0.5.0 --path /usr/local/bin/lla
+```
+
+The upgrade command reuses the official install script logic, renders animated progress indicators, verifies the `SHA256SUMS` manifest, and atomically swaps the `lla` binary in place (defaults to the path of the running executable—override with `--path` if needed).
+
 ### Post Installation
 
 After installation, initialize your setup:

@@ -22,13 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Diff command** (`lla diff`) can now compare directories _and_ individual files (local↔local or against git references), showing per-entry size deltas for directories plus size/line summaries and unified diffs for files.
 - **Column customization for long/table views** via `[formatters.long].columns` and `[formatters.table].columns`, including plugin-provided fields through `field:<name>` entries.
 - **Optional .gitignore filtering** for every listing format via `--respect-gitignore`, `--no-gitignore`, and a new `filter.respect_gitignore` config key (fuzzy view included).
+- **CLI upgrade command** (`lla upgrade`) that reuses the install script pipeline to download the latest release (or a specified tag), verify `SHA256SUMS`, render progress indicators, and atomically replace the local binary.
 
 ## Changed
 
 - `lla init` now uses a multi-section guided flow with themed step banners, expanded prompts (sort order, directory inclusion, depth limits, sorting/filtering toggles, long-view columns, plugin directory + recursion guards), and a richer summary. Run `lla init --default` to write the stock config without launching the wizard.
 - `lla config` now renders a structured, colorized summary instead of dumping the raw struct, making it easy to review key defaults (view/sort/filter, formatter tweaks, plugin status, limits) at a glance.
 - Plugin installation/update workflows now show animated banners plus per-plugin progress bars/spinners, along with success/error callouts so you can follow downloads, builds, and updates in real time.
-- Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree’s perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
+- Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree's perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
+- Installation script (`install.sh`) now features polished visual styling matching the CLI upgrade command, with animated spinners, structured sections, consistent color theming, and improved error handling.
 
 ## Fixed
 

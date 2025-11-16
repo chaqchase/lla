@@ -84,12 +84,19 @@ pub enum Command {
     ThemePull,
     ThemeInstall(String),
     ThemePreview(String),
+    Upgrade(UpgradeCommand),
 }
 
 pub enum InstallSource {
     Prebuilt,
     GitHub(String),
     LocalDir(String),
+}
+
+#[derive(Clone)]
+pub struct UpgradeCommand {
+    pub version: Option<String>,
+    pub install_path: Option<PathBuf>,
 }
 
 pub enum ShortcutAction {
@@ -641,6 +648,23 @@ impl Args {
                     ),
             )
             .subcommand(
+                SubCommand::with_name("upgrade")
+                    .about("Upgrade the lla CLI to the latest (or specified) release")
+                    .arg(
+                        Arg::with_name("version")
+                            .long("version")
+                            .short('v')
+                            .takes_value(true)
+                            .help("Upgrade to a specific release tag (defaults to the latest release)"),
+                    )
+                    .arg(
+                        Arg::with_name("path")
+                            .long("path")
+                            .takes_value(true)
+                            .help("Install location for the lla binary (defaults to the current executable path)"),
+                    ),
+            )
+            .subcommand(
                 SubCommand::with_name("clean").about("This command will clean up invalid plugins"),
             )
             .subcommand(
@@ -972,6 +996,17 @@ impl Args {
             } else {
                 Some(Command::Config(Some(ConfigAction::View)))
             }
+        } else if let Some(upgrade_matches) = matches.subcommand_matches("upgrade") {
+            let version = upgrade_matches
+                .value_of("version")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(String::from);
+            let install_path = upgrade_matches.value_of("path").map(PathBuf::from);
+            Some(Command::Upgrade(UpgradeCommand {
+                version,
+                install_path,
+            }))
         } else if let Some(plugin_matches) = matches.subcommand_matches("plugin") {
             // Support both positional and flag-based syntax
             let plugin_name = plugin_matches

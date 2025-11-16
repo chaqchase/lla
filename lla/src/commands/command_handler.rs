@@ -160,6 +160,7 @@ pub fn handle_command(
         Some(Command::ThemePreview(name)) => crate::theme::preview_theme(name),
         Some(Command::Shortcut(action)) => handle_shortcut_action(action, config, &color_state),
         Some(Command::Install(source)) => handle_install(source, args),
+        Some(Command::Upgrade(options)) => crate::installer::upgrade_cli(args, options),
         Some(Command::Update(plugin_name)) => {
             let installer = PluginInstaller::new(&args.plugins_dir, args);
             installer.update_plugins(plugin_name.as_deref())
