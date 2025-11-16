@@ -335,8 +335,8 @@ Keyboard shortcuts:
 
 - Space: toggle select
 - Enter: confirm (returns the highlighted file or all selected files)
-- y: copy selected path(s) to clipboard
-- o: open selected file(s) with the system opener (open/xdg-open/start)
+- Ctrl+Y: copy selected path(s) to clipboard
+- Ctrl+O: open selected file(s) with the system opener (open/xdg-open/start)
 
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 

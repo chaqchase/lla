@@ -484,8 +484,11 @@ impl FuzzyLister {
                                 last_render_request = now;
                             }
                         }
-                        // Copy selected paths to clipboard (y)
-                        (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                        // Copy selected paths to clipboard (Ctrl+Y)
+                        (KeyCode::Char(c), modifiers)
+                            if matches!(c, 'y' | 'Y')
+                                && modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
                             let mut paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
                                 result_list
                                     .get_selected()
@@ -504,8 +507,11 @@ impl FuzzyLister {
                             pending_render = true;
                             last_render_request = now;
                         }
-                        // Open selected paths (o)
-                        (KeyCode::Char('o'), KeyModifiers::NONE) => {
+                        // Open selected paths (Ctrl+O)
+                        (KeyCode::Char(c), modifiers)
+                            if matches!(c, 'o' | 'O')
+                                && modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
                             let paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
                                 result_list
                                     .get_selected()
@@ -606,7 +612,7 @@ impl FuzzyLister {
             )
             .bright_black(),
             " • ",
-            "Space: select, Enter: confirm, y: copy, o: open".bright_black()
+            "Space: select, Enter: confirm, Ctrl+Y: copy, Ctrl+O: open".bright_black()
         );
 
         execute!(

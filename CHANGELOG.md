@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Git-backed diffs now treat the reference as the baseline so additions/removals are reported from the working tree’s perspective, and file diffs validate references, detect binary content, and emit clearer error messages.
 
+## Fixed
+
+- `lla --fuzzy` no longer captures plain `y`/`o` keystrokes while you type; the copy and open shortcuts now require `Ctrl+Y`/`Ctrl+O`, so search queries can include those characters without triggering actions. ([#142](https://github.com/chaqchase/lla/issues/142))
+
 ## Docs
 
 - Documented the wizard, `.lla.toml` profiles, new config commands, and theme preview usage in the README.
