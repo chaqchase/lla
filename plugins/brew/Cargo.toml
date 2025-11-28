@@ -1,0 +1,30 @@
+[package]
+name = "brew"
+description = "Homebrew package manager plugin - install, uninstall, upgrade, and search packages"
+version = "0.5.0"
+edition = "2021"
+
+[dependencies]
+colored = "2.0.0"
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+dirs = "5.0.1"
+serde = { version = "1.0.200", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8.8"
+prost = "0.12"
+bytes = "1.5"
+dialoguer = "0.11.0"
+console = "0.15.7"
+chrono = "0.4"
+reqwest = { version = "0.11", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+indicatif = "0.17"
+fuzzy-matcher = "0.3.7"
+
+[lib]
+crate-type = ["cdylib"]
+
