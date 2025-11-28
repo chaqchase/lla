@@ -164,6 +164,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "brew"
+version = "0.5.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "colored",
+ "console",
+ "dialoguer",
+ "dirs",
+ "fuzzy-matcher",
+ "indicatif",
+ "lla_plugin_interface",
+ "lla_plugin_utils",
+ "prost",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "bstr"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,6 +1079,27 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "hackernews"
+version = "0.5.0"
+dependencies = [
+ "arboard",
+ "bytes",
+ "chrono",
+ "colored",
+ "console",
+ "dialoguer",
+ "dirs",
+ "indicatif",
+ "lla_plugin_interface",
+ "lla_plugin_utils",
+ "prost",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -2014,6 +2056,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2105,11 +2156,41 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.37"
+version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af"
+checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rand"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+dependencies = [
+ "libc",
+ "rand_chacha",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom",
 ]
 
 [[package]]
@@ -2180,6 +2261,25 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
+
+[[package]]
+name = "remove_paywall"
+version = "0.5.0"
+dependencies = [
+ "arboard",
+ "bytes",
+ "chrono",
+ "colored",
+ "console",
+ "dialoguer",
+ "dirs",
+ "lla_plugin_interface",
+ "lla_plugin_utils",
+ "prost",
+ "serde",
+ "toml",
+ "url",
+]
 
 [[package]]
 name = "reqwest"
@@ -2522,6 +2622,26 @@ checksum = "c970269d99b64e60ec3bd6ad27270092a5394c4e309314b18ae3fe575695fbe8"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "speed_test"
+version = "0.5.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "colored",
+ "console",
+ "dialoguer",
+ "dirs",
+ "indicatif",
+ "lla_plugin_interface",
+ "lla_plugin_utils",
+ "prost",
+ "rand",
+ "reqwest",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -3541,6 +3661,26 @@ dependencies = [
  "serde_json",
  "toml",
  "url",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ea879c944afe8a2b25fef16bb4ba234f47c694565e97383b36f3a878219065c"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf955aa904d6040f70dc8e9384444cb1030aed272ba3cb09bbc4ab9e7c1f34f5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
