@@ -67,13 +67,15 @@ dispatch_next_stage() {
 
   require_cmd gh jq
 
-  local payload
-  payload=$(jq -nc --arg tag "$tag" --arg version "$version" '{tag:$tag,version:$version}')
-
   log_note "Dispatching $event_type for $tag"
 
-  gh api "repos/${GITHUB_REPOSITORY}/dispatches" \
-    -f "event_type=${event_type}" \
-    -f "client_payload=${payload}"
+  # Build the full request body as JSON and pipe it to gh api
+  # This ensures client_payload is sent as an object, not a string
+  jq -nc \
+    --arg event_type "$event_type" \
+    --arg tag "$tag" \
+    --arg version "$version" \
+    '{event_type: $event_type, client_payload: {tag: $tag, version: $version}}' \
+  | gh api "repos/${GITHUB_REPOSITORY}/dispatches" --input -
 }
 
