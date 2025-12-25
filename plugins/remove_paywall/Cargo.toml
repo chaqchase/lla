@@ -1,7 +1,7 @@
 [package]
 name = "remove_paywall"
 description = "Remove paywalls from URLs using services like 12ft.io, archive.is, and removepaywall.com"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 
 [dependencies]

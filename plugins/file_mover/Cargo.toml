@@ -1,6 +1,6 @@
 [package]
 name = "file_mover"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 description = "A plugin for lla that provides clipboard functionality for moving files and directories"
 

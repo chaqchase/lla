@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-25
+
+### Added
+
+- **Homebrew Plugin** (`brew`): manage Homebrew packages from lla (list/search/info/install/uninstall/upgrade/cleanup/doctor) with an interactive menu.
+- **Hacker News Plugin** (`hackernews`): browse Top/Best/New/Ask/Show/Jobs, open articles/comments, copy URLs, and use an interactive browser with caching.
+- **Remove Paywall Plugin** (`remove_paywall`): generate paywall-bypass links (12ft/archive.is/RemovePaywall/Freedium/Google Cache), with clipboard support, history, and preferences.
+- **Speed Test Plugin** (`speed_test`): test latency + download speed, keep history, and offer an interactive menu.
+
+### Changed
+
+- `lla plugin <name>` now works without an explicit action: in TTY it prefers a plugin `menu` action when available, otherwise falls back to `help` (non-interactive defaults to `help`).
+- Startup error handling now prints a clean, categorized error block and exits with a non-zero status instead of panicking on some parse failures.
+- Plugin errors now provide more guidance:
+  - Missing plugin names now include a list of available plugins (or a hint to run `lla install`).
+  - Unknown plugin actions try to include the plugin’s available actions list (when discoverable).
+
+### Fixed
+
+- `lla diff` now reports missing required arguments with a clear usage/help message (instead of panicking).
+- `speed_test` latency checks now use reliable HTTPS endpoints, downloads respect `test_size_mb`, and responses are streamed to avoid buffering large payloads in memory.
+- `remove_paywall` now properly URL-encodes `archive.is` (and Google Cache) links when embedding an original URL into query parameters.
+
 ## [0.5.1] - 2025-11-16
 
 ### Added

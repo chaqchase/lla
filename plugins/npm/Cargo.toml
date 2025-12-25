@@ -1,7 +1,7 @@
 [package]
 name = "npm"
 description = "NPM package search with bundlephobia integration and favorites management"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 
 [dependencies]

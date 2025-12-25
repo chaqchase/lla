@@ -1,7 +1,7 @@
 [package]
 name = "brew"
 description = "Homebrew package manager plugin - install, uninstall, upgrade, and search packages"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 
 [dependencies]
@@ -27,4 +27,3 @@ fuzzy-matcher = "0.3.7"
 
 [lib]
 crate-type = ["cdylib"]
-
