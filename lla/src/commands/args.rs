@@ -930,7 +930,18 @@ impl Args {
         } else if let Some(diff_matches) = matches.subcommand_matches("diff") {
             let left = diff_matches
                 .value_of("left")
-                .expect("left argument is required")
+                .ok_or_else(|| {
+                    LlaError::Parse(
+                        "Missing required argument: <left>\n\n\
+                    Usage: lla diff <left> <right>\n       \
+                    lla diff <left> --git [--git-ref <ref>]\n\n\
+                    Examples:\n  \
+                    lla diff src ../backup/src\n  \
+                    lla diff . --git\n  \
+                    lla diff src --git --git-ref HEAD~1"
+                            .to_string(),
+                    )
+                })?
                 .to_string();
             if diff_matches.is_present("git") {
                 if diff_matches.value_of("right").is_some() {
@@ -1011,23 +1022,47 @@ impl Args {
             // Support both positional and flag-based syntax
             let plugin_name = plugin_matches
                 .value_of("plugin_name")
-                .or_else(|| plugin_matches.value_of("name"))
-                .expect("Plugin name is required (use 'lla plugin <name> <action>' or 'lla plugin --name <name> --action <action>')")
-                .to_string();
+                .or_else(|| plugin_matches.value_of("name"));
 
             let action = plugin_matches
                 .value_of("plugin_action")
-                .or_else(|| plugin_matches.value_of("action"))
-                .expect("Plugin action is required (use 'lla plugin <name> <action>' or 'lla plugin --name <name> --action <action>')")
-                .to_string();
+                .or_else(|| plugin_matches.value_of("action"));
 
-            let args = plugin_matches
-                .values_of("plugin_args")
-                .or_else(|| plugin_matches.values_of("args"))
-                .map(|v| v.map(String::from).collect())
-                .unwrap_or_default();
-
-            Some(Command::PluginAction(plugin_name, action, args))
+            match (plugin_name, action) {
+                (Some(name), Some(act)) => {
+                    let args = plugin_matches
+                        .values_of("plugin_args")
+                        .or_else(|| plugin_matches.values_of("args"))
+                        .map(|v| v.map(String::from).collect())
+                        .unwrap_or_default();
+                    Some(Command::PluginAction(
+                        name.to_string(),
+                        act.to_string(),
+                        args,
+                    ))
+                }
+                (Some(name), None) => {
+                    // No action provided - defer to command handler (menu/help fallback)
+                    Some(Command::PluginAction(
+                        name.to_string(),
+                        "__default__".to_string(),
+                        vec![],
+                    ))
+                }
+                (None, _) => {
+                    return Err(LlaError::Plugin(
+                        "Plugin name is required.\n\n\
+                        Usage:\n  \
+                        lla plugin <name> <action> [args...]\n  \
+                        lla plugin --name <name> --action <action> [--args ...]\n\n\
+                        Examples:\n  \
+                        lla plugin git_status help\n  \
+                        lla plugin file_tagger add-tag README.md important\n\n\
+                        Run 'lla list-plugins' to see available plugins."
+                            .to_string(),
+                    ));
+                }
+            }
         } else if let Some(jump_matches) = matches.subcommand_matches("jump") {
             let action = if let Some(path) = jump_matches.value_of("add") {
                 JumpAction::Add(path.to_string())

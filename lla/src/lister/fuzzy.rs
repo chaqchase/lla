@@ -33,6 +33,16 @@ const WORKER_THREADS: usize = 8;
 const CHUNK_SIZE: usize = 1000;
 const SEARCH_DEBOUNCE_MS: u64 = 50;
 const RENDER_INTERVAL_MS: u64 = 16;
+const STATUS_MESSAGE_TIMEOUT_MS: u64 = 2000;
+
+/// Input mode for the fuzzy finder UI
+#[derive(Clone, PartialEq)]
+enum InputMode {
+    /// Normal browsing/search mode
+    Normal,
+    /// Renaming a file - contains the new name being edited and cursor position
+    Rename { buffer: String, cursor: usize },
+}
 
 fn path_contains_git_dir(path: &Path) -> bool {
     path.components()
@@ -192,6 +202,60 @@ fn open_path(path: &PathBuf) -> std::io::Result<()> {
     }
 }
 
+fn open_in_editor(paths: &[PathBuf], config_editor: Option<&str>) -> std::io::Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    // Priority: config editor > $EDITOR > $VISUAL > fallback
+    let editor = config_editor
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("EDITOR").ok())
+        .or_else(|| std::env::var("VISUAL").ok())
+        .unwrap_or_else(|| {
+            // Try to find a common editor
+            #[cfg(target_os = "macos")]
+            {
+                "nano".to_string()
+            }
+            #[cfg(target_os = "linux")]
+            {
+                "nano".to_string()
+            }
+            #[cfg(target_os = "windows")]
+            {
+                "notepad".to_string()
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            {
+                "vi".to_string()
+            }
+        });
+
+    let editor = editor.trim();
+    if editor.is_empty() {
+        return Ok(());
+    }
+
+    // Support simple "editor + args" strings like `code --wait`
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or(editor);
+    let mut cmd = ProcessCommand::new(program);
+    cmd.args(parts);
+    for path in paths {
+        cmd.arg(path);
+    }
+    let _ = cmd.spawn()?.wait();
+    Ok(())
+}
+
+fn rename_file(old_path: &Path, new_name: &str) -> std::io::Result<PathBuf> {
+    let parent = old_path.parent().unwrap_or(Path::new("."));
+    let new_path = parent.join(new_name);
+    std::fs::rename(old_path, &new_path)?;
+    Ok(new_path)
+}
+
 impl FileEntry {
     fn new(path: PathBuf) -> Self {
         let path_str = path.to_string_lossy().into_owned();
@@ -290,6 +354,21 @@ impl SearchIndex {
         let mut entries = self.entries.write();
         entries.extend(filtered);
         true
+    }
+
+    fn replace_entry_path(&self, old_path: &Path, new_path: &Path) {
+        // Update the indexed entry so future searches reflect the rename.
+        let mut entries = self.entries.write();
+        if let Some(entry) = entries.iter_mut().find(|e| e.path == old_path) {
+            *entry = FileEntry::new(new_path.to_path_buf());
+        } else {
+            // If the old path wasn't in the index (edge case), at least add the new one.
+            entries.push(FileEntry::new(new_path.to_path_buf()));
+        }
+
+        // Invalidate search cache so the next query recomputes results.
+        *self.last_query.write() = String::new();
+        self.last_results.write().clear();
     }
 
     fn search(&self, query: &str, max_results: usize) -> Vec<MatchResult> {
@@ -495,13 +574,17 @@ impl FuzzyLister {
         let mut last_batch_check = std::time::Instant::now();
         let mut pending_search = false;
         let mut pending_render = false;
+        let mut input_mode = InputMode::Normal;
+        let mut status_message: Option<String> = None;
+        let mut status_message_time: Option<std::time::Instant> = None;
 
         let search_debounce = Duration::from_millis(SEARCH_DEBOUNCE_MS);
+        let status_timeout = Duration::from_millis(STATUS_MESSAGE_TIMEOUT_MS);
         let render_debounce = Duration::from_millis(16);
         let render_interval = Duration::from_millis(RENDER_INTERVAL_MS);
         let batch_check_interval = Duration::from_millis(100);
 
-        self.render_ui(&search_bar, &mut result_list)?;
+        self.render_ui(&search_bar, &mut result_list, &input_mode, &status_message)?;
         let results = index.search("", 1000);
         result_list.update_results(results);
 
@@ -537,87 +620,334 @@ impl FuzzyLister {
 
             if event::poll(Duration::from_millis(1))? {
                 if let Event::Key(key) = event::read()? {
-                    match (key.code, key.modifiers) {
-                        (KeyCode::Char('c'), KeyModifiers::CONTROL)
-                        | (KeyCode::Esc, KeyModifiers::NONE) => break,
-                        (KeyCode::Enter, KeyModifiers::NONE) => {
-                            if result_list.multi_selected.is_empty() {
-                                if let Some(result) = result_list.get_selected() {
-                                    selected_paths.push(result.entry.path.clone());
+                    // Handle input based on current mode
+                    match &input_mode {
+                        InputMode::Rename { buffer, cursor } => {
+                            // Handle rename mode input
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                    // Cancel rename
+                                    input_mode = InputMode::Normal;
+                                    status_message = Some("Rename cancelled".to_string());
+                                    status_message_time = Some(now);
+                                    pending_render = true;
+                                    last_render_request = now;
                                 }
-                            } else {
-                                selected_paths.extend(result_list.multi_selected.iter().cloned());
+                                (KeyCode::Enter, _) => {
+                                    // Perform rename
+                                    if let Some(result) = result_list.get_selected() {
+                                        let old_path = result.entry.path.clone();
+                                        let new_name = buffer.clone();
+                                        if !new_name.is_empty()
+                                            && new_name
+                                                != old_path
+                                                    .file_name()
+                                                    .unwrap_or_default()
+                                                    .to_string_lossy()
+                                        {
+                                            match rename_file(&old_path, &new_name) {
+                                                Ok(new_path) => {
+                                                    status_message = Some(format!(
+                                                        "Renamed to: {}",
+                                                        new_path.display()
+                                                    ));
+                                                    status_message_time = Some(now);
+
+                                                    // Keep multi-select consistent if the renamed file was marked.
+                                                    if result_list.multi_selected.remove(&old_path)
+                                                    {
+                                                        result_list
+                                                            .multi_selected
+                                                            .insert(new_path.clone());
+                                                    }
+
+                                                    // Update underlying search index so future searches reflect the rename.
+                                                    index.replace_entry_path(&old_path, &new_path);
+
+                                                    // Refresh results against the current query. If the renamed file no longer matches,
+                                                    // it will disappear, which is expected.
+                                                    let refreshed =
+                                                        index.search(&search_bar.query, 1000);
+                                                    result_list.update_results(refreshed);
+                                                    if let Some(pos) = result_list
+                                                        .results
+                                                        .iter()
+                                                        .position(|r| r.entry.path == new_path)
+                                                    {
+                                                        result_list.selected_idx = pos;
+                                                        result_list.update_window();
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    status_message =
+                                                        Some(format!("Rename failed: {}", e));
+                                                    status_message_time = Some(now);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    input_mode = InputMode::Normal;
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Backspace, _) => {
+                                    let mut new_buffer = buffer.clone();
+                                    let mut new_cursor = *cursor;
+                                    if new_cursor > 0 {
+                                        new_cursor -= 1;
+                                        new_buffer.remove(new_cursor);
+                                    }
+                                    input_mode = InputMode::Rename {
+                                        buffer: new_buffer,
+                                        cursor: new_cursor,
+                                    };
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Left, _) => {
+                                    let new_cursor = cursor.saturating_sub(1);
+                                    input_mode = InputMode::Rename {
+                                        buffer: buffer.clone(),
+                                        cursor: new_cursor,
+                                    };
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Right, _) => {
+                                    let new_cursor = (*cursor + 1).min(buffer.len());
+                                    input_mode = InputMode::Rename {
+                                        buffer: buffer.clone(),
+                                        cursor: new_cursor,
+                                    };
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                                    let mut new_buffer = buffer.clone();
+                                    new_buffer.insert(*cursor, c);
+                                    input_mode = InputMode::Rename {
+                                        buffer: new_buffer,
+                                        cursor: cursor + 1,
+                                    };
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                _ => {}
                             }
-                            break;
                         }
-                        // Toggle multi-select with Space
-                        (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                            if let Some(result) = result_list.get_selected() {
-                                let p = result.entry.path.clone();
-                                result_list.toggle_mark(&p);
-                                pending_render = true;
-                                last_render_request = now;
-                            }
-                        }
-                        // Copy selected paths to clipboard (Ctrl+Y)
-                        (KeyCode::Char(c), modifiers)
-                            if matches!(c, 'y' | 'Y')
-                                && modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
-                            let mut paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
-                                result_list
-                                    .get_selected()
-                                    .map(|r| vec![r.entry.path.clone()])
-                                    .unwrap_or_default()
-                            } else {
-                                result_list.multi_selected.iter().cloned().collect()
-                            };
-                            paths.sort();
-                            let content = paths
-                                .iter()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            let _ = copy_to_clipboard(&content);
-                            pending_render = true;
-                            last_render_request = now;
-                        }
-                        // Open selected paths (Ctrl+O)
-                        (KeyCode::Char(c), modifiers)
-                            if matches!(c, 'o' | 'O')
-                                && modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
-                            let paths: Vec<PathBuf> = if result_list.multi_selected.is_empty() {
-                                result_list
-                                    .get_selected()
-                                    .map(|r| vec![r.entry.path.clone()])
-                                    .unwrap_or_default()
-                            } else {
-                                result_list.multi_selected.iter().cloned().collect()
-                            };
-                            for p in paths {
-                                let _ = open_path(&p);
-                            }
-                            pending_render = true;
-                            last_render_request = now;
-                        }
-                        (KeyCode::Up, KeyModifiers::NONE) => {
-                            result_list.move_selection(-1);
-                            pending_render = true;
-                            last_render_request = now;
-                        }
-                        (KeyCode::Down, KeyModifiers::NONE) => {
-                            result_list.move_selection(1);
-                            pending_render = true;
-                            last_render_request = now;
-                        }
-                        _ => {
-                            if search_bar.handle_input(key.code, key.modifiers) {
-                                last_query = search_bar.query.clone();
-                                last_query_time = now;
-                                pending_search = true;
-                                pending_render = true;
-                                last_render_request = now;
+                        InputMode::Normal => {
+                            // Normal mode key handling
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                                | (KeyCode::Esc, KeyModifiers::NONE) => break,
+                                (KeyCode::Enter, KeyModifiers::NONE) => {
+                                    if result_list.multi_selected.is_empty() {
+                                        if let Some(result) = result_list.get_selected() {
+                                            selected_paths.push(result.entry.path.clone());
+                                        }
+                                    } else {
+                                        selected_paths
+                                            .extend(result_list.multi_selected.iter().cloned());
+                                    }
+                                    break;
+                                }
+                                // Toggle multi-select with Space
+                                (KeyCode::Char(' '), KeyModifiers::NONE) => {
+                                    if let Some(result) = result_list.get_selected() {
+                                        let p = result.entry.path.clone();
+                                        result_list.toggle_mark(&p);
+                                        pending_render = true;
+                                        last_render_request = now;
+                                    }
+                                }
+                                // Copy selected paths to clipboard (Ctrl+Y)
+                                (KeyCode::Char(c), modifiers)
+                                    if matches!(c, 'y' | 'Y')
+                                        && modifiers.contains(KeyModifiers::CONTROL) =>
+                                {
+                                    let mut paths: Vec<PathBuf> =
+                                        if result_list.multi_selected.is_empty() {
+                                            result_list
+                                                .get_selected()
+                                                .map(|r| vec![r.entry.path.clone()])
+                                                .unwrap_or_default()
+                                        } else {
+                                            result_list.multi_selected.iter().cloned().collect()
+                                        };
+                                    paths.sort();
+                                    let content = paths
+                                        .iter()
+                                        .map(|p| p.to_string_lossy().to_string())
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    let _ = copy_to_clipboard(&content);
+                                    status_message =
+                                        Some("Path(s) copied to clipboard".to_string());
+                                    status_message_time = Some(now);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Open selected paths with system handler (Ctrl+O)
+                                (KeyCode::Char(c), modifiers)
+                                    if matches!(c, 'o' | 'O')
+                                        && modifiers.contains(KeyModifiers::CONTROL) =>
+                                {
+                                    let paths: Vec<PathBuf> =
+                                        if result_list.multi_selected.is_empty() {
+                                            result_list
+                                                .get_selected()
+                                                .map(|r| vec![r.entry.path.clone()])
+                                                .unwrap_or_default()
+                                        } else {
+                                            result_list.multi_selected.iter().cloned().collect()
+                                        };
+                                    for p in paths {
+                                        let _ = open_path(&p);
+                                    }
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Open in external editor (Ctrl+E)
+                                (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                                    let paths: Vec<PathBuf> =
+                                        if result_list.multi_selected.is_empty() {
+                                            result_list
+                                                .get_selected()
+                                                .map(|r| vec![r.entry.path.clone()])
+                                                .unwrap_or_default()
+                                        } else {
+                                            result_list.multi_selected.iter().cloned().collect()
+                                        };
+
+                                    if !paths.is_empty() {
+                                        execute!(
+                                            stdout,
+                                            terminal::LeaveAlternateScreen,
+                                            cursor::Show
+                                        )?;
+                                        terminal::disable_raw_mode()?;
+
+                                        let open_res = open_in_editor(
+                                            &paths,
+                                            self.config.listers.fuzzy.editor.as_deref(),
+                                        );
+
+                                        terminal::enable_raw_mode()?;
+                                        execute!(
+                                            stdout,
+                                            terminal::EnterAlternateScreen,
+                                            cursor::Hide
+                                        )?;
+
+                                        let after = std::time::Instant::now();
+                                        match open_res {
+                                            Ok(()) => {
+                                                status_message = Some(format!(
+                                                    "Opened editor for {} file(s)",
+                                                    paths.len()
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                status_message =
+                                                    Some(format!("Failed to open editor: {}", e));
+                                            }
+                                        }
+                                        status_message_time = Some(after);
+                                        pending_render = true;
+                                        last_render_request = after;
+                                    }
+                                }
+                                // Rename file (F2)
+                                (KeyCode::F(2), _) => {
+                                    if let Some(result) = result_list.get_selected() {
+                                        let file_name = result
+                                            .entry
+                                            .path
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_default();
+                                        let cursor = file_name.len();
+                                        input_mode = InputMode::Rename {
+                                            buffer: file_name,
+                                            cursor,
+                                        };
+                                        pending_render = true;
+                                        last_render_request = now;
+                                    }
+                                }
+                                (KeyCode::Up, KeyModifiers::NONE) => {
+                                    result_list.move_selection(-1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Down, KeyModifiers::NONE) => {
+                                    result_list.move_selection(1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Vim-style navigation: Ctrl-K (up) and Ctrl-J (down)
+                                (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
+                                    result_list.move_selection(-1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+                                    result_list.move_selection(1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Emacs/Vim-style navigation: Ctrl-P (up) and Ctrl-N (down)
+                                (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+                                    result_list.move_selection(-1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                                    result_list.move_selection(1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Page navigation: Ctrl-U (half page up) and Ctrl-D (half page down)
+                                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                                    result_list.move_page(-1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                                    result_list.move_page(1);
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                // Jump to end: Ctrl-G
+                                (KeyCode::Char(c), modifiers)
+                                    if matches!(c, 'g' | 'G')
+                                        && modifiers.contains(KeyModifiers::CONTROL)
+                                        && modifiers.contains(KeyModifiers::SHIFT) =>
+                                {
+                                    result_list.jump_to_start();
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                (KeyCode::Char(c), modifiers)
+                                    if matches!(c, 'g' | 'G')
+                                        && modifiers.contains(KeyModifiers::CONTROL)
+                                        && !modifiers.contains(KeyModifiers::SHIFT) =>
+                                {
+                                    result_list.jump_to_end();
+                                    pending_render = true;
+                                    last_render_request = now;
+                                }
+                                _ => {
+                                    if search_bar.handle_input(key.code, key.modifiers) {
+                                        last_query = search_bar.query.clone();
+                                        last_query_time = now;
+                                        pending_search = true;
+                                        pending_render = true;
+                                        last_render_request = now;
+                                        // Clear status message when typing
+                                        status_message = None;
+                                    }
+                                }
                             }
                         }
                     }
@@ -634,11 +964,21 @@ impl FuzzyLister {
                 last_render_request = now;
             }
 
+            // Clear status message after timeout
+            if let Some(msg_time) = status_message_time {
+                if now.duration_since(msg_time) >= status_timeout {
+                    status_message = None;
+                    status_message_time = None;
+                    pending_render = true;
+                    last_render_request = now;
+                }
+            }
+
             if pending_render
                 && now.duration_since(last_render_request) >= render_debounce
                 && now.duration_since(last_render) >= render_interval
             {
-                self.render_ui(&search_bar, &mut result_list)?;
+                self.render_ui(&search_bar, &mut result_list, &input_mode, &status_message)?;
                 last_render = now;
                 pending_render = false;
             }
@@ -652,7 +992,13 @@ impl FuzzyLister {
         Ok(selected_paths)
     }
 
-    fn render_ui(&self, search_bar: &SearchBar, result_list: &mut ResultList) -> io::Result<()> {
+    fn render_ui(
+        &self,
+        search_bar: &SearchBar,
+        result_list: &mut ResultList,
+        input_mode: &InputMode,
+        status_message: &Option<String>,
+    ) -> io::Result<()> {
         let mut stdout = stdout();
         let (width, height) = terminal::size()?;
         let available_height = height.saturating_sub(4) as usize;
@@ -660,35 +1006,70 @@ impl FuzzyLister {
         execute!(
             stdout,
             cursor::MoveTo(0, 0),
-            terminal::Clear(ClearType::All),
-            style::Print(&search_bar.render(width)),
+            terminal::Clear(ClearType::All)
+        )?;
+
+        // Render search bar
+        let search_bar_str = search_bar.render(width);
+        execute!(stdout, cursor::MoveTo(0, 0), style::Print(&search_bar_str))?;
+
+        // Render separator line
+        execute!(
+            stdout,
             cursor::MoveTo(0, 1),
             style::Print("─".repeat(width as usize).bright_black())
         )?;
 
+        // Render result list
         let result_lines = result_list.render(width);
         for (i, line) in result_lines.iter().take(available_height).enumerate() {
+            // Truncate line to fit (ANSI-aware, prevents wrapping)
+            let truncated = console::truncate_str(line, width as usize, "");
             execute!(
                 stdout,
                 cursor::MoveTo(0, (i + 2) as u16),
-                style::Print(line)
+                style::Print(truncated.as_ref())
             )?;
         }
 
-        let status_line = format!(
-            "{}{}{}{}{}",
-            " Total: ".bold(),
-            result_list.results.len().to_string().yellow(),
-            format!(
-                " (showing {}-{} of {})",
-                result_list.window_start + 1,
-                (result_list.window_start + available_height).min(result_list.results.len()),
-                result_list.total_indexed
-            )
-            .bright_black(),
-            " • ",
-            "Space: select, Enter: confirm, Ctrl+Y: copy, Ctrl+O: open".bright_black()
-        );
+        let status_line = match input_mode {
+            InputMode::Rename { buffer, cursor: _ } => {
+                format!(
+                    "{} {} {} {}",
+                    " RENAME:".bold().yellow(),
+                    buffer.clone().bold(),
+                    "│".bright_black(),
+                    "Enter: confirm, Esc: cancel".bright_black()
+                )
+            }
+            InputMode::Normal => {
+                if let Some(msg) = status_message {
+                    format!(
+                        "{}{} {} {}",
+                        " Total: ".bold(),
+                        result_list.results.len().to_string().yellow(),
+                        "│".bright_black(),
+                        msg.clone().green()
+                    )
+                } else {
+                    format!(
+                        "{}{}{}{}{}",
+                        " Total: ".bold(),
+                        result_list.results.len().to_string().yellow(),
+                        format!(
+                            " (showing {}-{} of {})",
+                            result_list.window_start + 1,
+                            (result_list.window_start + available_height)
+                                .min(result_list.results.len()),
+                            result_list.total_indexed
+                        )
+                        .bright_black(),
+                        " • ",
+                        "^j/k:nav Space:sel ^e:edit F2:rename ^y:cp ^o:open".bright_black()
+                    )
+                }
+            }
+        };
 
         execute!(
             stdout,
@@ -781,6 +1162,49 @@ impl SearchBar {
                     false
                 }
             }
+            // Ctrl-H: Delete character (like Backspace)
+            (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                    self.query.remove(self.cursor_pos);
+                    true
+                } else {
+                    false
+                }
+            }
+            // Ctrl-W: Delete word backwards
+            (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+                if self.cursor_pos > 0 {
+                    let original_pos = self.cursor_pos;
+                    // Skip trailing whitespace
+                    while self.cursor_pos > 0
+                        && self.query.chars().nth(self.cursor_pos - 1) == Some(' ')
+                    {
+                        self.cursor_pos -= 1;
+                    }
+                    // Delete until whitespace or start
+                    while self.cursor_pos > 0
+                        && self.query.chars().nth(self.cursor_pos - 1) != Some(' ')
+                    {
+                        self.cursor_pos -= 1;
+                    }
+                    // Remove the characters
+                    self.query.drain(self.cursor_pos..original_pos);
+                    true
+                } else {
+                    false
+                }
+            }
+            // Ctrl-A: Move cursor to start of line (Home also works)
+            (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos = 0;
+                    true
+                } else {
+                    false
+                }
+            }
+            // Note: Ctrl-E is reserved for external editor; use End key for end-of-line
             (KeyCode::Left, KeyModifiers::NONE) => {
                 if self.cursor_pos > 0 {
                     self.cursor_pos -= 1;
@@ -792,6 +1216,22 @@ impl SearchBar {
             (KeyCode::Right, KeyModifiers::NONE) => {
                 if self.cursor_pos < self.query.len() {
                     self.cursor_pos += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos = 0;
+                    true
+                } else {
+                    false
+                }
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                if self.cursor_pos < self.query.len() {
+                    self.cursor_pos = self.query.len();
                     true
                 } else {
                     false
@@ -858,6 +1298,28 @@ impl ResultList {
             self.selected_idx = new_idx as usize;
             self.update_window();
         }
+    }
+
+    fn move_page(&mut self, direction: i32) {
+        let half_page = (self.max_visible / 2).max(1) as i32;
+        let delta = direction * half_page;
+        let new_idx = (self.selected_idx as i32 + delta)
+            .max(0)
+            .min(self.results.len().saturating_sub(1) as i32);
+        self.selected_idx = new_idx as usize;
+        self.update_window();
+    }
+
+    fn jump_to_end(&mut self) {
+        if !self.results.is_empty() {
+            self.selected_idx = self.results.len() - 1;
+            self.update_window();
+        }
+    }
+
+    fn jump_to_start(&mut self) {
+        self.selected_idx = 0;
+        self.update_window();
     }
 
     fn toggle_mark(&mut self, path: &PathBuf) {

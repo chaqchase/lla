@@ -30,13 +30,14 @@
           shellHook = ''
             echo "Development shell activated"
             echo "Note: protobuf is available for regenerating bindings"
-            echo "To regenerate protobuf files, run: cargo build --features regenerate-protobuf"
+            echo "To regenerate protobuf files, run: cargo build -p lla_plugin_interface --features regenerate-protobuf"
           '';
         };
 
         packages.withProtobuf = naersk-lib.buildPackage {
           src = ./.;
           buildInputs = with pkgs; [ protobuf ];
+          cargoBuildOptions = [ "-p" "lla_plugin_interface" ];
           cargoBuildFeatures = [ "regenerate-protobuf" ];
         };
       }

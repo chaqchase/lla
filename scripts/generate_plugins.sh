@@ -14,7 +14,7 @@ This document lists all available plugins for LLA and provides installation inst
 You can install all plugins at once using:
 
 \`\`\`bash
-lla install --git https://github.com/triyanox/lla
+lla install --git https://github.com/chaqchase/lla
 \`\`\`
 
 Or you can install individual plugins as described below.
@@ -57,7 +57,7 @@ lla install --dir path/to/lla/${plugin_dir}
 
 2. Manual installation:
 \`\`\`bash
-git clone https://github.com/triyanox/lla
+git clone https://github.com/chaqchase/lla
 cd lla/${plugin_dir}
 cargo build --release
 \`\`\`

@@ -16,13 +16,13 @@ To force fetching the latest prebuilt archive (useful after a release):
 # install pre-built plugins
 lla install --prebuilt
 # or install from a repo
-lla install --git https://github.com/triyanox/lla
+lla install --git https://github.com/chaqchase/lla
 ```
 
 If you prefer to build from source, install them like this:
 
 ```bash
-git clone https://github.com/triyanox/lla
+git clone https://github.com/chaqchase/lla
 cd lla/plugins/
 cargo build --release
 ```

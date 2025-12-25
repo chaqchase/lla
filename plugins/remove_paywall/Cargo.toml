@@ -1,6 +1,6 @@
 [package]
-name = "jwt"
-description = "JWT decoder and analyzer with search and validation capabilities"
+name = "remove_paywall"
+description = "Remove paywalls from URLs using services like 12ft.io, archive.is, and removepaywall.com"
 version = "0.5.2"
 edition = "2021"
 
@@ -16,10 +16,9 @@ bytes = "1.5"
 dialoguer = "0.11.0"
 console = "0.15.7"
 chrono = "0.4"
-serde_json = "1.0"
 arboard = "3.3.0"
-base64 = "0.22"
-regex = "1.11"
+url = "2.5"
 
 [lib]
 crate-type = ["cdylib"]
+

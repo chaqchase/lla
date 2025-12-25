@@ -1,6 +1,6 @@
 [package]
-name = "jwt"
-description = "JWT decoder and analyzer with search and validation capabilities"
+name = "hackernews"
+description = "Hacker News plugin - browse top stories, best stories, new stories, ask HN, and show HN"
 version = "0.5.2"
 edition = "2021"
 
@@ -10,16 +10,21 @@ lla_plugin_interface = { path = "../../lla_plugin_interface" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 dirs = "5.0.1"
 serde = { version = "1.0.200", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8.8"
 prost = "0.12"
 bytes = "1.5"
 dialoguer = "0.11.0"
 console = "0.15.7"
 chrono = "0.4"
-serde_json = "1.0"
+reqwest = { version = "0.11", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+indicatif = "0.17"
 arboard = "3.3.0"
-base64 = "0.22"
-regex = "1.11"
 
 [lib]
 crate-type = ["cdylib"]
+
