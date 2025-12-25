@@ -113,17 +113,14 @@ impl PluginManager {
                 // List available plugins to help the user
                 let available: Vec<String> = self.plugins.keys().cloned().collect();
                 let suggestion = if available.is_empty() {
-                    "No plugins are currently installed. Run 'lla install' to install plugins.".to_string()
+                    "No plugins are currently installed. Run 'lla install' to install plugins."
+                        .to_string()
                 } else {
-                    format!(
-                        "Available plugins: {}",
-                        available.join(", ")
-                    )
+                    format!("Available plugins: {}", available.join(", "))
                 };
                 return Err(LlaError::Plugin(format!(
                     "Plugin '{}' not found.\n\n{}",
-                    plugin_name,
-                    suggestion
+                    plugin_name, suggestion
                 )));
             }
 
@@ -147,8 +144,10 @@ impl PluginManager {
                 if response.success {
                     Ok(())
                 } else {
-                    let error_msg = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                    
+                    let error_msg = response
+                        .error
+                        .unwrap_or_else(|| "Unknown error".to_string());
+
                     // If it's an unknown action error, try to list available actions
                     if error_msg.to_lowercase().contains("unknown action") {
                         if let Ok(actions) = self.get_plugin_actions(plugin_name) {
@@ -156,7 +155,7 @@ impl PluginManager {
                                 .iter()
                                 .map(|a| format!("  • {} - {}", a.name, a.description))
                                 .collect();
-                            
+
                             if !action_list.is_empty() {
                                 return Err(LlaError::Plugin(format!(
                                     "{}\n\nAvailable actions for '{}':\n{}",
@@ -167,7 +166,7 @@ impl PluginManager {
                             }
                         }
                     }
-                    
+
                     Err(LlaError::Plugin(error_msg))
                 }
             }

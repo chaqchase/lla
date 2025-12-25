@@ -653,26 +653,30 @@ impl FuzzyLister {
                                                     ));
                                                     status_message_time = Some(now);
 
-                                    // Keep multi-select consistent if the renamed file was marked.
-                                    if result_list.multi_selected.remove(&old_path) {
-                                        result_list.multi_selected.insert(new_path.clone());
-                                    }
+                                                    // Keep multi-select consistent if the renamed file was marked.
+                                                    if result_list.multi_selected.remove(&old_path)
+                                                    {
+                                                        result_list
+                                                            .multi_selected
+                                                            .insert(new_path.clone());
+                                                    }
 
-                                    // Update underlying search index so future searches reflect the rename.
-                                    index.replace_entry_path(&old_path, &new_path);
+                                                    // Update underlying search index so future searches reflect the rename.
+                                                    index.replace_entry_path(&old_path, &new_path);
 
-                                    // Refresh results against the current query. If the renamed file no longer matches,
-                                    // it will disappear, which is expected.
-                                    let refreshed = index.search(&search_bar.query, 1000);
-                                    result_list.update_results(refreshed);
-                                    if let Some(pos) = result_list
-                                        .results
-                                        .iter()
-                                        .position(|r| r.entry.path == new_path)
-                                    {
-                                        result_list.selected_idx = pos;
-                                        result_list.update_window();
-                                    }
+                                                    // Refresh results against the current query. If the renamed file no longer matches,
+                                                    // it will disappear, which is expected.
+                                                    let refreshed =
+                                                        index.search(&search_bar.query, 1000);
+                                                    result_list.update_results(refreshed);
+                                                    if let Some(pos) = result_list
+                                                        .results
+                                                        .iter()
+                                                        .position(|r| r.entry.path == new_path)
+                                                    {
+                                                        result_list.selected_idx = pos;
+                                                        result_list.update_window();
+                                                    }
                                                 }
                                                 Err(e) => {
                                                     status_message =

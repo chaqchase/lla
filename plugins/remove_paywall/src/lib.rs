@@ -251,7 +251,12 @@ impl RemovePaywallPlugin {
                 clipboard_line,
                 toggles
             ))
-            .title(format!("🔓 Remove Paywall · {}", title).bright_white().bold().to_string())
+            .title(
+                format!("🔓 Remove Paywall · {}", title)
+                    .bright_white()
+                    .bold()
+                    .to_string()
+            )
             .style(BoxStyle::Rounded)
             .padding(1)
             .render()
@@ -283,9 +288,7 @@ impl RemovePaywallPlugin {
             Ok(mut clipboard) => clipboard.get_text().ok().and_then(|text| {
                 let text = text.trim();
                 // Check if it looks like a URL
-                if text.starts_with("http://")
-                    || text.starts_with("https://")
-                    || text.contains(".")
+                if text.starts_with("http://") || text.starts_with("https://") || text.contains(".")
                 {
                     Self::validate_url(text).ok()
                 } else {
@@ -394,9 +397,9 @@ impl RemovePaywallPlugin {
     }
 
     fn remove_paywall_clipboard(&mut self) -> Result<(), String> {
-        let url = self.get_clipboard_url().ok_or_else(|| {
-            "No valid URL found in clipboard. Copy a URL first.".to_string()
-        })?;
+        let url = self
+            .get_clipboard_url()
+            .ok_or_else(|| "No valid URL found in clipboard. Copy a URL first.".to_string())?;
 
         println!(
             "{} Found URL in clipboard: {}",
@@ -411,9 +414,8 @@ impl RemovePaywallPlugin {
         let url = if let Some(u) = url {
             Self::validate_url(u)?
         } else {
-            self.get_clipboard_url().ok_or_else(|| {
-                "No URL provided and no valid URL found in clipboard.".to_string()
-            })?
+            self.get_clipboard_url()
+                .ok_or_else(|| "No URL provided and no valid URL found in clipboard.".to_string())?
         };
 
         let theme = LlaDialoguerTheme::default();
@@ -451,9 +453,8 @@ impl RemovePaywallPlugin {
         let url = if let Some(u) = url {
             Self::validate_url(u)?
         } else {
-            self.get_clipboard_url().ok_or_else(|| {
-                "No URL provided and no valid URL found in clipboard.".to_string()
-            })?
+            self.get_clipboard_url()
+                .ok_or_else(|| "No URL provided and no valid URL found in clipboard.".to_string())?
         };
 
         println!(
@@ -462,11 +463,7 @@ impl RemovePaywallPlugin {
             "Opening URL with all services".bright_cyan()
         );
         println!("{}", "─".repeat(60).bright_black());
-        println!(
-            "   {} Original: {}",
-            "📎".bright_cyan(),
-            url.bright_blue()
-        );
+        println!("   {} Original: {}", "📎".bright_cyan(), url.bright_blue());
         println!("{}", "─".repeat(60).bright_black());
 
         for service in PaywallService::all() {
@@ -592,7 +589,10 @@ impl RemovePaywallPlugin {
 
         let services = PaywallService::all();
         let current_default = self.base.config().default_service;
-        let default_index = services.iter().position(|&s| s == current_default).unwrap_or(0);
+        let default_index = services
+            .iter()
+            .position(|&s| s == current_default)
+            .unwrap_or(0);
 
         let items: Vec<String> = services
             .iter()
@@ -738,7 +738,9 @@ impl RemovePaywallPlugin {
                 .interact_opt()
                 .map_err(|e| format!("Failed to show menu: {}", e))?;
 
-            let Some(choice) = selection else { return Ok(()); };
+            let Some(choice) = selection else {
+                return Ok(());
+            };
             let result = match choice {
                 0 => self.remove_paywall_clipboard(),
                 1 => {
@@ -994,7 +996,8 @@ impl Plugin for RemovePaywallPlugin {
                                 usage: "remove <url>".to_string(),
                                 description: "Remove paywall from URL".to_string(),
                                 examples: vec![
-                                    "lla plugin remove_paywall remove https://example.com".to_string()
+                                    "lla plugin remove_paywall remove https://example.com"
+                                        .to_string(),
                                 ],
                             },
                             ActionInfo {
@@ -1088,4 +1091,3 @@ impl ConfigurablePlugin for RemovePaywallPlugin {
 impl ProtobufHandler for RemovePaywallPlugin {}
 
 lla_plugin_interface::declare_plugin!(RemovePaywallPlugin);
-

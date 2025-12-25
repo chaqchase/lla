@@ -634,7 +634,12 @@ editor = {}"#,
             table_columns,
             self.listers.recursive.max_entries.unwrap_or(0),
             serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
-            self.listers.fuzzy.editor.as_ref().map(|e| format!("\"{}\"", e)).unwrap_or_else(|| "null".to_string()),
+            self.listers
+                .fuzzy
+                .editor
+                .as_ref()
+                .map(|e| format!("\"{}\"", e))
+                .unwrap_or_else(|| "null".to_string()),
         );
 
         if !self.filter.presets.is_empty() {

@@ -44,7 +44,7 @@ fn run() -> Result<()> {
 
 fn print_error(error: &LlaError) {
     use colored::Colorize;
-    
+
     let error_type = match error {
         LlaError::Io(_) => "IO Error",
         LlaError::Parse(_) => "Parse Error",
@@ -53,11 +53,11 @@ fn print_error(error: &LlaError) {
         LlaError::Filter(_) => "Filter Error",
         LlaError::Other(_) => "Error",
     };
-    
+
     eprintln!();
     eprintln!("{} {}", "✗".bright_red(), error_type.bright_red().bold());
     eprintln!();
-    
+
     // Print the error message with proper indentation for multiline messages
     let message = error.to_string();
     for line in message.lines() {
