@@ -96,3 +96,43 @@ jobs:
           source .github/scripts/release_helpers.sh
           gh release upload "$RELEASE_TAG" themes.zip
 
+  finalize_checksums:
+    name: Regenerate SHA256SUMS
+    needs: [guard, themes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.guard.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare helper scripts
+        run: chmod +x .github/scripts/release_helpers.sh
+
+      - name: Download all release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p all_assets
+          # Download everything except the old SHA256SUMS
+          gh release download "$RELEASE_TAG" --dir all_assets --pattern '*' --clobber || true
+          rm -f all_assets/SHA256SUMS
+
+      - name: Generate complete SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd all_assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum | sed 's|  \./|  |' > ../SHA256SUMS
+          cd ..
+
+      - name: Upload updated SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Delete old SHA256SUMS if present, then upload the new one
+          gh release delete-asset "$RELEASE_TAG" SHA256SUMS --yes 2>/dev/null || true
+          gh release upload "$RELEASE_TAG" SHA256SUMS
+

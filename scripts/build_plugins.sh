@@ -104,10 +104,12 @@ cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 
 # Copy resulting dynamic libraries to staging
 for crate in "${PLUGIN_CRATES[@]}"; do
+  # Cargo turns '-' into '_' in library filenames (e.g. my-plugin -> libmy_plugin.so)
+  artifact_name="${crate//-/_}"
   if [[ "$DL_EXT" == "dll" ]]; then
-    SRC="target/${TARGET_TRIPLE}/release/${crate}.dll"
+    SRC="target/${TARGET_TRIPLE}/release/${artifact_name}.dll"
   else
-    SRC="target/${TARGET_TRIPLE}/release/lib${crate}.${DL_EXT}"
+    SRC="target/${TARGET_TRIPLE}/release/lib${artifact_name}.${DL_EXT}"
   fi
 
   if [[ ! -f "$SRC" ]]; then

@@ -70,7 +70,7 @@ This script will automatically:
 
 ```bash
 # Manual - Example is for amd64 GNU, replaces the file names if downloading for a different arch.
-wget -c https://github.com/triyanox/lla/releases/download/<version>/<lla-<os>-<arch>> -O lla # Example /v0.3.9/lla-linux-amd64
+wget -c https://github.com/chaqchase/lla/releases/download/<version>/<lla-<os>-<arch>> -O lla # Example /v0.3.9/lla-linux-amd64
 sudo chmod +x lla
 sudo chown root:root lla
 sudo mv lla /usr/local/bin/lla

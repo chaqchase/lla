@@ -504,7 +504,7 @@ pub fn pull_themes(color_state: &ColorState) -> Result<()> {
         .args(&[
             "clone",
             "--depth=1",
-            "https://github.com/triyanox/lla.git",
+            "https://github.com/chaqchase/lla.git",
             temp_dir.path().to_str().unwrap(),
         ])
         .status()?;

@@ -34,10 +34,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Generate Proto Bindings
-        run: |
-          cd lla_plugin_interface
-          cargo build --features regenerate-protobuf
-          cd ..
+        run: cargo build -p lla_plugin_interface --features regenerate-protobuf
 
       - name: Check for changes
         id: git-check
