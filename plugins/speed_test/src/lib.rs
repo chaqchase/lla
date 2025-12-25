@@ -137,7 +137,13 @@ impl SpeedTestPlugin {
         let bytes = (mb as u64) * 1_000_000;
 
         // For servers that only offer fixed sizes, pick a close bucket.
-        let bucket_mb = if mb <= 1 { 1 } else if mb <= 10 { 10 } else { 100 };
+        let bucket_mb = if mb <= 1 {
+            1
+        } else if mb <= 10 {
+            10
+        } else {
+            100
+        };
 
         vec![
             (
@@ -146,7 +152,7 @@ impl SpeedTestPlugin {
             ),
             (
                 "Hetzner".to_string(),
-                format!("https://speed.hetzner.de/{}MB.bin", bucket_mb),
+                format!("https://nbg1-speed.hetzner.com/{}MB.bin", bucket_mb),
             ),
             (
                 "OVH".to_string(),
@@ -179,7 +185,8 @@ impl SpeedTestPlugin {
 
         // Stream to sink to avoid buffering large payloads in memory.
         let bytes_downloaded = io::copy(&mut response, &mut io::sink())
-            .map_err(|e| format!("Failed to read response: {}", e))? as f64;
+            .map_err(|e| format!("Failed to read response: {}", e))?
+            as f64;
 
         let elapsed = start.elapsed();
         let seconds = elapsed.as_secs_f64();
@@ -376,7 +383,11 @@ impl SpeedTestPlugin {
         };
         self.add_to_history(result);
 
-        println!("\n{} {}", "✓".bright_green(), "Test completed!".bright_green());
+        println!(
+            "\n{} {}",
+            "✓".bright_green(),
+            "Test completed!".bright_green()
+        );
 
         Ok(())
     }
@@ -491,9 +502,14 @@ impl SpeedTestPlugin {
 
         // Statistics
         if history.len() > 1 {
-            let avg_speed: f64 = history.iter().map(|r| r.download_mbps).sum::<f64>() / history.len() as f64;
-            let avg_latency: f64 = history.iter().map(|r| r.latency_ms as f64).sum::<f64>() / history.len() as f64;
-            let max_speed = history.iter().map(|r| r.download_mbps).fold(0.0f64, f64::max);
+            let avg_speed: f64 =
+                history.iter().map(|r| r.download_mbps).sum::<f64>() / history.len() as f64;
+            let avg_latency: f64 =
+                history.iter().map(|r| r.latency_ms as f64).sum::<f64>() / history.len() as f64;
+            let max_speed = history
+                .iter()
+                .map(|r| r.download_mbps)
+                .fold(0.0f64, f64::max);
 
             println!(
                 "\n{} Average: {:.2} Mbps | Best: {:.2} Mbps | Avg Latency: {:.0}ms",
@@ -525,7 +541,11 @@ impl SpeedTestPlugin {
                 "Speed test history cleared!".bright_green()
             );
         } else {
-            println!("{} {}", "ℹ️ ".bright_cyan(), "Operation cancelled".bright_cyan());
+            println!(
+                "{} {}",
+                "ℹ️ ".bright_cyan(),
+                "Operation cancelled".bright_cyan()
+            );
         }
 
         Ok(())
@@ -634,7 +654,9 @@ impl SpeedTestPlugin {
                 .interact_opt()
                 .map_err(|e| format!("Failed to show menu: {}", e))?;
 
-            let Some(choice) = selection else { return Ok(()); };
+            let Some(choice) = selection else {
+                return Ok(());
+            };
             let result = match choice {
                 0 => self.run_speed_test(),
                 1 => self.quick_test(),
@@ -690,7 +712,9 @@ impl SpeedTestPlugin {
             .interact_opt()
             .map_err(|e| format!("Failed to show settings: {}", e))?;
 
-        let Some(idx) = selection else { return Ok(()); };
+        let Some(idx) = selection else {
+            return Ok(());
+        };
         match idx {
             0 => {
                 self.base.config_mut().remember_history = !self.base.config().remember_history;
@@ -836,4 +860,3 @@ impl ConfigurablePlugin for SpeedTestPlugin {
 impl ProtobufHandler for SpeedTestPlugin {}
 
 lla_plugin_interface::declare_plugin!(SpeedTestPlugin);
-
