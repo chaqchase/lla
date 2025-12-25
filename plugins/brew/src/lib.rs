@@ -6,8 +6,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
-    ui::interactive_suggest,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
+    ui::interactive_suggest,
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
 use reqwest::blocking::Client;
@@ -16,8 +16,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::Instant;
 use std::time::Duration;
+use std::time::Instant;
 
 const FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula.json";
 const CASK_API_URL: &str = "https://formulae.brew.sh/api/cask.json";
@@ -95,9 +95,9 @@ pub struct Cask {
     #[serde(default)]
     pub installed: Option<String>,
     #[serde(default)]
-    pub outdated: bool,
+    pub outdated: Option<bool>,
     #[serde(default)]
-    pub auto_updates: bool,
+    pub auto_updates: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,7 +136,7 @@ pub struct OutdatedCask {
     pub name: String,
     pub current_version: String,
     #[serde(default)]
-    pub installed_versions: String,
+    pub installed_versions: Vec<String>,
 }
 
 pub struct BrewPlugin {
@@ -320,9 +320,19 @@ impl BrewPlugin {
                     "cask" => "CASK".bright_magenta(),
                     _ => "FORM".bright_blue(),
                 };
-                let ver = r.version.clone().unwrap_or_else(|| "?".to_string()).bright_black();
+                let ver = r
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "?".to_string())
+                    .bright_black();
                 let desc = r.desc.clone().unwrap_or_default();
-                format!("{}  {}  {}  {}", tag, r.name.bright_white(), ver, desc.bright_black())
+                format!(
+                    "{}  {}  {}  {}",
+                    tag,
+                    r.name.bright_white(),
+                    ver,
+                    desc.bright_black()
+                )
             })
             .collect();
 
@@ -335,7 +345,9 @@ impl BrewPlugin {
             .interact_opt()
             .map_err(|e| format!("Failed to show selector: {}", e))?;
 
-        let Some(idx) = selection else { return Ok(()); };
+        let Some(idx) = selection else {
+            return Ok(());
+        };
         if idx == menu.len() - 1 {
             return Ok(());
         }
@@ -354,13 +366,19 @@ impl BrewPlugin {
             "← Back",
         ];
         let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} {}", "Package:".bright_cyan(), pkg.name.bright_white()))
+            .with_prompt(format!(
+                "{} {}",
+                "Package:".bright_cyan(),
+                pkg.name.bright_white()
+            ))
             .items(&actions)
             .default(0)
             .interact_opt()
             .map_err(|e| format!("Failed to show selector: {}", e))?;
 
-        let Some(idx) = selection else { return Ok(()); };
+        let Some(idx) = selection else {
+            return Ok(());
+        };
         match idx {
             0 => self.package_info(&vec![pkg.name.clone()]),
             1 => {
@@ -417,10 +435,7 @@ impl BrewPlugin {
                     out.push(CatalogHit {
                         kind: "formula".to_string(),
                         name: f.name.clone(),
-                        version: f
-                            .versions
-                            .as_ref()
-                            .and_then(|v| v.stable.clone()),
+                        version: f.versions.as_ref().and_then(|v| v.stable.clone()),
                         desc: f.desc.clone(),
                         score,
                     });
@@ -430,7 +445,9 @@ impl BrewPlugin {
 
         if let Some(casks) = self.catalog_casks.as_ref() {
             for c in casks {
-                let token_score = matcher.fuzzy_match(&c.token.to_lowercase(), &q).unwrap_or(0);
+                let token_score = matcher
+                    .fuzzy_match(&c.token.to_lowercase(), &q)
+                    .unwrap_or(0);
                 let name_score = c
                     .name
                     .first()
@@ -492,7 +509,10 @@ impl BrewPlugin {
             );
 
             for formula in formulae.iter().take(50) {
-                let name = formula.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                let name = formula
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
                 let version = formula
                     .get("installed")
                     .and_then(|i| i.as_array())
@@ -500,8 +520,14 @@ impl BrewPlugin {
                     .and_then(|v| v.get("version"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
-                let outdated = formula.get("outdated").and_then(|o| o.as_bool()).unwrap_or(false);
-                let pinned = formula.get("pinned").and_then(|p| p.as_bool()).unwrap_or(false);
+                let outdated = formula
+                    .get("outdated")
+                    .and_then(|o| o.as_bool())
+                    .unwrap_or(false);
+                let pinned = formula
+                    .get("pinned")
+                    .and_then(|p| p.as_bool())
+                    .unwrap_or(false);
 
                 let mut status_badges = Vec::new();
                 if outdated {
@@ -537,15 +563,24 @@ impl BrewPlugin {
             );
 
             for cask in casks.iter().take(50) {
-                let token = cask.get("token").and_then(|t| t.as_str()).unwrap_or("unknown");
+                let token = cask
+                    .get("token")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown");
                 let name = cask
                     .get("name")
                     .and_then(|n| n.as_array())
                     .and_then(|arr| arr.first())
                     .and_then(|n| n.as_str())
                     .unwrap_or(token);
-                let version = cask.get("installed").and_then(|v| v.as_str()).unwrap_or("?");
-                let outdated = cask.get("outdated").and_then(|o| o.as_bool()).unwrap_or(false);
+                let version = cask
+                    .get("installed")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let outdated = cask
+                    .get("outdated")
+                    .and_then(|o| o.as_bool())
+                    .unwrap_or(false);
 
                 let status_str = if outdated {
                     format!(" [{}]", "outdated".bright_red())
@@ -637,7 +672,7 @@ impl BrewPlugin {
                         "   {} {} {} → {}",
                         "•".bright_cyan(),
                         cask.name.bright_white(),
-                        cask.installed_versions.bright_red(),
+                        cask.installed_versions.join(", ").bright_red(),
                         cask.current_version.bright_green()
                     );
                 }
@@ -698,7 +733,9 @@ impl BrewPlugin {
         let mut matched_formulae: Vec<(&Formula, i64)> = formulae
             .iter()
             .filter_map(|f| {
-                let name_score = matcher.fuzzy_match(&f.name.to_lowercase(), &query_lower).unwrap_or(0);
+                let name_score = matcher
+                    .fuzzy_match(&f.name.to_lowercase(), &query_lower)
+                    .unwrap_or(0);
                 let desc_score = f
                     .desc
                     .as_ref()
@@ -718,7 +755,9 @@ impl BrewPlugin {
         let mut matched_casks: Vec<(&Cask, i64)> = casks
             .iter()
             .filter_map(|c| {
-                let token_score = matcher.fuzzy_match(&c.token.to_lowercase(), &query_lower).unwrap_or(0);
+                let token_score = matcher
+                    .fuzzy_match(&c.token.to_lowercase(), &query_lower)
+                    .unwrap_or(0);
                 let name_score = c
                     .name
                     .first()
@@ -909,10 +948,7 @@ impl BrewPlugin {
         pb.finish_and_clear();
 
         if args.is_empty() {
-            println!(
-                "\n{} Upgrading all packages...",
-                "🔄".bright_cyan()
-            );
+            println!("\n{} Upgrading all packages...", "🔄".bright_cyan());
 
             let mut upgrade_args = vec!["upgrade"];
             if self.base.config().greedy_upgrades {
@@ -933,10 +969,7 @@ impl BrewPlugin {
             println!("{}", output);
         }
 
-        println!(
-            "{} Upgrade completed!",
-            "✓".bright_green()
-        );
+        println!("{} Upgrade completed!", "✓".bright_green());
         Ok(())
     }
 
@@ -949,27 +982,18 @@ impl BrewPlugin {
         let output = self.exec_brew(&["cleanup", "--prune=all"])?;
         println!("{}", output);
 
-        println!(
-            "{} Cleanup completed!",
-            "✓".bright_green()
-        );
+        println!("{} Cleanup completed!", "✓".bright_green());
         Ok(())
     }
 
     fn run_doctor(&self) -> Result<(), String> {
-        println!(
-            "\n{} Running Homebrew diagnostics...",
-            "🩺".bright_cyan()
-        );
+        println!("\n{} Running Homebrew diagnostics...", "🩺".bright_cyan());
         println!("{}", "─".repeat(70).bright_black());
 
         match self.exec_brew(&["doctor"]) {
             Ok(output) => {
                 if output.trim().is_empty() || output.contains("ready to brew") {
-                    println!(
-                        "\n   {} Your system is ready to brew!",
-                        "✓".bright_green()
-                    );
+                    println!("\n   {} Your system is ready to brew!", "✓".bright_green());
                 } else {
                     println!("{}", output);
                 }
@@ -1002,8 +1026,8 @@ impl BrewPlugin {
         let output = self.exec_brew(&["info", "--json=v2", package])?;
         pb.finish_and_clear();
 
-        let info: Value = serde_json::from_str(&output)
-            .map_err(|e| format!("Failed to parse info: {}", e))?;
+        let info: Value =
+            serde_json::from_str(&output).map_err(|e| format!("Failed to parse info: {}", e))?;
 
         println!(
             "\n{} Package Info: {}",
@@ -1078,14 +1102,15 @@ impl BrewPlugin {
                     .unwrap_or(false);
 
                 list.add_item(
-                    KeyValue::new(
-                        "Installed",
-                        if installed { "Yes ✓" } else { "No" },
-                    )
-                    .key_color("bright_cyan")
-                    .value_color(if installed { "bright_green" } else { "bright_black" })
-                    .key_width(15)
-                    .render(),
+                    KeyValue::new("Installed", if installed { "Yes ✓" } else { "No" })
+                        .key_color("bright_cyan")
+                        .value_color(if installed {
+                            "bright_green"
+                        } else {
+                            "bright_black"
+                        })
+                        .key_width(15)
+                        .render(),
                 );
 
                 println!("\n{}", list.render());
@@ -1093,11 +1118,7 @@ impl BrewPlugin {
                 // Caveats
                 if self.base.config().show_caveats {
                     if let Some(caveats) = formula.get("caveats").and_then(|c| c.as_str()) {
-                        println!(
-                            "\n{} {}",
-                            "⚠️ ".bright_yellow(),
-                            "Caveats:".bright_yellow()
-                        );
+                        println!("\n{} {}", "⚠️ ".bright_yellow(), "Caveats:".bright_yellow());
                         println!("{}", caveats.bright_black());
                     }
                 }
@@ -1164,14 +1185,15 @@ impl BrewPlugin {
                 let installed = cask.get("installed").and_then(|i| i.as_str()).is_some();
 
                 list.add_item(
-                    KeyValue::new(
-                        "Installed",
-                        if installed { "Yes ✓" } else { "No" },
-                    )
-                    .key_color("bright_cyan")
-                    .value_color(if installed { "bright_green" } else { "bright_black" })
-                    .key_width(15)
-                    .render(),
+                    KeyValue::new("Installed", if installed { "Yes ✓" } else { "No" })
+                        .key_color("bright_cyan")
+                        .value_color(if installed {
+                            "bright_green"
+                        } else {
+                            "bright_black"
+                        })
+                        .key_width(15)
+                        .render(),
                 );
 
                 println!("\n{}", list.render());
@@ -1179,11 +1201,7 @@ impl BrewPlugin {
                 // Caveats
                 if self.base.config().show_caveats {
                     if let Some(caveats) = cask.get("caveats").and_then(|c| c.as_str()) {
-                        println!(
-                            "\n{} {}",
-                            "⚠️ ".bright_yellow(),
-                            "Caveats:".bright_yellow()
-                        );
+                        println!("\n{} {}", "⚠️ ".bright_yellow(), "Caveats:".bright_yellow());
                         println!("{}", caveats.bright_black());
                     }
                 }
@@ -1199,7 +1217,10 @@ impl BrewPlugin {
 
         loop {
             Self::clear_screen();
-            self.render_header("Menu", "Manage packages, upgrades, and search with a mini TUI.");
+            self.render_header(
+                "Menu",
+                "Manage packages, upgrades, and search with a mini TUI.",
+            );
 
             let options = vec![
                 "🔎 Search & act (TUI)",
@@ -1222,7 +1243,9 @@ impl BrewPlugin {
                 .interact_opt()
                 .map_err(|e| format!("Failed to show menu: {}", e))?;
 
-            let Some(choice) = selection else { return Ok(()); };
+            let Some(choice) = selection else {
+                return Ok(());
+            };
 
             let result = match choice {
                 0 => self.search_tui(),
@@ -1289,7 +1312,8 @@ impl BrewPlugin {
 
         help.add_section("Description".to_string()).add_command(
             "".to_string(),
-            "Manage Homebrew packages - install, uninstall, upgrade, and search packages.".to_string(),
+            "Manage Homebrew packages - install, uninstall, upgrade, and search packages."
+                .to_string(),
             vec![],
         );
 
@@ -1534,4 +1558,3 @@ struct CatalogHit {
     desc: Option<String>,
     score: i64,
 }
-
