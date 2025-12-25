@@ -1,5 +1,5 @@
 use colored::Colorize;
-use dialoguer::Select;
+use dialoguer::{Input, Select};
 use indicatif::{ProgressBar, ProgressStyle};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
@@ -8,20 +8,17 @@ use lla_plugin_utils::{
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
 use reqwest::blocking::Client;
+use reqwest::header;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io;
 use std::time::{Duration, Instant};
 
-const TEST_URLS: &[(&str, &str)] = &[
-    ("Cloudflare", "https://speed.cloudflare.com/__down?bytes=10000000"),
-    ("Google", "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png"),
-    ("GitHub", "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"),
-];
-
 const PING_URLS: &[(&str, &str)] = &[
-    ("Cloudflare DNS", "https://1.1.1.1/"),
-    ("Google DNS", "https://8.8.8.8/"),
-    ("OpenDNS", "https://208.67.222.222/"),
+    // Use real HTTPS endpoints (not raw DNS IPs), so TLS succeeds reliably.
+    ("Cloudflare", "https://cloudflare-dns.com/"),
+    ("Google", "https://dns.google/"),
+    ("OpenDNS", "https://welcome.opendns.com/"),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,9 +125,34 @@ impl SpeedTestPlugin {
         let start = Instant::now();
         self.http
             .head(url)
+            .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .map_err(|e| format!("Failed to ping: {}", e))?;
         Ok(start.elapsed().as_millis() as u64)
+    }
+
+    fn test_urls(&self) -> Vec<(String, String)> {
+        // Clamp to avoid excessive downloads; 1..=100MB.
+        let mb = self.base.config().test_size_mb.clamp(1, 100);
+        let bytes = (mb as u64) * 1_000_000;
+
+        // For servers that only offer fixed sizes, pick a close bucket.
+        let bucket_mb = if mb <= 1 { 1 } else if mb <= 10 { 10 } else { 100 };
+
+        vec![
+            (
+                "Cloudflare".to_string(),
+                format!("https://speed.cloudflare.com/__down?bytes={}", bytes),
+            ),
+            (
+                "Hetzner".to_string(),
+                format!("https://speed.hetzner.de/{}MB.bin", bucket_mb),
+            ),
+            (
+                "OVH".to_string(),
+                format!("https://proof.ovh.net/files/{}Mb.dat", bucket_mb),
+            ),
+        ]
     }
 
     fn test_download(&self, url: &str, server_name: &str) -> Result<(f64, u64), String> {
@@ -143,23 +165,23 @@ impl SpeedTestPlugin {
         pb.set_message(format!("Testing download speed from {}...", server_name));
         pb.enable_steady_tick(Duration::from_millis(100));
 
-        // First, measure latency
+        // First, measure latency (best-effort)
         let latency = self.test_latency(url).unwrap_or(0);
 
         // Then test download speed
         let start = Instant::now();
-        let response = self
+        let mut response = self
             .http
             .get(url)
+            .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .map_err(|e| format!("Failed to download: {}", e))?;
 
-        let bytes = response
-            .bytes()
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+        // Stream to sink to avoid buffering large payloads in memory.
+        let bytes_downloaded = io::copy(&mut response, &mut io::sink())
+            .map_err(|e| format!("Failed to read response: {}", e))? as f64;
 
         let elapsed = start.elapsed();
-        let bytes_downloaded = bytes.len() as f64;
         let seconds = elapsed.as_secs_f64();
 
         // Calculate speed in Mbps (megabits per second)
@@ -171,6 +193,8 @@ impl SpeedTestPlugin {
     }
 
     fn run_speed_test(&mut self) -> Result<(), String> {
+        Self::clear_screen();
+        self.render_header("Speed Test", "Measure latency + download speed (mini TUI).");
         println!(
             "\n{} {}",
             "🚀".bright_cyan(),
@@ -232,8 +256,8 @@ impl SpeedTestPlugin {
         let mut best_server = String::new();
         let mut test_latency = best_latency;
 
-        for (name, url) in TEST_URLS {
-            match self.test_download(url, name) {
+        for (name, url) in self.test_urls() {
+            match self.test_download(&url, &name) {
                 Ok((mbps, latency)) => {
                     let color = if mbps > 50.0 {
                         "bright_green"
@@ -251,7 +275,7 @@ impl SpeedTestPlugin {
                     println!("   {} {}: {}", "•".bright_cyan(), name, colored_speed);
                     if mbps > best_speed {
                         best_speed = mbps;
-                        best_server = name.to_string();
+                        best_server = name;
                         test_latency = latency;
                     }
                 }
@@ -365,8 +389,12 @@ impl SpeedTestPlugin {
         );
 
         // Just test one server
-        let (name, url) = TEST_URLS[0];
-        match self.test_download(url, name) {
+        let (name, url) = self
+            .test_urls()
+            .into_iter()
+            .next()
+            .ok_or_else(|| "No test servers configured".to_string())?;
+        match self.test_download(&url, &name) {
             Ok((mbps, latency)) => {
                 let speed_color = if mbps > 50.0 {
                     "bright_green"
@@ -394,7 +422,7 @@ impl SpeedTestPlugin {
                     timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                     download_mbps: mbps,
                     latency_ms: latency,
-                    server: name.to_string(),
+                    server: name,
                 };
                 self.add_to_history(result);
 
@@ -503,6 +531,34 @@ impl SpeedTestPlugin {
         Ok(())
     }
 
+    fn clear_screen() {
+        let _ = console::Term::stdout().clear_screen();
+    }
+
+    fn pause(&self, prompt: &str) {
+        let theme = LlaDialoguerTheme::default();
+        let _ = Input::<String>::with_theme(&theme)
+            .with_prompt(prompt)
+            .allow_empty(true)
+            .interact_text();
+    }
+
+    fn render_header(&self, title: &str, subtitle: &str) {
+        let content = format!(
+            "{}\n{}",
+            subtitle.bright_black(),
+            format!("speed_test: {}", title).bright_cyan()
+        );
+        println!(
+            "{}",
+            BoxComponent::new(content)
+                .title("📡 Speed Test".bright_white().bold().to_string())
+                .style(BoxStyle::Rounded)
+                .padding(1)
+                .render()
+        );
+    }
+
     fn show_help(&self) -> Result<(), String> {
         let colors = self.base.config().colors.clone();
 
@@ -554,31 +610,114 @@ impl SpeedTestPlugin {
 
     fn interactive_menu(&mut self) -> Result<(), String> {
         let theme = LlaDialoguerTheme::default();
+        loop {
+            Self::clear_screen();
+            self.render_header(
+                "Menu",
+                "Run tests, review history, and tweak behavior in a small TUI.",
+            );
+
+            let options = vec![
+                "🚀 Full test (multi-server)",
+                "⚡ Quick test",
+                "📜 History",
+                "🗑️  Clear history",
+                "⚙️  Settings",
+                "❓ Help",
+                "← Exit",
+            ];
+
+            let selection = Select::with_theme(&theme)
+                .with_prompt("Choose an action")
+                .items(&options)
+                .default(0)
+                .interact_opt()
+                .map_err(|e| format!("Failed to show menu: {}", e))?;
+
+            let Some(choice) = selection else { return Ok(()); };
+            let result = match choice {
+                0 => self.run_speed_test(),
+                1 => self.quick_test(),
+                2 => self.show_history(),
+                3 => self.clear_history(),
+                4 => self.settings_menu(),
+                5 => self.show_help(),
+                _ => return Ok(()),
+            };
+
+            if let Err(e) = result {
+                println!(
+                    "{}",
+                    BoxComponent::new(format!("{}", e.bright_red()))
+                        .title("✗ Error".bright_red().bold().to_string())
+                        .style(BoxStyle::Minimal)
+                        .padding(1)
+                        .render()
+                );
+            }
+            self.pause("Press Enter to return to the menu");
+        }
+    }
+
+    fn settings_menu(&mut self) -> Result<(), String> {
+        let theme = LlaDialoguerTheme::default();
+        let cfg = self.base.config().clone();
 
         let options = vec![
-            "🚀 Run Full Speed Test",
-            "⚡ Quick Test",
-            "📜 View History",
-            "🗑️  Clear History",
-            "❓ Help",
-            "← Exit",
+            format!(
+                "Remember history: {}",
+                if cfg.remember_history {
+                    "✓ Enabled".bright_green()
+                } else {
+                    "✗ Disabled".bright_red()
+                }
+            ),
+            format!(
+                "Max history size: {}",
+                cfg.max_history_size.to_string().bright_yellow()
+            ),
+            format!(
+                "Test size (MB): {}",
+                cfg.test_size_mb.to_string().bright_yellow()
+            ),
+            "← Back".to_string(),
         ];
 
         let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Speed Test Menu", "📡".bright_cyan()))
+            .with_prompt("Settings")
             .items(&options)
             .default(0)
-            .interact()
-            .map_err(|e| format!("Failed to show menu: {}", e))?;
+            .interact_opt()
+            .map_err(|e| format!("Failed to show settings: {}", e))?;
 
-        match selection {
-            0 => self.run_speed_test(),
-            1 => self.quick_test(),
-            2 => self.show_history(),
-            3 => self.clear_history(),
-            4 => self.show_help(),
-            5 => Ok(()),
-            _ => unreachable!(),
+        let Some(idx) = selection else { return Ok(()); };
+        match idx {
+            0 => {
+                self.base.config_mut().remember_history = !self.base.config().remember_history;
+                self.base.save_config().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            1 => {
+                let value: usize = Input::with_theme(&theme)
+                    .with_prompt("Max history entries")
+                    .default(self.base.config().max_history_size)
+                    .interact_text()
+                    .map_err(|e| format!("Failed to get input: {}", e))?;
+                self.base.config_mut().max_history_size = value.max(1);
+                self.base.save_config().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            2 => {
+                let value: usize = Input::with_theme(&theme)
+                    .with_prompt("Test size in MB (affects Cloudflare test)")
+                    .default(self.base.config().test_size_mb)
+                    .interact_text()
+                    .map_err(|e| format!("Failed to get input: {}", e))?;
+                self.base.config_mut().test_size_mb = value.max(1).min(200);
+                self.base.save_config().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 }

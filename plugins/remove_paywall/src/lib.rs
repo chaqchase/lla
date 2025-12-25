@@ -1,6 +1,6 @@
 use arboard::Clipboard;
 use colored::Colorize;
-use dialoguer::Select;
+use dialoguer::{Input, Select};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
@@ -27,7 +27,7 @@ impl PaywallService {
             PaywallService::ArchiveIs => "https://archive.is",
             PaywallService::RemovePaywall => "https://www.removepaywall.com",
             PaywallService::Freedium => "https://freedium.cfd",
-            PaywallService::GoogleCache => "https://webcache.googleusercontent.com/search?q=cache:",
+            PaywallService::GoogleCache => "https://webcache.googleusercontent.com/search",
         }
     }
 
@@ -54,10 +54,27 @@ impl PaywallService {
     fn build_url(&self, original_url: &str) -> String {
         match self {
             PaywallService::TwelveFt => format!("{}/{}", self.base_url(), original_url),
-            PaywallService::ArchiveIs => format!("{}/?run=1&url={}", self.base_url(), original_url),
+            PaywallService::ArchiveIs => {
+                // Ensure the embedded URL is correctly percent-encoded as a query param.
+                let mut u = Url::parse(self.base_url())
+                    .unwrap_or_else(|_| Url::parse("https://archive.is/").expect("valid url"));
+                u.set_path("/");
+                u.query_pairs_mut()
+                    .append_pair("run", "1")
+                    .append_pair("url", original_url);
+                u.to_string()
+            }
             PaywallService::RemovePaywall => format!("{}/{}", self.base_url(), original_url),
             PaywallService::Freedium => format!("{}/{}", self.base_url(), original_url),
-            PaywallService::GoogleCache => format!("{}{}", self.base_url(), original_url),
+            PaywallService::GoogleCache => {
+                // Google Cache uses q=cache:<url>; build it via Url to encode safely.
+                let mut u = Url::parse(self.base_url()).unwrap_or_else(|_| {
+                    Url::parse("https://webcache.googleusercontent.com/search").expect("valid url")
+                });
+                u.query_pairs_mut()
+                    .append_pair("q", &format!("cache:{}", original_url));
+                u.to_string()
+            }
         }
     }
 
@@ -190,6 +207,55 @@ impl RemovePaywallPlugin {
         if let Err(e) = self.base.save_config() {
             eprintln!("Failed to save history: {}", e);
         }
+    }
+
+    fn clear_screen() {
+        let _ = console::Term::stdout().clear_screen();
+    }
+
+    fn pause(&self, prompt: &str) {
+        let theme = LlaDialoguerTheme::default();
+        let _ = Input::<String>::with_theme(&theme)
+            .with_prompt(prompt)
+            .allow_empty(true)
+            .interact_text();
+    }
+
+    fn render_header(&self, title: &str) {
+        let cfg = self.base.config();
+        let clipboard = self.get_clipboard_url();
+        let clipboard_line = match clipboard {
+            Some(u) => format!("Clipboard: {}", u.bright_blue()),
+            None => "Clipboard: (no valid URL)".bright_black().to_string(),
+        };
+        let toggles = format!(
+            "Open: {}  Copy: {}  Default: {}",
+            if cfg.auto_open_browser {
+                "on".bright_green()
+            } else {
+                "off".bright_red()
+            },
+            if cfg.copy_to_clipboard {
+                "on".bright_green()
+            } else {
+                "off".bright_red()
+            },
+            cfg.default_service.name().bright_magenta()
+        );
+
+        println!(
+            "{}",
+            BoxComponent::new(format!(
+                "{}\n{}\n{}",
+                "Mini TUI for bypassing paywalls from clipboard or a pasted URL.".bright_black(),
+                clipboard_line,
+                toggles
+            ))
+            .title(format!("🔓 Remove Paywall · {}", title).bright_white().bold().to_string())
+            .style(BoxStyle::Rounded)
+            .padding(1)
+            .render()
+        );
     }
 
     fn validate_url(url: &str) -> Result<String, String> {
@@ -649,35 +715,70 @@ impl RemovePaywallPlugin {
 
     fn interactive_menu(&mut self) -> Result<(), String> {
         let theme = LlaDialoguerTheme::default();
+        loop {
+            Self::clear_screen();
+            self.render_header("Menu");
 
-        let options = vec![
-            "🔓 Remove Paywall (from clipboard)",
-            "🔍 Choose Service",
-            "📋 Try All Services",
-            "📜 View History",
-            "📚 List Services",
-            "⚙️  Preferences",
-            "❓ Help",
-            "← Exit",
-        ];
+            let options = vec![
+                "📋 Use clipboard URL (default service)",
+                "⌨️  Enter URL…",
+                "🔍 Choose service…",
+                "📋 Try all services (generate links)",
+                "📜 History",
+                "📚 Services",
+                "⚙️  Preferences",
+                "❓ Help",
+                "← Exit",
+            ];
 
-        let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Remove Paywall Menu", "🔓".bright_cyan()))
-            .items(&options)
-            .default(0)
-            .interact()
-            .map_err(|e| format!("Failed to show menu: {}", e))?;
+            let selection = Select::with_theme(&theme)
+                .with_prompt("Choose an action")
+                .items(&options)
+                .default(0)
+                .interact_opt()
+                .map_err(|e| format!("Failed to show menu: {}", e))?;
 
-        match selection {
-            0 => self.remove_paywall_clipboard(),
-            1 => self.choose_service(None),
-            2 => self.try_all_services(None),
-            3 => self.show_history(),
-            4 => self.list_services(),
-            5 => self.configure_preferences(),
-            6 => self.show_help(),
-            7 => Ok(()),
-            _ => unreachable!(),
+            let Some(choice) = selection else { return Ok(()); };
+            let result = match choice {
+                0 => self.remove_paywall_clipboard(),
+                1 => {
+                    let url: String = Input::with_theme(&theme)
+                        .with_prompt("Paste URL")
+                        .interact_text()
+                        .map_err(|e| format!("Failed to get input: {}", e))?;
+                    if url.trim().is_empty() {
+                        Ok(())
+                    } else {
+                        self.remove_paywall(&url, None)
+                    }
+                }
+                2 => {
+                    let url = self.get_clipboard_url();
+                    if let Some(u) = url {
+                        self.choose_service(Some(&u))
+                    } else {
+                        self.choose_service(None)
+                    }
+                }
+                3 => self.try_all_services(None),
+                4 => self.show_history(),
+                5 => self.list_services(),
+                6 => self.configure_preferences(),
+                7 => self.show_help(),
+                _ => return Ok(()),
+            };
+
+            if let Err(e) = result {
+                println!(
+                    "{}",
+                    BoxComponent::new(format!("{}", e.bright_red()))
+                        .title("✗ Error".bright_red().bold().to_string())
+                        .style(BoxStyle::Minimal)
+                        .padding(1)
+                        .render()
+                );
+            }
+            self.pause("Press Enter to return to the menu");
         }
     }
 

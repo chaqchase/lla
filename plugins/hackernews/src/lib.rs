@@ -121,7 +121,9 @@ impl HNItem {
     fn domain(&self) -> Option<String> {
         self.url.as_ref().and_then(|u| {
             // Simple domain extraction without url crate
-            let u = u.trim_start_matches("https://").trim_start_matches("http://");
+            let u = u
+                .trim_start_matches("https://")
+                .trim_start_matches("http://");
             u.split('/').next().map(|s| s.to_string())
         })
     }
@@ -217,7 +219,10 @@ impl HackerNewsPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("lla-hackernews-plugin/0.5.0")
+            .user_agent(format!(
+                "lla-hackernews-plugin/{}",
+                env!("CARGO_PKG_VERSION")
+            ))
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -236,6 +241,38 @@ impl HackerNewsPlugin {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0)
+    }
+
+    fn clear_screen() {
+        let _ = console::Term::stdout().clear_screen();
+    }
+
+    fn header(&self, title: &str) {
+        let cfg = self.base.config();
+        let content = format!(
+            "{}\n{}\n{}",
+            "Mini TUI for Hacker News. Browse, open links, and copy URLs.".bright_black(),
+            format!(
+                "Default topic: {}  Stories: {}  Cache: {}s",
+                cfg.default_topic.name().bright_cyan(),
+                cfg.story_count.to_string().bright_yellow(),
+                cfg.cache_duration_secs.to_string().bright_black()
+            ),
+            "Tip: use the interactive browser for the best experience.".bright_black()
+        );
+        println!(
+            "{}",
+            BoxComponent::new(content)
+                .title(
+                    format!("📰 Hacker News · {}", title)
+                        .bright_white()
+                        .bold()
+                        .to_string()
+                )
+                .style(BoxStyle::Rounded)
+                .padding(1)
+                .render()
+        );
     }
 
     fn get_cached_stories(&self, topic: HNTopic) -> Option<Vec<HNItem>> {
@@ -257,7 +294,10 @@ impl HackerNewsPlugin {
             items,
             timestamp: Self::current_timestamp(),
         };
-        self.base.config_mut().cached_stories.insert(cache_key, entry);
+        self.base
+            .config_mut()
+            .cached_stories
+            .insert(cache_key, entry);
         let _ = self.base.save_config();
     }
 
@@ -348,7 +388,9 @@ impl HackerNewsPlugin {
             let score = item.score.unwrap_or(0);
             let comments = item.descendants.unwrap_or(0);
             let author = item.by.as_deref().unwrap_or("unknown");
-            let domain = item.domain().unwrap_or_else(|| "news.ycombinator.com".to_string());
+            let domain = item
+                .domain()
+                .unwrap_or_else(|| "news.ycombinator.com".to_string());
             let time_ago = item.time_ago();
 
             // Rank number
@@ -484,11 +526,7 @@ impl HackerNewsPlugin {
                 clipboard
                     .set_text(&url)
                     .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
-                println!(
-                    "{} URL copied: {}",
-                    "✓".bright_green(),
-                    url.bright_blue()
-                );
+                println!("{} URL copied: {}", "✓".bright_green(), url.bright_blue());
                 Ok(())
             }
             Err(e) => Err(format!("Failed to access clipboard: {}", e)),
@@ -592,10 +630,7 @@ impl HackerNewsPlugin {
                         let url = items[selection].display_url();
                         if let Ok(mut clipboard) = Clipboard::new() {
                             let _ = clipboard.set_text(&url);
-                            println!(
-                                "{} URL copied!",
-                                "✓".bright_green()
-                            );
+                            println!("{} URL copied!", "✓".bright_green());
                         }
                     }
                     3 => continue,
@@ -627,35 +662,153 @@ impl HackerNewsPlugin {
     fn interactive_menu(&mut self) -> Result<(), String> {
         let theme = LlaDialoguerTheme::default();
 
-        let topics = HNTopic::all();
-        let options: Vec<String> = topics
-            .iter()
-            .map(|t| format!("{} {}", t.emoji(), t.name()))
-            .chain(std::iter::once("← Exit".to_string()))
-            .collect();
+        loop {
+            Self::clear_screen();
+            self.header("Menu");
+
+            let topics = HNTopic::all();
+            let mut options: Vec<String> = topics
+                .iter()
+                .map(|t| format!("{} {}", t.emoji(), t.name()))
+                .collect();
+            options.push("🔄 Refresh cache".to_string());
+            options.push("⚙️  Settings".to_string());
+            options.push("❓ Help".to_string());
+            options.push("← Exit".to_string());
+
+            let selection = Select::with_theme(&theme)
+                .with_prompt("Choose a feed")
+                .items(&options)
+                .default(0)
+                .interact_opt()
+                .map_err(|e| format!("Failed to show menu: {}", e))?;
+
+            let Some(idx) = selection else {
+                return Ok(());
+            };
+
+            if idx < topics.len() {
+                // browse chosen topic
+                let topic = topics[idx];
+                if let Err(e) = self.interactive_browse(topic) {
+                    println!(
+                        "{}",
+                        BoxComponent::new(format!("{}", e.bright_red()))
+                            .title("✗ Error".bright_red().bold().to_string())
+                            .style(BoxStyle::Minimal)
+                            .padding(1)
+                            .render()
+                    );
+                    let _ = dialoguer::Input::<String>::with_theme(&theme)
+                        .with_prompt("Press Enter to return")
+                        .allow_empty(true)
+                        .interact_text();
+                }
+                continue;
+            }
+
+            let action_idx = idx - topics.len();
+            match action_idx {
+                0 => {
+                    self.clear_cache()?;
+                    let _ = dialoguer::Input::<String>::with_theme(&theme)
+                        .with_prompt("Press Enter to return")
+                        .allow_empty(true)
+                        .interact_text();
+                }
+                1 => {
+                    self.settings_menu()?;
+                }
+                2 => {
+                    self.show_help()?;
+                    let _ = dialoguer::Input::<String>::with_theme(&theme)
+                        .with_prompt("Press Enter to return")
+                        .allow_empty(true)
+                        .interact_text();
+                }
+                _ => return Ok(()),
+            }
+        }
+    }
+
+    fn settings_menu(&mut self) -> Result<(), String> {
+        let theme = LlaDialoguerTheme::default();
+        let cfg = self.base.config().clone();
+
+        let options = vec![
+            format!("Default topic: {}", cfg.default_topic.name().bright_cyan()),
+            format!(
+                "Story count: {}",
+                cfg.story_count.to_string().bright_yellow()
+            ),
+            format!(
+                "Cache duration (s): {}",
+                cfg.cache_duration_secs.to_string().bright_yellow()
+            ),
+            "← Back".to_string(),
+        ];
 
         let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Hacker News", "📰".bright_cyan()))
+            .with_prompt("Settings")
             .items(&options)
             .default(0)
-            .interact()
-            .map_err(|e| format!("Failed to show menu: {}", e))?;
+            .interact_opt()
+            .map_err(|e| format!("Failed to show settings: {}", e))?;
 
-        if selection < topics.len() {
-            self.interactive_browse(topics[selection])
-        } else {
-            Ok(())
+        let Some(idx) = selection else {
+            return Ok(());
+        };
+        match idx {
+            0 => {
+                let topics = HNTopic::all();
+                let items: Vec<String> = topics
+                    .iter()
+                    .map(|t| format!("{} {}", t.emoji(), t.name()))
+                    .collect();
+                let current_idx = topics
+                    .iter()
+                    .position(|t| *t == self.base.config().default_topic)
+                    .unwrap_or(0);
+                let choice = Select::with_theme(&theme)
+                    .with_prompt("Default topic")
+                    .items(&items)
+                    .default(current_idx)
+                    .interact_opt()
+                    .map_err(|e| format!("Failed to show selector: {}", e))?;
+                if let Some(i) = choice {
+                    self.base.config_mut().default_topic = topics[i];
+                    self.base.save_config().map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            }
+            1 => {
+                let count: usize = dialoguer::Input::with_theme(&theme)
+                    .with_prompt("Story count")
+                    .default(self.base.config().story_count)
+                    .interact_text()
+                    .map_err(|e| format!("Failed to get input: {}", e))?;
+                self.base.config_mut().story_count = count.max(5).min(100);
+                self.base.save_config().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            2 => {
+                let secs: u64 = dialoguer::Input::with_theme(&theme)
+                    .with_prompt("Cache duration (seconds)")
+                    .default(self.base.config().cache_duration_secs)
+                    .interact_text()
+                    .map_err(|e| format!("Failed to get input: {}", e))?;
+                self.base.config_mut().cache_duration_secs = secs.max(30).min(3600);
+                self.base.save_config().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 
     fn clear_cache(&mut self) -> Result<(), String> {
         self.base.config_mut().cached_stories.clear();
         self.base.save_config()?;
-        println!(
-            "{} {}",
-            "✓".bright_green(),
-            "Cache cleared!".bright_green()
-        );
+        println!("{} {}", "✓".bright_green(), "Cache cleared!".bright_green());
         Ok(())
     }
 
@@ -959,4 +1112,3 @@ impl ConfigurablePlugin for HackerNewsPlugin {
 impl ProtobufHandler for HackerNewsPlugin {}
 
 lla_plugin_interface::declare_plugin!(HackerNewsPlugin);
-

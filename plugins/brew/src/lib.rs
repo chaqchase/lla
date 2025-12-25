@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
+    ui::interactive_suggest,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
@@ -15,6 +16,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Instant;
 use std::time::Duration;
 
 const FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula.json";
@@ -141,6 +143,9 @@ pub struct BrewPlugin {
     base: BasePlugin<BrewConfig>,
     http: Client,
     brew_prefix: PathBuf,
+    catalog_formulae: Option<Vec<Formula>>,
+    catalog_casks: Option<Vec<Cask>>,
+    catalog_fetched_at: Option<Instant>,
 }
 
 impl BrewPlugin {
@@ -157,6 +162,9 @@ impl BrewPlugin {
             base: BasePlugin::with_name(plugin_name),
             http: client,
             brew_prefix,
+            catalog_formulae: None,
+            catalog_casks: None,
+            catalog_fetched_at: None,
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[BrewPlugin] Failed to save config: {}", e);
@@ -205,6 +213,250 @@ impl BrewPlugin {
                 Err(stderr.to_string())
             }
         }
+    }
+
+    fn clear_screen() {
+        let _ = console::Term::stdout().clear_screen();
+    }
+
+    fn pause(&self, prompt: &str) {
+        let theme = LlaDialoguerTheme::default();
+        let _ = Input::<String>::with_theme(&theme)
+            .with_prompt(prompt)
+            .allow_empty(true)
+            .interact_text();
+    }
+
+    fn render_header(&self, title: &str, subtitle: &str) {
+        let content = format!(
+            "{}\n{}",
+            subtitle.bright_black(),
+            format!("brew: {}", title).bright_cyan()
+        );
+        println!(
+            "{}",
+            BoxComponent::new(content)
+                .title("🍺 Homebrew".bright_white().bold().to_string())
+                .style(BoxStyle::Rounded)
+                .padding(1)
+                .render()
+        );
+    }
+
+    fn ensure_catalog_loaded(&mut self, force: bool) -> Result<(), String> {
+        let stale = self
+            .catalog_fetched_at
+            .map(|t| t.elapsed() > Duration::from_secs(60 * 60))
+            .unwrap_or(true);
+
+        if !force && self.catalog_formulae.is_some() && self.catalog_casks.is_some() && !stale {
+            return Ok(());
+        }
+
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        pb.set_message("Fetching Homebrew catalog (formulae + casks)...");
+        pb.enable_steady_tick(Duration::from_millis(80));
+
+        let formulae: Vec<Formula> = self
+            .http
+            .get(FORMULA_API_URL)
+            .send()
+            .map_err(|e| format!("Failed to fetch formula catalog: {}", e))?
+            .json()
+            .map_err(|e| format!("Failed to parse formula catalog: {}", e))?;
+
+        let casks: Vec<Cask> = self
+            .http
+            .get(CASK_API_URL)
+            .send()
+            .map_err(|e| format!("Failed to fetch cask catalog: {}", e))?
+            .json()
+            .map_err(|e| format!("Failed to parse cask catalog: {}", e))?;
+
+        pb.finish_and_clear();
+
+        self.catalog_formulae = Some(formulae);
+        self.catalog_casks = Some(casks);
+        self.catalog_fetched_at = Some(Instant::now());
+        Ok(())
+    }
+
+    fn search_tui(&mut self) -> Result<(), String> {
+        self.ensure_catalog_loaded(false)?;
+
+        let query = interactive_suggest("Search Homebrew:", None, |q| self.catalog_suggestions(q))?;
+        if query.trim().is_empty() {
+            return Ok(());
+        }
+
+        let results = self.search_catalog_results(&query, 30);
+        if results.is_empty() {
+            println!(
+                "{}",
+                BoxComponent::new(format!(
+                    "{}\n{}",
+                    "No matches found.".bright_yellow(),
+                    "Tip: try a shorter query or different keywords.".bright_black()
+                ))
+                .title("🔍 Search".bright_white().bold().to_string())
+                .style(BoxStyle::Minimal)
+                .padding(1)
+                .render()
+            );
+            self.pause("Press Enter to return");
+            return Ok(());
+        }
+
+        let theme = LlaDialoguerTheme::default();
+        let items: Vec<String> = results
+            .iter()
+            .map(|r| {
+                let tag = match r.kind.as_str() {
+                    "cask" => "CASK".bright_magenta(),
+                    _ => "FORM".bright_blue(),
+                };
+                let ver = r.version.clone().unwrap_or_else(|| "?".to_string()).bright_black();
+                let desc = r.desc.clone().unwrap_or_default();
+                format!("{}  {}  {}  {}", tag, r.name.bright_white(), ver, desc.bright_black())
+            })
+            .collect();
+
+        let mut menu = items.clone();
+        menu.push("← Back".to_string());
+        let selection = Select::with_theme(&theme)
+            .with_prompt("Select a package")
+            .items(&menu)
+            .default(0)
+            .interact_opt()
+            .map_err(|e| format!("Failed to show selector: {}", e))?;
+
+        let Some(idx) = selection else { return Ok(()); };
+        if idx == menu.len() - 1 {
+            return Ok(());
+        }
+
+        let picked = &results[idx];
+        self.package_actions_tui(picked)
+    }
+
+    fn package_actions_tui(&mut self, pkg: &CatalogHit) -> Result<(), String> {
+        let theme = LlaDialoguerTheme::default();
+        let actions = vec![
+            "📋 Info",
+            "📥 Install",
+            "⬆️  Upgrade",
+            "🗑️  Uninstall",
+            "← Back",
+        ];
+        let selection = Select::with_theme(&theme)
+            .with_prompt(format!("{} {}", "Package:".bright_cyan(), pkg.name.bright_white()))
+            .items(&actions)
+            .default(0)
+            .interact_opt()
+            .map_err(|e| format!("Failed to show selector: {}", e))?;
+
+        let Some(idx) = selection else { return Ok(()); };
+        match idx {
+            0 => self.package_info(&vec![pkg.name.clone()]),
+            1 => {
+                let mut args = vec![pkg.name.clone()];
+                if pkg.kind == "cask" {
+                    args.push("--cask".to_string());
+                }
+                self.install_package(&args)
+            }
+            2 => self.upgrade_packages(&vec![pkg.name.clone()]),
+            3 => {
+                let mut args = vec![pkg.name.clone()];
+                if pkg.kind == "cask" {
+                    args.push("--cask".to_string());
+                }
+                self.uninstall_package(&args)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn catalog_suggestions(&mut self, q: &str) -> Result<Vec<String>, String> {
+        // Fast, in-memory suggestion list for interactive_suggest.
+        let q = q.trim().to_lowercase();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let hits = self.search_catalog_results(&q, 8);
+        Ok(hits
+            .into_iter()
+            .map(|h| match h.kind.as_str() {
+                "cask" => format!("{} (cask)", h.name),
+                _ => h.name,
+            })
+            .collect())
+    }
+
+    fn search_catalog_results(&self, query: &str, limit: usize) -> Vec<CatalogHit> {
+        let matcher = SkimMatcherV2::default();
+        let q = query.to_lowercase();
+
+        let mut out: Vec<CatalogHit> = Vec::new();
+
+        if let Some(formulae) = self.catalog_formulae.as_ref() {
+            for f in formulae {
+                let name_score = matcher.fuzzy_match(&f.name.to_lowercase(), &q).unwrap_or(0);
+                let desc_score = f
+                    .desc
+                    .as_ref()
+                    .and_then(|d| matcher.fuzzy_match(&d.to_lowercase(), &q))
+                    .unwrap_or(0);
+                let score = name_score.max(desc_score);
+                if score > 0 {
+                    out.push(CatalogHit {
+                        kind: "formula".to_string(),
+                        name: f.name.clone(),
+                        version: f
+                            .versions
+                            .as_ref()
+                            .and_then(|v| v.stable.clone()),
+                        desc: f.desc.clone(),
+                        score,
+                    });
+                }
+            }
+        }
+
+        if let Some(casks) = self.catalog_casks.as_ref() {
+            for c in casks {
+                let token_score = matcher.fuzzy_match(&c.token.to_lowercase(), &q).unwrap_or(0);
+                let name_score = c
+                    .name
+                    .first()
+                    .and_then(|n| matcher.fuzzy_match(&n.to_lowercase(), &q))
+                    .unwrap_or(0);
+                let desc_score = c
+                    .desc
+                    .as_ref()
+                    .and_then(|d| matcher.fuzzy_match(&d.to_lowercase(), &q))
+                    .unwrap_or(0);
+                let score = token_score.max(name_score).max(desc_score);
+                if score > 0 {
+                    out.push(CatalogHit {
+                        kind: "cask".to_string(),
+                        name: c.token.clone(),
+                        version: c.version.clone(),
+                        desc: c.desc.clone(),
+                        score,
+                    });
+                }
+            }
+        }
+
+        out.sort_by(|a, b| b.score.cmp(&a.score));
+        out.truncate(limit);
+        out
     }
 
     fn list_installed(&self) -> Result<(), String> {
@@ -945,58 +1197,88 @@ impl BrewPlugin {
     fn interactive_menu(&mut self) -> Result<(), String> {
         let theme = LlaDialoguerTheme::default();
 
-        let options = vec![
-            "📦 List Installed Packages",
-            "🔍 Search Packages",
-            "🔄 Check for Updates",
-            "⬆️  Upgrade All Packages",
-            "📥 Install Package",
-            "🗑️  Uninstall Package",
-            "📋 Package Info",
-            "🧹 Cleanup",
-            "🩺 Run Doctor",
-            "❓ Help",
-            "← Exit",
-        ];
+        loop {
+            Self::clear_screen();
+            self.render_header("Menu", "Manage packages, upgrades, and search with a mini TUI.");
 
-        let selection = Select::with_theme(&theme)
-            .with_prompt(format!("{} Homebrew Menu", "🍺".bright_cyan()))
-            .items(&options)
-            .default(0)
-            .interact()
-            .map_err(|e| format!("Failed to show menu: {}", e))?;
+            let options = vec![
+                "🔎 Search & act (TUI)",
+                "📦 Installed",
+                "🔄 Outdated",
+                "⬆️  Upgrade all",
+                "📥 Install…",
+                "🗑️  Uninstall…",
+                "📋 Info…",
+                "🧹 Cleanup",
+                "🩺 Doctor",
+                "❓ Help",
+                "← Exit",
+            ];
 
-        match selection {
-            0 => self.list_installed(),
-            1 => self.search_packages(None),
-            2 => self.list_outdated(),
-            3 => self.upgrade_packages(&[]),
-            4 => {
-                let package: String = Input::with_theme(&theme)
-                    .with_prompt("Package to install")
-                    .interact_text()
-                    .map_err(|e| format!("Failed to get input: {}", e))?;
-                self.install_package(&[package])
+            let selection = Select::with_theme(&theme)
+                .with_prompt("Choose an action")
+                .items(&options)
+                .default(0)
+                .interact_opt()
+                .map_err(|e| format!("Failed to show menu: {}", e))?;
+
+            let Some(choice) = selection else { return Ok(()); };
+
+            let result = match choice {
+                0 => self.search_tui(),
+                1 => self.list_installed(),
+                2 => self.list_outdated(),
+                3 => self.upgrade_packages(&[]),
+                4 => {
+                    let package: String = Input::with_theme(&theme)
+                        .with_prompt("Package to install (use --cask in args if needed)")
+                        .interact_text()
+                        .map_err(|e| format!("Failed to get input: {}", e))?;
+                    if package.trim().is_empty() {
+                        Ok(())
+                    } else {
+                        self.install_package(&[package])
+                    }
+                }
+                5 => {
+                    let package: String = Input::with_theme(&theme)
+                        .with_prompt("Package to uninstall (use --cask in args if needed)")
+                        .interact_text()
+                        .map_err(|e| format!("Failed to get input: {}", e))?;
+                    if package.trim().is_empty() {
+                        Ok(())
+                    } else {
+                        self.uninstall_package(&[package])
+                    }
+                }
+                6 => {
+                    let package: String = Input::with_theme(&theme)
+                        .with_prompt("Package name")
+                        .interact_text()
+                        .map_err(|e| format!("Failed to get input: {}", e))?;
+                    if package.trim().is_empty() {
+                        Ok(())
+                    } else {
+                        self.package_info(&[package])
+                    }
+                }
+                7 => self.cleanup(),
+                8 => self.run_doctor(),
+                9 => self.show_help(),
+                _ => return Ok(()),
+            };
+
+            if let Err(e) = result {
+                println!(
+                    "{}",
+                    BoxComponent::new(format!("{}", e.bright_red()))
+                        .title("✗ Error".bright_red().bold().to_string())
+                        .style(BoxStyle::Minimal)
+                        .padding(1)
+                        .render()
+                );
             }
-            5 => {
-                let package: String = Input::with_theme(&theme)
-                    .with_prompt("Package to uninstall")
-                    .interact_text()
-                    .map_err(|e| format!("Failed to get input: {}", e))?;
-                self.uninstall_package(&[package])
-            }
-            6 => {
-                let package: String = Input::with_theme(&theme)
-                    .with_prompt("Package name")
-                    .interact_text()
-                    .map_err(|e| format!("Failed to get input: {}", e))?;
-                self.package_info(&[package])
-            }
-            7 => self.cleanup(),
-            8 => self.run_doctor(),
-            9 => self.show_help(),
-            10 => Ok(()),
-            _ => unreachable!(),
+            self.pause("Press Enter to return to the menu");
         }
     }
 
@@ -1243,4 +1525,13 @@ impl ConfigurablePlugin for BrewPlugin {
 impl ProtobufHandler for BrewPlugin {}
 
 lla_plugin_interface::declare_plugin!(BrewPlugin);
+
+#[derive(Debug, Clone)]
+struct CatalogHit {
+    kind: String, // "formula" | "cask"
+    name: String,
+    version: Option<String>,
+    desc: Option<String>,
+    score: i64,
+}
 
