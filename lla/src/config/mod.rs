@@ -147,12 +147,16 @@ impl Default for RecursiveConfig {
 pub struct FuzzyConfig {
     #[serde(default = "default_ignore_patterns")]
     pub ignore_patterns: Vec<String>,
+    /// Editor to use for editing files in fuzzy view. Overrides $EDITOR env var.
+    #[serde(default)]
+    pub editor: Option<String>,
 }
 
 impl Default for FuzzyConfig {
     fn default() -> Self {
         Self {
             ignore_patterns: default_ignore_patterns(),
+            editor: None,
         }
     }
 }
@@ -577,7 +581,13 @@ max_entries = {}
 #  - Glob pattern: "glob:*.min.js"
 #  - Regular expression: "regex:.*\\.pyc$"
 # Default: ["node_modules", "target", ".git", ".idea", ".vscode"]
-ignore_patterns = {}"#,
+ignore_patterns = {}
+
+# Editor to use for editing files in fuzzy view
+# Overrides the $EDITOR environment variable if set
+# Examples: "nvim", "vim", "nano", "code"
+# Default: None (uses $EDITOR or $VISUAL, then falls back to nano)
+editor = {}"#,
             self.default_sort,
             self.default_format,
             self.show_icons,
@@ -624,6 +634,7 @@ ignore_patterns = {}"#,
             table_columns,
             self.listers.recursive.max_entries.unwrap_or(0),
             serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
+            self.listers.fuzzy.editor.as_ref().map(|e| format!("\"{}\"", e)).unwrap_or_else(|| "null".to_string()),
         );
 
         if !self.filter.presets.is_empty() {

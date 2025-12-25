@@ -5,11 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [0.5.2] - 2025-12-25
 
 ### Added
+
+- `lla --fuzzy`:
+
+  - Vim/Emacs-style navigation shortcuts: `Ctrl+J/K`, `Ctrl+N/P`, `Ctrl+U/D` (half-page), `Ctrl+G` (jump to end), `Ctrl+Shift+G` (jump to start).
+  - Search bar editing shortcuts: `Ctrl+W` (delete word backward), `Ctrl+H` (delete character), `Ctrl+A` (start of line), `Home`/`End`.
+  - Inline rename: `F2` to rename the selected file, `Enter` to confirm, `Esc`/`Ctrl+C` to cancel.
+  - External editor integration: `Ctrl+E` opens the selected (or multi-selected) file(s) in your editor.
+    - Editor precedence: `listers.fuzzy.editor` (config) → `$EDITOR` → `$VISUAL` → fallback.
 
 - **Homebrew Plugin** (`brew`): manage Homebrew packages from lla (list/search/info/install/uninstall/upgrade/cleanup/doctor) with an interactive menu.
 - **Hacker News Plugin** (`hackernews`): browse Top/Best/New/Ask/Show/Jobs, open articles/comments, copy URLs, and use an interactive browser with caching.

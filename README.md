@@ -356,10 +356,40 @@ lla --fuzzy
 
 Keyboard shortcuts:
 
+- Ctrl+J / Ctrl+K: move down / up
+- Ctrl+N / Ctrl+P: move down / up
+- Ctrl+D / Ctrl+U: half-page down / up
+- Ctrl+G: jump to end
+- Ctrl+Shift+G: jump to start
+- Ctrl+C / Esc: exit
 - Space: toggle select
 - Enter: confirm (returns the highlighted file or all selected files)
+- Ctrl+E: open selected file(s) in your editor
 - Ctrl+Y: copy selected path(s) to clipboard
 - Ctrl+O: open selected file(s) with the system opener (open/xdg-open/start)
+- F2: rename the highlighted file (Enter: confirm, Esc/Ctrl+C: cancel)
+
+Search input shortcuts:
+
+- Ctrl+W: delete word backward
+- Ctrl+H: delete character (backspace)
+- Ctrl+A: jump to start of input (`Home` also works)
+- End: jump to end of input
+
+Editor selection (for `Ctrl+E`):
+
+- Config override: `listers.fuzzy.editor` (takes priority)
+- Environment: `$EDITOR`, then `$VISUAL`
+- Fallback: `nano` (macOS/Linux) or `notepad` (Windows)
+
+Example config:
+
+```toml
+[listers.fuzzy]
+editor = "nvim" # or: "code --wait"
+```
+
+Tip: for GUI editors, configure a “wait” flag so lla returns after you close the file, e.g. `code --wait` or `subl -w`.
 
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 
