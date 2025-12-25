@@ -179,7 +179,30 @@ pub fn handle_command(
         Some(Command::PluginAction(plugin_name, action, action_args)) => {
             // Resolve plugin alias if exists
             let resolved_plugin = config.resolve_plugin_alias(plugin_name);
-            plugin_manager.perform_plugin_action(&resolved_plugin, action, action_args)
+            if action == "__default__" {
+                // If we are in a non-interactive context (no TTY), prefer help over an interactive menu.
+                let is_tty = atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout);
+
+                // Best-effort: if the plugin has a "menu" action, open it; otherwise fallback to "help".
+                let preferred = if is_tty {
+                    match plugin_manager.get_plugin_actions(&resolved_plugin) {
+                        Ok(actions) => {
+                            if actions.iter().any(|a| a.name == "menu") {
+                                "menu"
+                            } else {
+                                "help"
+                            }
+                        }
+                        Err(_) => "help",
+                    }
+                } else {
+                    "help"
+                };
+
+                plugin_manager.perform_plugin_action(&resolved_plugin, preferred, &[])
+            } else {
+                plugin_manager.perform_plugin_action(&resolved_plugin, action, action_args)
+            }
         }
         Some(Command::Jump(action)) => jump::handle_jump(action, config),
         Some(Command::Clean) => unreachable!(),

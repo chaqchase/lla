@@ -930,15 +930,18 @@ impl Args {
         } else if let Some(diff_matches) = matches.subcommand_matches("diff") {
             let left = diff_matches
                 .value_of("left")
-                .ok_or_else(|| LlaError::Parse(
-                    "Missing required argument: <left>\n\n\
+                .ok_or_else(|| {
+                    LlaError::Parse(
+                        "Missing required argument: <left>\n\n\
                     Usage: lla diff <left> <right>\n       \
                     lla diff <left> --git [--git-ref <ref>]\n\n\
                     Examples:\n  \
                     lla diff src ../backup/src\n  \
                     lla diff . --git\n  \
-                    lla diff src --git --git-ref HEAD~1".to_string()
-                ))?
+                    lla diff src --git --git-ref HEAD~1"
+                            .to_string(),
+                    )
+                })?
                 .to_string();
             if diff_matches.is_present("git") {
                 if diff_matches.value_of("right").is_some() {
@@ -1032,11 +1035,19 @@ impl Args {
                         .or_else(|| plugin_matches.values_of("args"))
                         .map(|v| v.map(String::from).collect())
                         .unwrap_or_default();
-                    Some(Command::PluginAction(name.to_string(), act.to_string(), args))
+                    Some(Command::PluginAction(
+                        name.to_string(),
+                        act.to_string(),
+                        args,
+                    ))
                 }
                 (Some(name), None) => {
-                    // No action provided - default to "help" action
-                    Some(Command::PluginAction(name.to_string(), "help".to_string(), vec![]))
+                    // No action provided - defer to command handler (menu/help fallback)
+                    Some(Command::PluginAction(
+                        name.to_string(),
+                        "__default__".to_string(),
+                        vec![],
+                    ))
                 }
                 (None, _) => {
                     return Err(LlaError::Plugin(
@@ -1047,7 +1058,8 @@ impl Args {
                         Examples:\n  \
                         lla plugin git_status help\n  \
                         lla plugin file_tagger add-tag README.md important\n\n\
-                        Run 'lla list-plugins' to see available plugins.".to_string()
+                        Run 'lla list-plugins' to see available plugins."
+                            .to_string(),
                     ));
                 }
             }
