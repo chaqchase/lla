@@ -80,7 +80,7 @@ jobs:
             target: i686-unknown-linux-gnu
             os_label: linux
             arch_label: i686
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             os_label: macos
             arch_label: amd64
