@@ -5,7 +5,7 @@ members = ["lla", "lla_plugin_interface", "lla_plugin_utils", "plugins/*"]
 [workspace.package]
 description = "Blazing Fast and highly customizable ls Replacement with Superpowers"
 authors = ["Achaq <hi@achaq.dev>"]
-version = "0.5.2"
+version = "0.5.3"
 categories = ["utilities", "file-system", "cli", "file-management"]
 edition = "2021"
 license = "MIT"

@@ -1,7 +1,7 @@
 [package]
 name = "jwt"
 description = "JWT decoder and analyzer with search and validation capabilities"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 
 [dependencies]

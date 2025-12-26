@@ -1,6 +1,6 @@
 [package]
 name = "file_organizer"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "A plugin for lla that organizes files using various strategies"
 
