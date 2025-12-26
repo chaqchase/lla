@@ -208,7 +208,9 @@ fn open_in_editor(paths: &[PathBuf], config_editor: Option<&str>) -> std::io::Re
     }
 
     // Priority: config editor > $EDITOR > $VISUAL > fallback
+    // Treat empty string as None to allow fallback chain
     let editor = config_editor
+        .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_string())
         .or_else(|| std::env::var("EDITOR").ok())
         .or_else(|| std::env::var("VISUAL").ok())

@@ -148,7 +148,8 @@ pub struct FuzzyConfig {
     #[serde(default = "default_ignore_patterns")]
     pub ignore_patterns: Vec<String>,
     /// Editor to use for editing files in fuzzy view. Overrides $EDITOR env var.
-    #[serde(default)]
+    /// Skip serializing None to omit the key in `lla config show-effective` output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<String>,
 }
 
@@ -451,7 +452,7 @@ show_icons = {}
 # Default: false
 include_dirs = {}
 
-# Format for displaying file permissions    
+# Format for displaying file permissions
 # Possible values:
 #   - "symbolic": Traditional Unix-style (e.g., -rw-r--r--)
 #   - "octal": Numeric mode (e.g., d644)
@@ -586,7 +587,7 @@ ignore_patterns = {}
 # Editor to use for editing files in fuzzy view
 # Overrides the $EDITOR environment variable if set
 # Examples: "nvim", "vim", "nano", "code"
-# Default: None (uses $EDITOR or $VISUAL, then falls back to nano)
+# Default: "" (falls back to $EDITOR or $VISUAL, then nano)
 editor = {}"#,
             self.default_sort,
             self.default_format,
@@ -638,8 +639,8 @@ editor = {}"#,
                 .fuzzy
                 .editor
                 .as_ref()
-                .map(|e| format!("\"{}\"", e))
-                .unwrap_or_else(|| "null".to_string()),
+                .map(|e| TomlValue::String(e.clone()).to_string())
+                .unwrap_or_else(|| TomlValue::String(String::new()).to_string()),
         );
 
         if !self.filter.presets.is_empty() {
