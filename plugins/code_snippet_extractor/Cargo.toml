@@ -1,6 +1,6 @@
 [package]
 name = "code_snippet_extractor"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Extract and manage code snippets with tagging support"
 
