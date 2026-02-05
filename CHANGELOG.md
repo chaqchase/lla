@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-01-29
+
+### Fixed
+
+- `--no-dotfiles` precedence between CLI flag and config: previously, the CLI flag alone was not enough to hide dotfiles because the logic required `config.filter.no_dotfiles` to also be `true`. Now either the CLI flag (`--no-dotfiles`) or the config setting (`filter.no_dotfiles = true`) will hide dotfiles, unless `--all` or `--almost-all` is passed.
+
+Thanks to @eihqnh for the fix.
+
 ## [0.5.3] - 2025-12-26
 
 ### Fixed

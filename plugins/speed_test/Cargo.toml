@@ -1,7 +1,7 @@
 [package]
 name = "speed_test"
 description = "Internet speed test plugin - test download/upload speeds and latency"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 
 [dependencies]

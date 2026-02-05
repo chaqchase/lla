@@ -1,7 +1,7 @@
 [package]
 name = "hackernews"
 description = "Hacker News plugin - browse top stories, best stories, new stories, ask HN, and show HN"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 
 [dependencies]

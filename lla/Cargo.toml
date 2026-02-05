@@ -29,8 +29,8 @@ walkdir.workspace = true
 tempfile.workspace = true
 users.workspace = true
 parking_lot.workspace = true
-lla_plugin_interface = { version = "0.5.3", path = "../lla_plugin_interface" }
-lla_plugin_utils = { version = "0.5.3", path = "../lla_plugin_utils" }
+lla_plugin_interface = { version = "0.5.4", path = "../lla_plugin_interface" }
+lla_plugin_utils = { version = "0.5.4", path = "../lla_plugin_utils" }
 once_cell.workspace = true
 dashmap.workspace = true
 unicode-width.workspace = true
