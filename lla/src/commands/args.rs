@@ -1233,10 +1233,9 @@ impl Args {
             no_dirs: matches.is_present("no-dirs"),
             no_files: matches.is_present("no-files"),
             no_symlinks: matches.is_present("no-symlinks"),
-            no_dotfiles: matches.is_present("no-dotfiles")
+            no_dotfiles: (matches.is_present("no-dotfiles") || config.filter.no_dotfiles)
                 && !matches.is_present("all")
-                && !matches.is_present("almost-all")
-                && config.filter.no_dotfiles,
+                && !matches.is_present("almost-all"),
             almost_all: matches.is_present("almost-all"),
             dotfiles_only: matches.is_present("dotfiles-only"),
             respect_gitignore: if matches.is_present("respect-gitignore") {
