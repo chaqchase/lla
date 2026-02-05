@@ -1,7 +1,7 @@
 [package]
 name = "keyword_search"
 description = "Searches file contents for user-specified keywords"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 
 [dependencies]

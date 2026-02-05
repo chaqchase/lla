@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.5.3" }
+lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.5.4" }
 serde = { workspace = true }
 colored = { workspace = true }
 toml = { workspace = true }

@@ -1,7 +1,7 @@
 [package]
 name = "duplicate_file_detector"
 description = "Detects duplicate files by comparing their content hashes"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 
 [dependencies]
