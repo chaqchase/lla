@@ -27,7 +27,11 @@ impl SizeMapFormatter {
         Self::strip_ansi(s).width()
     }
 
-    fn calculate_layout(files: &[DecoratedEntry], term_width: usize) -> (usize, usize, usize) {
+    fn calculate_layout(
+        files: &[DecoratedEntry],
+        total_size: u64,
+        term_width: usize,
+    ) -> (usize, usize, usize) {
         let max_name_width = (term_width as f64 * 0.3) as usize;
         let name_width = files
             .iter()
@@ -48,6 +52,9 @@ impl SizeMapFormatter {
                 let size = f.metadata.as_ref().map_or(0, |m| m.size);
                 Self::visible_width(&format_size(size))
             })
+            .chain(std::iter::once(Self::visible_width(&format_size(
+                total_size,
+            ))))
             .max()
             .unwrap_or(8)
             .max(8);
@@ -168,6 +175,16 @@ impl SizeMapFormatter {
             size_width = size_width
         )
     }
+
+    fn format_total_entry(total_size: u64, name_width: usize, size_width: usize) -> String {
+        let theme = color::get_theme();
+        let label = "Total"
+            .color(theme::color_value_to_color(&theme.colors.size))
+            .bold()
+            .to_string();
+
+        Self::format_entry(&label, &format_size(total_size), "", name_width, size_width)
+    }
 }
 
 impl FileFormatter for SizeMapFormatter {
@@ -185,12 +202,13 @@ impl FileFormatter for SizeMapFormatter {
             .map(|(Width(w), _)| w as usize)
             .unwrap_or(100);
 
-        let (name_width, size_width, bar_width) = Self::calculate_layout(files, term_width);
-
         let total_size: u64 = files
             .iter()
             .map(|f| f.metadata.as_ref().map_or(0, |m| m.size))
             .sum();
+
+        let (name_width, size_width, bar_width) =
+            Self::calculate_layout(files, total_size, term_width);
 
         let mut output = String::new();
         output.push('\n');
@@ -230,6 +248,10 @@ impl FileFormatter for SizeMapFormatter {
             output.push('\n');
         }
 
+        output.push_str(&Self::format_total_entry(
+            total_size, name_width, size_width,
+        ));
+        output.push('\n');
         output.push('\n');
         Ok(output)
     }
@@ -263,5 +285,62 @@ fn format_size(size: u64) -> String {
         format!("{:.0} {}", size, UNITS[exp as usize])
     } else {
         format!("{:.1} {}", size, UNITS[exp as usize])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_entry_includes_summed_size() {
+        let line = SizeMapFormatter::format_total_entry(1536, 20, 8);
+        let plain =
+            String::from_utf8(strip_ansi_escapes::strip(&line).unwrap_or_default()).unwrap();
+
+        assert!(plain.contains("Total"));
+        assert!(plain.contains("1.5 KB"));
+    }
+
+    #[test]
+    fn layout_size_width_accounts_for_total() {
+        let files = vec![
+            DecoratedEntry {
+                path: "a".to_string(),
+                metadata: Some(lla_plugin_interface::proto::EntryMetadata {
+                    size: 900,
+                    modified: 0,
+                    accessed: 0,
+                    created: 0,
+                    is_dir: false,
+                    is_file: true,
+                    is_symlink: false,
+                    permissions: 0,
+                    uid: 0,
+                    gid: 0,
+                }),
+                custom_fields: Default::default(),
+            },
+            DecoratedEntry {
+                path: "b".to_string(),
+                metadata: Some(lla_plugin_interface::proto::EntryMetadata {
+                    size: 900,
+                    modified: 0,
+                    accessed: 0,
+                    created: 0,
+                    is_dir: false,
+                    is_file: true,
+                    is_symlink: false,
+                    permissions: 0,
+                    uid: 0,
+                    gid: 0,
+                }),
+                custom_fields: Default::default(),
+            },
+        ];
+
+        let (_, size_width, _) = SizeMapFormatter::calculate_layout(&files, 1800, 80);
+
+        assert!(size_width >= SizeMapFormatter::visible_width("1.8 KB"));
     }
 }
