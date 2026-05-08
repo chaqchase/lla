@@ -15,10 +15,16 @@ of deleting them.
   directories, duplicate files, and old archives.
 - SHA-256 duplicate detection with size limits; the oldest copy is kept.
 - Preview-first workflow with saved JSON plans.
+- Compact approval for large plans: apply all actions, organize only,
+  quarantine only, choose individual actions, or cancel.
 - Quarantine-first cleanup under `.lla-quarantine/<plan_id>/`.
-- Run manifests with source path, target path, operation type, timestamp,
-  optional hash, and restore status.
+- Preflight validation before any move: missing sources, stale targets, duplicate
+  sources, and unsafe source/target chains stop the run before changes happen.
+- Incremental run manifests with source path, target path, operation type,
+  timestamp, optional hash, completion status, and restore status.
 - Restore support for completed runs.
+- Doctor diagnostics for partial runs, missing targets, orphaned quarantine
+  files, and repairable moved files.
 
 ## Usage
 
@@ -37,6 +43,17 @@ lla plugin --name folder_cleaner --action apply --args plan-20260508090000000
 
 # Restore files moved by a previous run
 lla plugin --name folder_cleaner --action restore --args run-20260508090000000
+
+# If you pass a plan id to restore, or a run-like id made from a plan timestamp,
+# folder_cleaner resolves the applied run when there is exactly one match.
+
+# Inspect history and render saved plans
+lla plugin --name folder_cleaner --action history
+lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000
+
+# Diagnose run health; add --repair to restore recoverable moved files
+lla plugin --name folder_cleaner --action doctor
+lla plugin --name folder_cleaner --action doctor --args run-20260508090000000 --repair
 
 # Inspect or empty quarantine
 lla plugin --name folder_cleaner --action quarantine-list
@@ -79,7 +96,7 @@ temp_files = true
 os_junk = true
 old_archives = true
 duplicate_max_bytes = 268435456
-old_archive_days = 90
+old_archive_days = 30
 ```
 
 Rules use extensions plus optional glob patterns:
@@ -93,6 +110,14 @@ filename_patterns = []
 path_patterns = []
 ```
 
+Built-in image rules include common modern camera and web formats such as
+`jpg`, `jpeg`, `png`, `gif`, `bmp`, `svg`, `webp`, `heic`, `avif`, `tif`,
+`tiff`, `raw`, `cr2`, and `nef`.
+
+Existing config files are preserved, but the plugin merges newly supported
+default rules into them on startup. User settings such as `old_archive_days`
+remain unchanged.
+
 Saved plans and run manifests live under:
 
 ```text
@@ -103,6 +128,18 @@ Saved plans and run manifests live under:
 ## Safety Model
 
 `folder_cleaner` does not permanently delete during normal organization or
-cleanup. Cleanup candidates are moved into quarantine, and `restore <run_id>`
-can move them back. Permanent removal is limited to the explicit
-`quarantine-empty` action and still requires confirmation.
+cleanup, even with aggressive cleanup defaults. Cleanup candidates are moved
+into quarantine, and `restore <run_id>` can move completed actions back.
+Permanent removal is limited to the explicit `quarantine-empty` action and
+still requires confirmation.
+
+If a run is interrupted or files are hard to find, use:
+
+```bash
+lla plugin --name folder_cleaner --action doctor
+lla plugin --name folder_cleaner --action history
+```
+
+`doctor --repair` restores recoverable files whose targets still exist. Orphaned
+quarantine files are reported but left in place because their original paths are
+unknown.

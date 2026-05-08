@@ -98,6 +98,55 @@ impl FolderCleanerConfig {
             .or_else(|| self.profiles.get("downloads").cloned())
             .unwrap_or_default()
     }
+
+    pub fn merge_new_defaults(&mut self) -> bool {
+        let mut changed = false;
+
+        for (name, profile) in default_profiles() {
+            if !self.profiles.contains_key(&name) {
+                self.profiles.insert(name, profile);
+                changed = true;
+            }
+        }
+
+        if !self
+            .scan
+            .ignore_patterns
+            .iter()
+            .any(|candidate| candidate == &self.safety.quarantine_dir)
+        {
+            self.scan
+                .ignore_patterns
+                .push(self.safety.quarantine_dir.clone());
+            changed = true;
+        }
+
+        for default_rule in default_rules() {
+            match self.rules.iter_mut().find(|rule| {
+                rule.category == default_rule.category
+                    && rule.destination == default_rule.destination
+            }) {
+                Some(rule) => {
+                    for extension in default_rule.extensions {
+                        if !rule
+                            .extensions
+                            .iter()
+                            .any(|candidate| candidate.eq_ignore_ascii_case(&extension))
+                        {
+                            rule.extensions.push(extension);
+                            changed = true;
+                        }
+                    }
+                }
+                None => {
+                    self.rules.push(default_rule);
+                    changed = true;
+                }
+            }
+        }
+
+        changed
+    }
 }
 
 impl Default for FolderCleanerConfig {
@@ -199,7 +248,7 @@ fn default_duplicate_max_bytes() -> u64 {
 }
 
 fn default_old_archive_days() -> u64 {
-    90
+    30
 }
 
 fn default_ignore_patterns() -> Vec<String> {
@@ -267,7 +316,10 @@ fn default_rules() -> Vec<RuleConfig> {
         rule(
             "images",
             "Images",
-            &["jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "heic"],
+            &[
+                "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "heic", "avif", "tif", "tiff",
+                "raw", "cr2", "nef",
+            ],
         ),
         rule(
             "videos",
@@ -320,5 +372,90 @@ fn rule(category: &str, destination: &str, extensions: &[&str]) -> RuleConfig {
         extensions: extensions.iter().map(|ext| ext.to_string()).collect(),
         filename_patterns: Vec::new(),
         path_patterns: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_partial_configs_deserialize_with_defaults() {
+        let config: FolderCleanerConfig = toml::from_str(
+            r#"
+            [scan]
+            recursive = false
+
+            [profiles.downloads]
+            organize = true
+            "#,
+        )
+        .unwrap();
+
+        assert!(!config.scan.recursive);
+        assert!(config.cleanup.duplicate_detection);
+        assert!(config.safety.require_confirmation);
+        assert!(!config.rules.is_empty());
+        assert_eq!(
+            config.profiles.get("downloads").unwrap().cleanup,
+            ProfileConfig::default().cleanup
+        );
+    }
+
+    #[test]
+    fn default_images_support_modern_photo_formats() {
+        let images = default_rules()
+            .into_iter()
+            .find(|rule| rule.category == "images")
+            .unwrap();
+        for ext in ["avif", "tif", "tiff", "raw", "cr2", "nef"] {
+            assert!(images.extensions.iter().any(|candidate| candidate == ext));
+        }
+    }
+
+    #[test]
+    fn existing_configs_merge_new_default_extensions() {
+        let mut config = FolderCleanerConfig::default();
+        let images = config
+            .rules
+            .iter_mut()
+            .find(|rule| rule.category == "images")
+            .unwrap();
+        images.extensions = vec!["jpg".to_string(), "png".to_string()];
+
+        assert!(config.merge_new_defaults());
+
+        let images = config
+            .rules
+            .iter()
+            .find(|rule| rule.category == "images")
+            .unwrap();
+        for ext in ["avif", "tif", "tiff", "raw", "cr2", "nef"] {
+            assert!(images.extensions.iter().any(|candidate| candidate == ext));
+        }
+    }
+
+    #[test]
+    fn merge_defaults_preserves_custom_ignore_patterns() {
+        let mut config = FolderCleanerConfig::default();
+        config.scan.ignore_patterns = vec!["custom-cache".to_string()];
+
+        assert!(config.merge_new_defaults());
+
+        assert!(config
+            .scan
+            .ignore_patterns
+            .iter()
+            .any(|pattern| pattern == "custom-cache"));
+        assert!(config
+            .scan
+            .ignore_patterns
+            .iter()
+            .any(|pattern| pattern == ".lla-quarantine"));
+        assert!(!config
+            .scan
+            .ignore_patterns
+            .iter()
+            .any(|pattern| pattern == "node_modules"));
     }
 }

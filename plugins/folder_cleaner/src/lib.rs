@@ -9,8 +9,8 @@ use colored::Colorize;
 use config::{FolderCleanerConfig, ProfileConfig};
 use dialoguer::{Confirm, Input, MultiSelect, Select};
 use executor::{
-    empty_old_quarantine, execute_plan, list_runs, load_plan, quarantine_items, restore_run,
-    save_plan,
+    empty_old_quarantine, execute_plan, inspect_runs, list_plans, list_runs, load_plan,
+    orphaned_quarantine_items, quarantine_items, restore_run, save_plan,
 };
 use lazy_static::lazy_static;
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
@@ -24,9 +24,19 @@ use planner::build_plan;
 use scanner::{options_from_config, scan_directory};
 use std::{
     collections::{BTreeMap, HashSet},
+    fs,
     ops::Deref,
     path::{Path, PathBuf},
 };
+
+const LARGE_ACTION_SELECTOR_THRESHOLD: usize = 80;
+
+enum ActionSelectionMode {
+    All,
+    Kind(OperationKind),
+    Individual,
+    Cancel,
+}
 
 lazy_static! {
     static ref ACTION_REGISTRY: RwLock<ActionRegistry> = RwLock::new({
@@ -100,6 +110,38 @@ lazy_static! {
 
         lla_plugin_utils::define_action!(
             registry,
+            "history",
+            "history",
+            "List saved plans and completed or partial runs",
+            vec!["lla plugin --name folder_cleaner --action history"],
+            |_| FolderCleanerPlugin::history_action()
+        );
+
+        lla_plugin_utils::define_action!(
+            registry,
+            "show-plan",
+            "show-plan <plan_id>",
+            "Render a saved plan preview",
+            vec![
+                "lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000"
+            ],
+            |args| FolderCleanerPlugin::show_plan_action(args)
+        );
+
+        lla_plugin_utils::define_action!(
+            registry,
+            "doctor",
+            "doctor [run_id] [--repair]",
+            "Inspect run manifests and recover restorable items when requested",
+            vec![
+                "lla plugin --name folder_cleaner --action doctor",
+                "lla plugin --name folder_cleaner --action doctor --args run-20260508090000000 --repair"
+            ],
+            |args| FolderCleanerPlugin::doctor_action(args)
+        );
+
+        lla_plugin_utils::define_action!(
+            registry,
             "config-wizard",
             "config-wizard",
             "Interactively adjust common folder cleaner settings",
@@ -126,9 +168,10 @@ pub struct FolderCleanerPlugin {
 
 impl FolderCleanerPlugin {
     pub fn new() -> Self {
-        let plugin = Self {
+        let mut plugin = Self {
             base: BasePlugin::with_name(env!("CARGO_PKG_NAME")),
         };
+        plugin.base.config_mut().merge_new_defaults();
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[FolderCleanerPlugin] Failed to save config: {}", e);
         }
@@ -196,10 +239,11 @@ impl FolderCleanerPlugin {
     }
 
     fn apply_action(args: &[String]) -> Result<(), String> {
-        let plan_id = args
+        let plan_arg = args
             .first()
             .ok_or_else(|| "Usage: apply <plan_id>".to_string())?;
-        let plan = load_plan(plan_id)?;
+        let plan_id = Self::resolve_plan_id(plan_arg)?;
+        let plan = load_plan(&plan_id)?;
         if plan.actions.is_empty() {
             println!("{}", "Info: saved plan has no actions".bright_blue());
             return Ok(());
@@ -222,10 +266,11 @@ impl FolderCleanerPlugin {
     }
 
     fn restore_action(args: &[String]) -> Result<(), String> {
-        let run_id = match args.first() {
+        let run_arg = match args.first() {
             Some(run_id) => run_id.clone(),
             None => Self::select_run_id()?,
         };
+        let run_id = Self::resolve_run_id(&run_arg)?;
         if !Self::confirm(&format!("Restore files moved by run {}?", run_id))? {
             println!("{}", "Info: restore cancelled".bright_blue());
             return Ok(());
@@ -281,6 +326,159 @@ impl FolderCleanerPlugin {
             "Success:".bright_green(),
             removed.to_string().bright_white()
         );
+        Ok(())
+    }
+
+    fn history_action() -> Result<(), String> {
+        let plans = list_plans()?;
+        let runs = list_runs()?;
+
+        println!("{}", "Folder Cleaner History".bright_cyan().bold());
+
+        println!("\n{}", "Runs".bright_yellow().bold());
+        if runs.is_empty() {
+            println!("  {}", "No runs found".bright_black());
+        } else {
+            for run in runs.iter().take(20) {
+                let completed = run.actions.iter().filter(|action| action.completed).count();
+                let restored = run.actions.iter().filter(|action| action.restored).count();
+                let quarantined = run
+                    .actions
+                    .iter()
+                    .filter(|action| action.operation == OperationKind::Quarantine)
+                    .count();
+                println!(
+                    "  {}  {} actions  {} completed  {} restored  {} quarantined  {}",
+                    run.id.bright_white(),
+                    run.actions.len().to_string().bright_white(),
+                    completed.to_string().bright_green(),
+                    restored.to_string().bright_blue(),
+                    quarantined.to_string().bright_yellow(),
+                    run.root.display().to_string().bright_black()
+                );
+            }
+            if runs.len() > 20 {
+                println!("  ... {} more runs", runs.len() - 20);
+            }
+        }
+
+        println!("\n{}", "Plans".bright_yellow().bold());
+        if plans.is_empty() {
+            println!("  {}", "No plans found".bright_black());
+        } else {
+            for plan in plans.iter().take(20) {
+                println!(
+                    "  {}  {} actions  {}  {}",
+                    plan.id.bright_white(),
+                    plan.actions.len().to_string().bright_white(),
+                    plan.profile.bright_cyan(),
+                    plan.root.display().to_string().bright_black()
+                );
+            }
+            if plans.len() > 20 {
+                println!("  ... {} more plans", plans.len() - 20);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn show_plan_action(args: &[String]) -> Result<(), String> {
+        let plan_id = args
+            .first()
+            .ok_or_else(|| "Usage: show-plan <plan_id>".to_string())?;
+        let plan = load_plan(plan_id)?;
+        Self::render_plan(&plan);
+        Ok(())
+    }
+
+    fn doctor_action(args: &[String]) -> Result<(), String> {
+        let repair = args.iter().any(|arg| arg == "--repair");
+        let run_id = args
+            .iter()
+            .find(|arg| arg.as_str() != "--repair")
+            .map(String::as_str);
+        if repair && run_id.is_none() {
+            return Err("Usage: doctor <run_id> --repair".to_string());
+        }
+        let reports = inspect_runs(run_id)?;
+        let orphans = orphaned_quarantine_items()?;
+
+        println!("{}", "Folder Cleaner Doctor".bright_cyan().bold());
+        if reports.is_empty() {
+            println!("  {}", "No run manifests found".bright_black());
+        }
+
+        for report in &reports {
+            let health = if report.is_healthy() {
+                "healthy".bright_green()
+            } else {
+                "needs attention".bright_yellow()
+            };
+            println!(
+                "\n{}  {}  {} actions  {} completed  {} restored  {} restorable",
+                report.run_id.bright_white(),
+                health,
+                report.total_actions.to_string().bright_white(),
+                report.completed_actions.to_string().bright_green(),
+                report.restored_actions.to_string().bright_blue(),
+                report.restorable_actions.to_string().bright_cyan()
+            );
+
+            if !report.pending_actions.is_empty() {
+                println!("  {}", "Pending actions".bright_yellow());
+                for action in report.pending_actions.iter().take(10) {
+                    println!(
+                        "    {} -> {} ({})",
+                        action.source.display().to_string().bright_white(),
+                        action.target.display().to_string().bright_black(),
+                        action.reason
+                    );
+                }
+            }
+
+            if !report.missing_targets.is_empty() {
+                println!("  {}", "Missing moved targets".bright_red());
+                for action in report.missing_targets.iter().take(10) {
+                    println!(
+                        "    {} ({})",
+                        action.target.display().to_string().bright_black(),
+                        action.reason
+                    );
+                }
+            }
+
+            if repair && report.restorable_actions > 0 {
+                let (_manifest, restored) = restore_run(&report.run_id)?;
+                println!(
+                    "  {} restored {} items",
+                    "Repair:".bright_green(),
+                    restored.to_string().bright_white()
+                );
+            }
+        }
+
+        if !orphans.is_empty() {
+            println!(
+                "\n{} {}",
+                "Orphaned quarantine files:".bright_yellow(),
+                orphans.len().to_string().bright_white()
+            );
+            for path in orphans.iter().take(20) {
+                println!("  {}", path.display().to_string().bright_black());
+            }
+            if orphans.len() > 20 {
+                println!("  ... {} more", orphans.len() - 20);
+            }
+        }
+
+        if repair && !orphans.is_empty() {
+            println!(
+                "{} Orphaned quarantine files were left in place because their original paths are unknown.",
+                "Info:".bright_blue()
+            );
+        }
+
         Ok(())
     }
 
@@ -391,6 +589,21 @@ impl FolderCleanerPlugin {
                 vec!["lla plugin --name folder_cleaner --action quarantine-empty --args 30".to_string()],
             )
             .add_command(
+                "history",
+                "List saved plans and run manifests",
+                vec!["lla plugin --name folder_cleaner --action history".to_string()],
+            )
+            .add_command(
+                "show-plan <plan_id>",
+                "Render a saved plan preview",
+                vec!["lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000".to_string()],
+            )
+            .add_command(
+                "doctor [run_id] [--repair]",
+                "Inspect run health and optionally restore recoverable items",
+                vec!["lla plugin --name folder_cleaner --action doctor --args run-20260508090000000".to_string()],
+            )
+            .add_command(
                 "config-wizard",
                 "Edit common profile options interactively",
                 vec!["lla plugin --name folder_cleaner --action config-wizard".to_string()],
@@ -455,6 +668,33 @@ impl FolderCleanerPlugin {
     }
 
     fn render_plan(plan: &CleanupPlan) {
+        let organize_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.kind == OperationKind::Organize)
+            .count();
+        let quarantine_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.kind == OperationKind::Quarantine)
+            .count();
+        let quarantine_bytes = plan
+            .actions
+            .iter()
+            .filter(|action| action.kind == OperationKind::Quarantine)
+            .map(action_size)
+            .sum::<u64>();
+        let duplicate_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.reason.contains("duplicate file"))
+            .count();
+        let empty_dir_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.reason == "empty directory")
+            .count();
+
         println!("{}", "Folder Cleaner Preview".bright_cyan().bold());
         println!("Plan: {}", plan.id.bright_white());
         println!(
@@ -463,6 +703,45 @@ impl FolderCleanerPlugin {
         );
         println!("Profile: {}", plan.profile.bright_white());
         println!("Actions: {}", plan.actions.len().to_string().bright_white());
+        println!(
+            "Summary: {} organize · {} quarantine · {} quarantine bytes · {} duplicates · {} empty dirs",
+            organize_count.to_string().bright_green(),
+            quarantine_count.to_string().bright_yellow(),
+            human_bytes(quarantine_bytes).bright_white(),
+            duplicate_count.to_string().bright_cyan(),
+            empty_dir_count.to_string().bright_black()
+        );
+
+        let mut by_category: BTreeMap<String, usize> = BTreeMap::new();
+        let mut by_destination: BTreeMap<String, usize> = BTreeMap::new();
+        for action in &plan.actions {
+            let category = action.category.as_deref().unwrap_or("cleanup");
+            *by_category.entry(category.to_string()).or_default() += 1;
+            let destination = action
+                .target
+                .parent()
+                .map(|path| display_relative(&plan.root, path))
+                .unwrap_or_else(|| ".".to_string());
+            *by_destination.entry(destination).or_default() += 1;
+        }
+
+        if !by_category.is_empty() {
+            println!("\n{}", "Categories".bright_yellow());
+            for (category, count) in by_category.iter().take(12) {
+                println!("  {} {}", count.to_string().bright_white(), category);
+            }
+        }
+
+        if !by_destination.is_empty() {
+            println!("\n{}", "Destinations".bright_yellow());
+            for (destination, count) in by_destination.iter().take(12) {
+                println!(
+                    "  {} {}",
+                    count.to_string().bright_white(),
+                    destination.bright_black()
+                );
+            }
+        }
 
         let mut by_kind: BTreeMap<&str, Vec<&PlanAction>> = BTreeMap::new();
         for action in &plan.actions {
@@ -491,6 +770,61 @@ impl FolderCleanerPlugin {
     }
 
     fn select_actions(plan: &CleanupPlan) -> Result<HashSet<usize>, String> {
+        if plan.actions.len() > LARGE_ACTION_SELECTOR_THRESHOLD {
+            return Self::select_action_mode(plan);
+        }
+
+        Self::select_individual_actions(plan)
+    }
+
+    fn select_action_mode(plan: &CleanupPlan) -> Result<HashSet<usize>, String> {
+        let organize_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.kind == OperationKind::Organize)
+            .count();
+        let quarantine_count = plan
+            .actions
+            .iter()
+            .filter(|action| action.kind == OperationKind::Quarantine)
+            .count();
+
+        let mut items = vec![format!("Apply all actions ({})", plan.actions.len())];
+        let mut modes = vec![ActionSelectionMode::All];
+
+        if organize_count > 0 {
+            items.push(format!("Apply organize actions only ({})", organize_count));
+            modes.push(ActionSelectionMode::Kind(OperationKind::Organize));
+        }
+        if quarantine_count > 0 {
+            items.push(format!(
+                "Apply quarantine actions only ({})",
+                quarantine_count
+            ));
+            modes.push(ActionSelectionMode::Kind(OperationKind::Quarantine));
+        }
+
+        items.push("Choose individual actions".to_string());
+        modes.push(ActionSelectionMode::Individual);
+        items.push("Cancel".to_string());
+        modes.push(ActionSelectionMode::Cancel);
+
+        let selection = Select::with_theme(&LlaDialoguerTheme::default())
+            .with_prompt("Select action mode")
+            .items(&items)
+            .default(0)
+            .interact()
+            .map_err(|e| format!("Failed to show action selector: {}", e))?;
+
+        match &modes[selection] {
+            ActionSelectionMode::All => Ok(Self::action_ids_for_kind(plan, None)),
+            ActionSelectionMode::Kind(kind) => Ok(Self::action_ids_for_kind(plan, Some(kind))),
+            ActionSelectionMode::Individual => Self::select_individual_actions(plan),
+            ActionSelectionMode::Cancel => Ok(HashSet::new()),
+        }
+    }
+
+    fn select_individual_actions(plan: &CleanupPlan) -> Result<HashSet<usize>, String> {
         let theme = LlaDialoguerTheme::default();
         let items = plan
             .actions
@@ -517,6 +851,133 @@ impl FolderCleanerPlugin {
             .into_iter()
             .filter_map(|index| plan.actions.get(index).map(|action| action.id))
             .collect())
+    }
+
+    fn action_ids_for_kind(plan: &CleanupPlan, kind: Option<&OperationKind>) -> HashSet<usize> {
+        plan.actions
+            .iter()
+            .filter(|action| kind.map(|kind| &action.kind == kind).unwrap_or(true))
+            .map(|action| action.id)
+            .collect()
+    }
+
+    fn resolve_plan_id(input: &str) -> Result<String, String> {
+        let plans = list_plans()?;
+        if plans.iter().any(|plan| plan.id == input) {
+            return Ok(input.to_string());
+        }
+
+        let runs = list_runs()?;
+        if let Some(run) = runs.iter().find(|run| run.id == input) {
+            println!(
+                "{} {} is a run id; applying its saved plan {} instead",
+                "Info:".bright_blue(),
+                input.bright_white(),
+                run.plan_id.bright_white()
+            );
+            return Ok(run.plan_id.clone());
+        }
+
+        if let Some(plan) = Self::matching_plan_for_input(input, &plans) {
+            println!(
+                "{} {} looks like a run id made from a plan timestamp; applying {}",
+                "Info:".bright_blue(),
+                input.bright_white(),
+                plan.id.bright_white()
+            );
+            return Ok(plan.id.clone());
+        }
+
+        Err(format!(
+            "Plan '{}' was not found.{}",
+            input,
+            Self::latest_plan_hint(&plans)
+        ))
+    }
+
+    fn resolve_run_id(input: &str) -> Result<String, String> {
+        let runs = list_runs()?;
+        if runs.iter().any(|run| run.id == input) {
+            return Ok(input.to_string());
+        }
+
+        let plans = list_plans()?;
+        if let Some(plan) = Self::matching_plan_for_input(input, &plans) {
+            let matching_runs = runs
+                .iter()
+                .filter(|run| run.plan_id == plan.id)
+                .collect::<Vec<_>>();
+
+            match matching_runs.as_slice() {
+                [run] => {
+                    println!(
+                        "{} {} is a plan reference; restoring applied run {} instead",
+                        "Info:".bright_blue(),
+                        input.bright_white(),
+                        run.id.bright_white()
+                    );
+                    return Ok(run.id.clone());
+                }
+                [] => {
+                    return Err(format!(
+                        "'{}' is a plan id, but no run has applied plan {} yet",
+                        input, plan.id
+                    ));
+                }
+                _ => {
+                    let ids = matching_runs
+                        .iter()
+                        .map(|run| run.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(format!(
+                        "'{}' maps to multiple runs for plan {}: {}",
+                        input, plan.id, ids
+                    ));
+                }
+            }
+        }
+
+        Err(format!(
+            "Run '{}' was not found.{}",
+            input,
+            Self::latest_run_hint(&runs)
+        ))
+    }
+
+    fn matching_plan_for_input<'a>(
+        input: &str,
+        plans: &'a [CleanupPlan],
+    ) -> Option<&'a CleanupPlan> {
+        if let Some(plan) = plans.iter().find(|plan| plan.id == input) {
+            return Some(plan);
+        }
+
+        input
+            .strip_prefix("run-")
+            .and_then(|timestamp| {
+                let plan_id = format!("plan-{}", timestamp);
+                plans.iter().find(|plan| plan.id == plan_id)
+            })
+            .or_else(|| {
+                input.strip_prefix("plan-").and_then(|timestamp| {
+                    let plan_id = format!("plan-{}", timestamp);
+                    plans.iter().find(|plan| plan.id == plan_id)
+                })
+            })
+    }
+
+    fn latest_run_hint(runs: &[model::RunManifest]) -> String {
+        runs.first()
+            .map(|run| format!(" Latest run is {}.", run.id))
+            .unwrap_or_default()
+    }
+
+    fn latest_plan_hint(plans: &[CleanupPlan]) -> String {
+        plans
+            .first()
+            .map(|plan| format!(" Latest plan is {}.", plan.id))
+            .unwrap_or_default()
     }
 
     fn select_run_id() -> Result<String, String> {
@@ -590,6 +1051,12 @@ fn human_bytes(bytes: u64) -> String {
     }
 }
 
+fn action_size(action: &PlanAction) -> u64 {
+    fs::metadata(&action.source)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
 impl Default for FolderCleanerPlugin {
     fn default() -> Self {
         Self::new()
@@ -657,10 +1124,118 @@ lla_plugin_interface::declare_plugin!(FolderCleanerPlugin);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        executor::execute_plan_inner,
+        planner::build_plan,
+        scanner::{options_from_config, scan_directory},
+    };
 
     #[test]
     fn human_bytes_formats_units() {
         assert_eq!(human_bytes(512), "512 B");
         assert_eq!(human_bytes(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn action_ids_for_kind_filters_large_plan_modes() {
+        let root = PathBuf::from("/tmp/folder-cleaner-test");
+        let plan = CleanupPlan {
+            id: "plan-test".to_string(),
+            created_at: "2026-05-08T00:00:00Z".to_string(),
+            root: root.clone(),
+            profile: "downloads".to_string(),
+            actions: vec![
+                PlanAction {
+                    id: 1,
+                    kind: OperationKind::Organize,
+                    source: root.join("photo.jpg"),
+                    target: root.join("Images/photo.jpg"),
+                    reason: "organize as images".to_string(),
+                    category: Some("images".to_string()),
+                    hash: None,
+                },
+                PlanAction {
+                    id: 2,
+                    kind: OperationKind::Quarantine,
+                    source: root.join("draft.tmp"),
+                    target: root.join(".lla-quarantine/plan-test/draft.tmp"),
+                    reason: "temporary file".to_string(),
+                    category: Some("cleanup".to_string()),
+                    hash: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            FolderCleanerPlugin::action_ids_for_kind(&plan, None),
+            HashSet::from([1, 2])
+        );
+        assert_eq!(
+            FolderCleanerPlugin::action_ids_for_kind(&plan, Some(&OperationKind::Organize)),
+            HashSet::from([1])
+        );
+        assert_eq!(
+            FolderCleanerPlugin::action_ids_for_kind(&plan, Some(&OperationKind::Quarantine)),
+            HashSet::from([2])
+        );
+    }
+
+    #[test]
+    fn matching_plan_accepts_run_like_plan_timestamp() {
+        let plan = CleanupPlan {
+            id: "plan-20260508091007338".to_string(),
+            created_at: "2026-05-08T09:10:07Z".to_string(),
+            root: PathBuf::from("/tmp/folder-cleaner-test"),
+            profile: "downloads".to_string(),
+            actions: Vec::new(),
+        };
+        let plans = vec![plan];
+
+        assert_eq!(
+            FolderCleanerPlugin::matching_plan_for_input("run-20260508091007338", &plans)
+                .map(|plan| plan.id.as_str()),
+            Some("plan-20260508091007338")
+        );
+        assert_eq!(
+            FolderCleanerPlugin::matching_plan_for_input("plan-20260508091007338", &plans)
+                .map(|plan| plan.id.as_str()),
+            Some("plan-20260508091007338")
+        );
+    }
+
+    #[test]
+    fn mixed_downloads_plan_organizes_and_quarantines_safely() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("photo.jpg");
+        let temp_file = temp.path().join("draft.tmp");
+        std::fs::write(&image, b"image").unwrap();
+        std::fs::write(&temp_file, b"tmp").unwrap();
+
+        let config = FolderCleanerConfig::default();
+        let profile = ProfileConfig {
+            recursive: Some(false),
+            ..ProfileConfig::default()
+        };
+        let options = options_from_config(&config, &profile);
+        let report = scan_directory(temp.path(), &config, &options).unwrap();
+        let root = report.root.clone();
+        let plan = build_plan(&report, &config, "downloads", &profile);
+
+        assert!(plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Organize
+                && action.target == root.join("Images").join("photo.jpg")
+        }));
+        assert!(plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Quarantine && action.source == root.join("draft.tmp")
+        }));
+
+        let manifest = execute_plan_inner(&plan, None, false).unwrap();
+        assert_eq!(manifest.actions.len(), plan.actions.len());
+        assert!(root.join("Images").join("photo.jpg").exists());
+        assert!(manifest
+            .actions
+            .iter()
+            .filter(|action| action.operation == OperationKind::Quarantine)
+            .all(|action| action.target.starts_with(root.join(".lla-quarantine"))));
     }
 }

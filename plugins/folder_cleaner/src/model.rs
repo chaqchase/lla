@@ -69,6 +69,12 @@ pub struct ManifestAction {
     pub target: PathBuf,
     pub reason: String,
     pub hash: Option<String>,
+    #[serde(default = "default_completed")]
+    pub completed: bool,
     #[serde(default)]
     pub restored: bool,
+}
+
+fn default_completed() -> bool {
+    true
 }

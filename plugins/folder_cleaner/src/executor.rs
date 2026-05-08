@@ -5,12 +5,13 @@ use crate::{
 };
 use chrono::Utc;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
 
 pub fn save_plan(plan: &CleanupPlan) -> Result<PathBuf, String> {
+    validate_plan_shape(&plan.actions)?;
     fs::create_dir_all(paths::plans_dir())
         .map_err(|e| format!("Failed to create plans directory: {}", e))?;
     let path = paths::plan_path(&plan.id);
@@ -34,42 +35,128 @@ pub fn execute_plan(
     execute_plan_inner(plan, selected_ids, true)
 }
 
-fn execute_plan_inner(
+pub fn selected_actions<'a>(
+    plan: &'a CleanupPlan,
+    selected_ids: Option<&HashSet<usize>>,
+) -> Vec<&'a PlanAction> {
+    plan.actions
+        .iter()
+        .filter(|action| {
+            selected_ids
+                .map(|ids| ids.contains(&action.id))
+                .unwrap_or(true)
+        })
+        .collect()
+}
+
+pub fn preflight_plan(
+    plan: &CleanupPlan,
+    selected_ids: Option<&HashSet<usize>>,
+) -> Result<(), Vec<String>> {
+    let actions = selected_actions(plan, selected_ids);
+    let mut errors = validate_plan_shape_for_refs(&actions);
+
+    for action in actions {
+        if !action.source.exists() {
+            errors.push(format!(
+                "Source no longer exists: {}",
+                action.source.display()
+            ));
+        }
+        if action.target.exists() {
+            errors.push(format!(
+                "Target already exists: {}",
+                action.target.display()
+            ));
+        }
+        if action.source == action.target {
+            errors.push(format!(
+                "Source and target are identical: {}",
+                action.source.display()
+            ));
+        }
+        if action.target.starts_with(&action.source) {
+            errors.push(format!(
+                "Target is inside source, which could recursively move data: {} -> {}",
+                action.source.display(),
+                action.target.display()
+            ));
+        }
+
+        if let Some(parent) = action.target.parent() {
+            match nearest_existing_parent(parent) {
+                Some(existing_parent) => {
+                    if fs::metadata(&existing_parent)
+                        .map(|metadata| metadata.permissions().readonly())
+                        .unwrap_or(false)
+                    {
+                        errors.push(format!(
+                            "Nearest target parent is read-only: {}",
+                            existing_parent.display()
+                        ));
+                    }
+                }
+                None => {
+                    errors.push(format!(
+                        "No existing parent found for target: {}",
+                        action.target.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+pub(crate) fn execute_plan_inner(
     plan: &CleanupPlan,
     selected_ids: Option<&HashSet<usize>>,
     persist: bool,
 ) -> Result<RunManifest, String> {
+    if let Err(errors) = preflight_plan(plan, selected_ids) {
+        return Err(format!("Preflight failed:\n  - {}", errors.join("\n  - ")));
+    }
+
     let run_id = make_id("run");
+    let actions = selected_actions(plan, selected_ids);
     let mut manifest = RunManifest {
         id: run_id.clone(),
         plan_id: plan.id.clone(),
         created_at: Utc::now().to_rfc3339(),
         root: plan.root.clone(),
-        actions: Vec::new(),
+        actions: actions
+            .iter()
+            .map(|action| ManifestAction {
+                operation: action.kind.clone(),
+                source: action.source.clone(),
+                target: action.target.clone(),
+                reason: action.reason.clone(),
+                hash: action.hash.clone(),
+                completed: false,
+                restored: false,
+            })
+            .collect(),
     };
-
-    for action in &plan.actions {
-        if selected_ids
-            .map(|ids| !ids.contains(&action.id))
-            .unwrap_or(false)
-        {
-            continue;
-        }
-
-        execute_action(action)?;
-        manifest.actions.push(ManifestAction {
-            operation: action.kind.clone(),
-            source: action.source.clone(),
-            target: action.target.clone(),
-            reason: action.reason.clone(),
-            hash: action.hash.clone(),
-            restored: false,
-        });
-    }
 
     if persist {
         save_run(&manifest)?;
     }
+
+    for (idx, action) in actions.iter().enumerate() {
+        execute_action(action)?;
+        if let Some(manifest_action) = manifest.actions.get_mut(idx) {
+            manifest_action.completed = true;
+        }
+        if persist {
+            save_run(&manifest)?;
+        }
+    }
+
     Ok(manifest)
 }
 
@@ -113,13 +200,35 @@ pub fn load_run(run_id: &str) -> Result<RunManifest, String> {
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse run '{}': {}", run_id, e))
 }
 
+pub fn list_plans() -> Result<Vec<CleanupPlan>, String> {
+    let dir = paths::plans_dir();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut plans = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| format!("Failed to list plans: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to list plans: {}", e))?;
+        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(content) = fs::read_to_string(entry.path()) {
+            if let Ok(plan) = serde_json::from_str::<CleanupPlan>(&content) {
+                plans.push(plan);
+            }
+        }
+    }
+    plans.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(plans)
+}
+
 pub fn restore_run(run_id: &str) -> Result<(RunManifest, usize), String> {
     let mut manifest = load_run(run_id)?;
     let mut restored = 0usize;
     let mut reserved = HashSet::new();
 
     for action in manifest.actions.iter_mut().rev() {
-        if action.restored || !action.target.exists() {
+        if !action.completed || action.restored || !action.target.exists() {
             continue;
         }
 
@@ -179,11 +288,82 @@ pub fn quarantine_items() -> Result<Vec<ManifestAction>, String> {
             run.actions
                 .into_iter()
                 .filter(|action| action.operation == OperationKind::Quarantine)
+                .filter(|action| action.completed)
                 .filter(|action| !action.restored)
                 .filter(|action| action.target.exists()),
         );
     }
     Ok(items)
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DoctorReport {
+    pub run_id: String,
+    pub total_actions: usize,
+    pub completed_actions: usize,
+    pub restored_actions: usize,
+    pub restorable_actions: usize,
+    pub pending_actions: Vec<ManifestAction>,
+    pub missing_targets: Vec<ManifestAction>,
+}
+
+impl DoctorReport {
+    pub fn is_healthy(&self) -> bool {
+        self.pending_actions.is_empty() && self.missing_targets.is_empty()
+    }
+}
+
+pub fn inspect_run(run: &RunManifest) -> DoctorReport {
+    let mut report = DoctorReport {
+        run_id: run.id.clone(),
+        total_actions: run.actions.len(),
+        completed_actions: run.actions.iter().filter(|action| action.completed).count(),
+        restored_actions: run.actions.iter().filter(|action| action.restored).count(),
+        restorable_actions: run
+            .actions
+            .iter()
+            .filter(|action| action.completed && !action.restored && action.target.exists())
+            .count(),
+        pending_actions: Vec::new(),
+        missing_targets: Vec::new(),
+    };
+
+    for action in &run.actions {
+        if !action.completed {
+            report.pending_actions.push(action.clone());
+        } else if !action.restored && !action.target.exists() {
+            report.missing_targets.push(action.clone());
+        }
+    }
+
+    report
+}
+
+pub fn inspect_runs(run_id: Option<&str>) -> Result<Vec<DoctorReport>, String> {
+    let runs = match run_id {
+        Some(run_id) => vec![load_run(run_id)?],
+        None => list_runs()?,
+    };
+    Ok(runs.iter().map(inspect_run).collect())
+}
+
+pub fn orphaned_quarantine_items() -> Result<Vec<PathBuf>, String> {
+    let mut known_targets = HashSet::new();
+    for run in list_runs()? {
+        for action in run.actions {
+            if action.operation == OperationKind::Quarantine {
+                known_targets.insert(action.target);
+            }
+        }
+    }
+
+    let mut orphans = Vec::new();
+    let roots = quarantine_roots()?;
+    for root in roots {
+        collect_orphaned_files(&root, &known_targets, &mut orphans)?;
+    }
+    orphans.sort();
+    Ok(orphans)
 }
 
 pub fn empty_old_quarantine(days: u64) -> Result<usize, String> {
@@ -223,6 +403,113 @@ fn remove_path(path: &Path) -> Result<(), String> {
     }
 }
 
+fn validate_plan_shape(actions: &[PlanAction]) -> Result<(), String> {
+    let refs = actions.iter().collect::<Vec<_>>();
+    let errors = validate_plan_shape_for_refs(&refs);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("Invalid plan:\n  - {}", errors.join("\n  - ")))
+    }
+}
+
+fn validate_plan_shape_for_refs(actions: &[&PlanAction]) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut sources: HashMap<&Path, usize> = HashMap::new();
+    let mut targets: HashMap<&Path, usize> = HashMap::new();
+
+    for action in actions {
+        *sources.entry(action.source.as_path()).or_insert(0) += 1;
+        *targets.entry(action.target.as_path()).or_insert(0) += 1;
+    }
+
+    for (source, count) in sources {
+        if count > 1 {
+            errors.push(format!(
+                "Source appears in multiple actions: {}",
+                source.display()
+            ));
+        }
+    }
+
+    for (target, count) in targets {
+        if count > 1 {
+            errors.push(format!(
+                "Target appears in multiple actions: {}",
+                target.display()
+            ));
+        }
+    }
+
+    let source_set = actions
+        .iter()
+        .map(|action| action.source.as_path())
+        .collect::<HashSet<_>>();
+    for action in actions {
+        if source_set.contains(action.target.as_path()) {
+            errors.push(format!(
+                "Target is also another action source: {}",
+                action.target.display()
+            ));
+        }
+    }
+
+    errors
+}
+
+fn nearest_existing_parent(path: &Path) -> Option<PathBuf> {
+    let mut current = path;
+    loop {
+        if current.exists() {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
+}
+
+fn quarantine_roots() -> Result<Vec<PathBuf>, String> {
+    let mut roots = HashSet::new();
+    for run in list_runs()? {
+        for action in run.actions {
+            if action.operation == OperationKind::Quarantine {
+                if let Some(root) = quarantine_root_for(&action.target) {
+                    roots.insert(root);
+                }
+            }
+        }
+    }
+    Ok(roots.into_iter().collect())
+}
+
+fn quarantine_root_for(path: &Path) -> Option<PathBuf> {
+    for ancestor in path.ancestors() {
+        if ancestor.file_name().and_then(|name| name.to_str()) == Some(".lla-quarantine") {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+fn collect_orphaned_files(
+    root: &Path,
+    known_targets: &HashSet<PathBuf>,
+    orphans: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root).map_err(|e| format!("Failed to inspect quarantine: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to inspect quarantine: {}", e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_orphaned_files(&path, known_targets, orphans)?;
+        } else if !known_targets.contains(&path) {
+            orphans.push(path);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +528,7 @@ mod tests {
                 target: PathBuf::from("/tmp/root/.lla-quarantine/a.tmp"),
                 reason: "temporary".to_string(),
                 hash: None,
+                completed: true,
                 restored: false,
             }],
         };
@@ -303,11 +591,111 @@ mod tests {
         let manifest = execute_plan_inner(&plan, None, false).unwrap();
         assert!(!file.exists());
         assert!(quarantine.exists());
+        assert!(manifest.actions.first().unwrap().completed);
 
         let mut restored_manifest = manifest.clone();
         let action = restored_manifest.actions.first_mut().unwrap();
         std::fs::rename(&action.target, &action.source).unwrap();
         action.restored = true;
         assert!(file.exists());
+    }
+
+    #[test]
+    fn preflight_rejects_missing_sources_without_moving_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing.tmp");
+        let plan = CleanupPlan {
+            id: "plan-test".to_string(),
+            created_at: "now".to_string(),
+            root: temp.path().to_path_buf(),
+            profile: "downloads".to_string(),
+            actions: vec![PlanAction {
+                id: 1,
+                kind: OperationKind::Quarantine,
+                source: missing,
+                target: temp.path().join(".lla-quarantine").join("missing.tmp"),
+                reason: "temporary".to_string(),
+                category: None,
+                hash: None,
+            }],
+        };
+
+        assert!(preflight_plan(&plan, None).is_err());
+        assert!(!temp.path().join(".lla-quarantine").exists());
+    }
+
+    #[test]
+    fn preflight_rejects_conflicting_source_chains() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_a = temp.path().join("a.txt");
+        let file_b = temp.path().join("b.txt");
+        std::fs::write(&file_a, b"a").unwrap();
+        std::fs::write(&file_b, b"b").unwrap();
+
+        let plan = CleanupPlan {
+            id: "plan-test".to_string(),
+            created_at: "now".to_string(),
+            root: temp.path().to_path_buf(),
+            profile: "downloads".to_string(),
+            actions: vec![
+                PlanAction {
+                    id: 1,
+                    kind: OperationKind::Organize,
+                    source: file_a.clone(),
+                    target: file_b.clone(),
+                    reason: "organize".to_string(),
+                    category: Some("documents".to_string()),
+                    hash: None,
+                },
+                PlanAction {
+                    id: 2,
+                    kind: OperationKind::Organize,
+                    source: file_b,
+                    target: temp.path().join("Documents").join("b.txt"),
+                    reason: "organize".to_string(),
+                    category: Some("documents".to_string()),
+                    hash: None,
+                },
+            ],
+        };
+
+        assert!(preflight_plan(&plan, None).is_err());
+        assert!(file_a.exists());
+    }
+
+    #[test]
+    fn doctor_detects_partial_and_missing_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let run = RunManifest {
+            id: "run-test".to_string(),
+            plan_id: "plan-test".to_string(),
+            created_at: "now".to_string(),
+            root: temp.path().to_path_buf(),
+            actions: vec![
+                ManifestAction {
+                    operation: OperationKind::Organize,
+                    source: temp.path().join("a.txt"),
+                    target: temp.path().join("Documents").join("a.txt"),
+                    reason: "organize".to_string(),
+                    hash: None,
+                    completed: false,
+                    restored: false,
+                },
+                ManifestAction {
+                    operation: OperationKind::Quarantine,
+                    source: temp.path().join("b.tmp"),
+                    target: temp.path().join(".lla-quarantine").join("b.tmp"),
+                    reason: "temporary".to_string(),
+                    hash: None,
+                    completed: true,
+                    restored: false,
+                },
+            ],
+        };
+
+        let report = inspect_run(&run);
+        assert_eq!(report.pending_actions.len(), 1);
+        assert_eq!(report.missing_targets.len(), 1);
+        assert!(!report.is_healthy());
     }
 }

@@ -74,8 +74,11 @@ impl TableFormatter {
         theme::color_value_to_color(&theme.colors.directory)
     }
 
+    fn border(value: impl Into<String>) -> String {
+        value.into().color(Self::get_border_color()).to_string()
+    }
+
     fn create_separator(widths: &[usize]) -> String {
-        let border_color = Self::get_border_color();
         let mut separator = String::new();
         separator.push('├');
         for (i, &width) in widths.iter().enumerate() {
@@ -85,14 +88,13 @@ impl TableFormatter {
             }
         }
         separator.push('┤');
-        separator.color(border_color).to_string()
+        Self::border(separator)
     }
 
     fn create_header(headers: &[String], widths: &[usize]) -> String {
-        let border_color = Self::get_border_color();
         let header_color = Self::get_header_color();
         let mut header = String::new();
-        header.push('│');
+        header.push_str(&Self::border("│"));
 
         for (width, title) in widths.iter().zip(headers.iter()) {
             header.push(' ');
@@ -103,13 +105,12 @@ impl TableFormatter {
                     .to_string(),
             );
             header.push(' ');
-            header.push('│');
+            header.push_str(&Self::border("│"));
         }
-        header.color(border_color).to_string()
+        header
     }
 
     fn create_top_border(widths: &[usize]) -> String {
-        let border_color = Self::get_border_color();
         let mut border = String::new();
         border.push('┌');
         for (i, &width) in widths.iter().enumerate() {
@@ -119,11 +120,10 @@ impl TableFormatter {
             }
         }
         border.push('┐');
-        border.color(border_color).to_string()
+        Self::border(border)
     }
 
     fn create_bottom_border(widths: &[usize]) -> String {
-        let border_color = Self::get_border_color();
         let mut border = String::new();
         border.push('└');
         for (i, &width) in widths.iter().enumerate() {
@@ -133,22 +133,21 @@ impl TableFormatter {
             }
         }
         border.push('┘');
-        border.color(border_color).to_string()
+        Self::border(border)
     }
 
     fn create_row(values: &[String], widths: &[usize], align_right: &[bool]) -> String {
-        let border_color = Self::get_border_color();
         let mut row = String::new();
-        row.push('│');
+        row.push_str(&Self::border("│"));
 
         for ((value, width), align) in values.iter().zip(widths.iter()).zip(align_right.iter()) {
             row.push(' ');
             row.push_str(&Self::format_cell(value, *width, *align));
             row.push(' ');
-            row.push('│');
+            row.push_str(&Self::border("│"));
         }
 
-        row.color(border_color).to_string()
+        row
     }
 
     fn format_cell(content: &str, width: usize, align_right: bool) -> String {
@@ -314,5 +313,24 @@ impl FileFormatter for TableFormatter {
         output.push('\n');
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_borders_do_not_recolor_cell_content() {
+        colored::control::set_override(true);
+        let row = TableFormatter::create_row(
+            &[String::from("plain"), "blue".blue().to_string()],
+            &[5, 4],
+            &[false, false],
+        );
+
+        assert!(row.contains("\u{1b}[34mblue\u{1b}[0m"));
+        assert_eq!(TableFormatter::visible_width(&row), 16);
+        colored::control::unset_override();
     }
 }

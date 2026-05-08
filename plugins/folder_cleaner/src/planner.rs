@@ -23,13 +23,27 @@ pub fn build_plan(
     let id = make_id("plan");
     let mut actions = Vec::new();
     let mut reserved_targets = HashSet::new();
+    let destination_dirs = destination_dirs(report, config);
 
     if profile.organize {
-        plan_organization(report, config, &mut actions, &mut reserved_targets);
+        plan_organization(
+            report,
+            config,
+            &destination_dirs,
+            &mut actions,
+            &mut reserved_targets,
+        );
     }
 
     if profile.cleanup {
-        plan_cleanup(report, config, &id, &mut actions, &mut reserved_targets);
+        plan_cleanup(
+            report,
+            config,
+            &id,
+            &destination_dirs,
+            &mut actions,
+            &mut reserved_targets,
+        );
     }
 
     for (index, action) in actions.iter_mut().enumerate() {
@@ -48,11 +62,15 @@ pub fn build_plan(
 fn plan_organization(
     report: &ScanReport,
     config: &FolderCleanerConfig,
+    destination_dirs: &HashSet<PathBuf>,
     actions: &mut Vec<PlanAction>,
     reserved_targets: &mut HashSet<PathBuf>,
 ) {
     for entry in report.entries.iter().filter(|entry| entry.is_file) {
         if is_inside_quarantine(&entry.path, &report.root, config) {
+            continue;
+        }
+        if is_inside_destination_dir(&entry.path, destination_dirs) {
             continue;
         }
 
@@ -89,10 +107,16 @@ fn plan_cleanup(
     report: &ScanReport,
     config: &FolderCleanerConfig,
     plan_id: &str,
+    destination_dirs: &HashSet<PathBuf>,
     actions: &mut Vec<PlanAction>,
     reserved_targets: &mut HashSet<PathBuf>,
 ) {
     let mut cleanup_sources = HashSet::new();
+    let moving_sources = actions
+        .iter()
+        .map(|action| action.source.clone())
+        .collect::<HashSet<_>>();
+    let protected_dirs = protected_dirs(report, destination_dirs, actions);
 
     if config.cleanup.temp_files || config.cleanup.os_junk || config.cleanup.old_archives {
         for entry in report.entries.iter().filter(|entry| entry.is_file) {
@@ -163,6 +187,12 @@ fn plan_cleanup(
             if is_inside_quarantine(&entry.path, &report.root, config) {
                 continue;
             }
+            if protected_dirs.contains(&entry.path) {
+                continue;
+            }
+            if contains_planned_move(&entry.path, &moving_sources) {
+                continue;
+            }
             if file_parent_dirs.contains(&entry.path) {
                 continue;
             }
@@ -220,6 +250,54 @@ fn add_quarantine_action(
         category: None,
         hash,
     });
+}
+
+fn destination_dirs(report: &ScanReport, config: &FolderCleanerConfig) -> HashSet<PathBuf> {
+    let mut dirs = config
+        .rules
+        .iter()
+        .map(|rule| report.root.join(&rule.destination))
+        .collect::<HashSet<_>>();
+    dirs.insert(report.root.join("Uncategorized"));
+    dirs.insert(report.root.join(&config.safety.quarantine_dir));
+    dirs
+}
+
+fn is_inside_destination_dir(path: &Path, destination_dirs: &HashSet<PathBuf>) -> bool {
+    destination_dirs.iter().any(|dir| path.starts_with(dir))
+}
+
+fn protected_dirs(
+    report: &ScanReport,
+    destination_dirs: &HashSet<PathBuf>,
+    actions: &[PlanAction],
+) -> HashSet<PathBuf> {
+    let mut protected = destination_dirs.clone();
+
+    for action in actions {
+        if let Some(parent) = action.source.parent() {
+            protect_dir_and_ancestors(parent, &report.root, &mut protected);
+        }
+        if let Some(parent) = action.target.parent() {
+            protect_dir_and_ancestors(parent, &report.root, &mut protected);
+        }
+    }
+
+    protected
+}
+
+fn protect_dir_and_ancestors(dir: &Path, root: &Path, protected: &mut HashSet<PathBuf>) {
+    let mut current = Some(dir);
+    while let Some(path) = current {
+        if !path.starts_with(root) {
+            break;
+        }
+        protected.insert(path.to_path_buf());
+        if path == root {
+            break;
+        }
+        current = path.parent();
+    }
 }
 
 pub fn category_for(
@@ -317,6 +395,9 @@ fn cleanup_reason(
             || name.ends_with(".temp")
             || name.ends_with(".bak")
             || name.ends_with(".swp")
+            || name.ends_with(".download")
+            || name.ends_with(".part")
+            || name.ends_with(".crdownload")
             || name.starts_with("~$"))
     {
         return Some("temporary or backup file".to_string());
@@ -409,6 +490,10 @@ fn has_child_dir_with_files(dir: &Path, file_parent_dirs: &HashSet<PathBuf>) -> 
         .any(|parent| parent.starts_with(dir))
 }
 
+fn contains_planned_move(dir: &Path, moving_sources: &HashSet<PathBuf>) -> bool {
+    moving_sources.iter().any(|source| source.starts_with(dir))
+}
+
 pub fn make_id(prefix: &str) -> String {
     format!("{}-{}", prefix, Utc::now().format("%Y%m%d%H%M%S%3f"))
 }
@@ -424,6 +509,17 @@ mod tests {
             is_dir: false,
             is_file: true,
             size: 1,
+            modified_secs: 1,
+            created_secs: 1,
+        }
+    }
+
+    fn dir_entry(path: &Path) -> ScannedEntry {
+        ScannedEntry {
+            path: path.to_path_buf(),
+            is_dir: true,
+            is_file: false,
+            size: 0,
             modified_secs: 1,
             created_secs: 1,
         }
@@ -502,5 +598,57 @@ mod tests {
             .actions
             .iter()
             .any(|action| { action.kind == OperationKind::Quarantine && action.source == newer }));
+    }
+
+    #[test]
+    fn generated_image_destination_is_not_quarantined_as_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("photo.avif");
+        let images_dir = temp.path().join("Images");
+        std::fs::write(&image, b"image").unwrap();
+        std::fs::create_dir(&images_dir).unwrap();
+
+        let config = FolderCleanerConfig::default();
+        let report = ScanReport {
+            root: temp.path().to_path_buf(),
+            ignored: 0,
+            entries: vec![entry(&image), dir_entry(&images_dir)],
+        };
+        let profile = ProfileConfig::default();
+        let plan = build_plan(&report, &config, "downloads", &profile);
+
+        assert!(plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Organize && action.target == images_dir.join("photo.avif")
+        }));
+        assert!(!plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Quarantine && action.source == images_dir
+        }));
+    }
+
+    #[test]
+    fn parent_dirs_with_planned_moves_are_not_quarantined() {
+        let temp = tempfile::tempdir().unwrap();
+        let loose_dir = temp.path().join("loose");
+        let image = loose_dir.join("photo.jpg");
+        std::fs::create_dir(&loose_dir).unwrap();
+        std::fs::write(&image, b"image").unwrap();
+
+        let config = FolderCleanerConfig::default();
+        let report = ScanReport {
+            root: temp.path().to_path_buf(),
+            ignored: 0,
+            entries: vec![dir_entry(&loose_dir), entry(&image)],
+        };
+        let profile = ProfileConfig::default();
+        let plan = build_plan(&report, &config, "downloads", &profile);
+
+        assert!(plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Organize
+                && action.source == image
+                && action.target == temp.path().join("Images").join("photo.jpg")
+        }));
+        assert!(!plan.actions.iter().any(|action| {
+            action.kind == OperationKind::Quarantine && action.source == loose_dir
+        }));
     }
 }
