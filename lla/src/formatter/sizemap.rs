@@ -220,7 +220,7 @@ impl FileFormatter for SizeMapFormatter {
             let path = Path::new(&file.path);
             let colored_name = colorize_file_name(path).to_string();
             let name = format_with_icon(path, colored_name, self.show_icons);
-            let metadata = file.metadata.as_ref().unwrap();
+            let metadata = file.metadata.as_ref().cloned().unwrap_or_default();
             let size = metadata.size;
             let size_str = format_size(size);
             let percentage = if total_size > 0 {
@@ -295,8 +295,8 @@ mod tests {
     #[test]
     fn total_entry_includes_summed_size() {
         let line = SizeMapFormatter::format_total_entry(1536, 20, 8);
-        let plain =
-            String::from_utf8(strip_ansi_escapes::strip(&line).unwrap_or_default()).unwrap();
+        let plain = String::from_utf8_lossy(&strip_ansi_escapes::strip(&line).unwrap_or_default())
+            .into_owned();
 
         assert!(plain.contains("Total"));
         assert!(plain.contains("1.5 KB"));

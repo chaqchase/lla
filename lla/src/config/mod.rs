@@ -595,7 +595,7 @@ editor = {}"#,
             self.include_dirs,
             self.permission_format,
             self.theme,
-            serde_json::to_string(&self.enabled_plugins).unwrap(),
+            serde_json::to_string(&self.enabled_plugins).unwrap_or_else(|_| "[]".to_string()),
             plugins_dir_display,
             {
                 let home = dirs::home_dir();
@@ -614,7 +614,7 @@ editor = {}"#,
                         }
                     })
                     .collect();
-                serde_json::to_string(&display_paths).unwrap()
+                serde_json::to_string(&display_paths).unwrap_or_else(|_| "[]".to_string())
             },
             match self.default_depth {
                 Some(depth) => depth.to_string(),
@@ -634,7 +634,8 @@ editor = {}"#,
             long_columns,
             table_columns,
             self.listers.recursive.max_entries.unwrap_or(0),
-            serde_json::to_string(&self.listers.fuzzy.ignore_patterns).unwrap(),
+            serde_json::to_string(&self.listers.fuzzy.ignore_patterns)
+                .unwrap_or_else(|_| "[]".to_string()),
             self.listers
                 .fuzzy
                 .editor
@@ -1212,7 +1213,12 @@ fn merge_toml_values(base: &mut TomlValue, overlay: &TomlValue) {
 
 pub fn initialize_config() -> Result<()> {
     let config_path = Config::get_config_path();
-    let config_dir = config_path.parent().unwrap();
+    let config_dir = config_path.parent().ok_or_else(|| {
+        LlaError::Config(ConfigErrorKind::InvalidPath(format!(
+            "config path has no parent directory: {}",
+            config_path.display()
+        )))
+    })?;
     let themes_dir = config_dir.join("themes");
 
     fs::create_dir_all(config_dir)?;

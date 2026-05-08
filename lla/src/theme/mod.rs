@@ -7,7 +7,9 @@ use dialoguer::Select;
 use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile;
@@ -20,6 +22,15 @@ pub fn set_no_color(value: bool) {
 
 pub fn is_no_color() -> bool {
     NO_COLOR.load(Ordering::SeqCst)
+}
+
+fn theme_file_name(path: &Path) -> Result<&OsStr> {
+    path.file_name().ok_or_else(|| {
+        LlaError::Other(format!(
+            "Could not determine theme file name for {}",
+            path.display()
+        ))
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -501,12 +512,8 @@ pub fn pull_themes(color_state: &ColorState) -> Result<()> {
     }
 
     let status = Command::new("git")
-        .args(&[
-            "clone",
-            "--depth=1",
-            "https://github.com/chaqchase/lla.git",
-            temp_dir.path().to_str().unwrap(),
-        ])
+        .args(["clone", "--depth=1", "https://github.com/chaqchase/lla.git"])
+        .arg(temp_dir.path())
         .status()?;
 
     if !status.success() {
@@ -519,18 +526,13 @@ pub fn pull_themes(color_state: &ColorState) -> Result<()> {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                let dest_path = themes_dir.join(path.file_name().unwrap());
+                let file_name = theme_file_name(&path)?;
+                let dest_path = themes_dir.join(file_name);
                 fs::copy(&path, &dest_path)?;
                 if color_state.is_enabled() {
-                    println!(
-                        "✓ Installed theme: {}",
-                        path.file_name().unwrap().to_string_lossy().green()
-                    );
+                    println!("✓ Installed theme: {}", file_name.to_string_lossy().green());
                 } else {
-                    println!(
-                        "✓ Installed theme: {}",
-                        path.file_name().unwrap().to_string_lossy()
-                    );
+                    println!("✓ Installed theme: {}", file_name.to_string_lossy());
                 }
             }
         }
@@ -569,18 +571,13 @@ pub fn install_themes(path: &str, color_state: &ColorState) -> Result<()> {
 
     if path.is_file() {
         if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-            let dest_path = themes_dir.join(path.file_name().unwrap());
+            let file_name = theme_file_name(path)?;
+            let dest_path = themes_dir.join(file_name);
             fs::copy(path, &dest_path)?;
             if color_state.is_enabled() {
-                println!(
-                    "✓ Installed theme: {}",
-                    path.file_name().unwrap().to_string_lossy().green()
-                );
+                println!("✓ Installed theme: {}", file_name.to_string_lossy().green());
             } else {
-                println!(
-                    "✓ Installed theme: {}",
-                    path.file_name().unwrap().to_string_lossy()
-                );
+                println!("✓ Installed theme: {}", file_name.to_string_lossy());
             }
             installed_count += 1;
         } else {
@@ -593,18 +590,13 @@ pub fn install_themes(path: &str, color_state: &ColorState) -> Result<()> {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                let dest_path = themes_dir.join(path.file_name().unwrap());
+                let file_name = theme_file_name(&path)?;
+                let dest_path = themes_dir.join(file_name);
                 fs::copy(&path, &dest_path)?;
                 if color_state.is_enabled() {
-                    println!(
-                        "✓ Installed theme: {}",
-                        path.file_name().unwrap().to_string_lossy().green()
-                    );
+                    println!("✓ Installed theme: {}", file_name.to_string_lossy().green());
                 } else {
-                    println!(
-                        "✓ Installed theme: {}",
-                        path.file_name().unwrap().to_string_lossy()
-                    );
+                    println!("✓ Installed theme: {}", file_name.to_string_lossy());
                 }
                 installed_count += 1;
             }

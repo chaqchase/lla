@@ -206,25 +206,37 @@ impl LongFormatter {
 }
 
 fn lookup_user(uid: u32) -> String {
-    let mut cache = USER_CACHE.lock().unwrap();
+    let resolved = || {
+        get_user_by_uid(uid)
+            .map(|u| u.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| uid.to_string())
+    };
+
+    let Ok(mut cache) = USER_CACHE.lock() else {
+        return resolved();
+    };
     if let Some(cached) = cache.get(&uid) {
         return cached.clone();
     }
-    let resolved = get_user_by_uid(uid)
-        .map(|u| u.name().to_string_lossy().into_owned())
-        .unwrap_or_else(|| uid.to_string());
+    let resolved = resolved();
     cache.insert(uid, resolved.clone());
     resolved
 }
 
 fn lookup_group(gid: u32) -> String {
-    let mut cache = GROUP_CACHE.lock().unwrap();
+    let resolved = || {
+        get_group_by_gid(gid)
+            .map(|g| g.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| gid.to_string())
+    };
+
+    let Ok(mut cache) = GROUP_CACHE.lock() else {
+        return resolved();
+    };
     if let Some(cached) = cache.get(&gid) {
         return cached.clone();
     }
-    let resolved = get_group_by_gid(gid)
-        .map(|g| g.name().to_string_lossy().into_owned())
-        .unwrap_or_else(|| gid.to_string());
+    let resolved = resolved();
     cache.insert(gid, resolved.clone());
     resolved
 }
