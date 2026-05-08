@@ -7,25 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.6] - 2026-05-08
-
 ### Added
 
-- **Folder Cleaner Plugin** (`folder_cleaner`): find and clean common generated folders from projects.
 - `folder_cleaner history`, `show-plan`, and `doctor` actions for saved plan/run inspection, run-health diagnostics, and repairable restore workflows.
-- **Color output mode**: control when lla emits colored output.
-- `sizemap` total summary output for a quick aggregate size overview.
 
 ### Changed
 
 - Upgraded `folder_cleaner` planning and execution with aggressive quarantine-only cleanup defaults, preflight validation, incremental run manifests, richer previews, modern image-format rules, and safer destination-folder handling.
 - Improved `folder_cleaner clean` approval for large plans with a compact action-mode selector instead of echoing every selected action into the terminal prompt.
-- Refined plugin management and installer output with boxed sections, aligned plugin/version rows, clearer update/install summaries, and terminal-width-aware truncation.
 
 ### Fixed
 
 - Existing `folder_cleaner` configs now merge newly supported default rules, so modern image formats such as AVIF, TIFF, and raw camera files are organized without recreating the config.
 - `folder_cleaner restore` and `apply` now provide helpful recovery when a plan id, or a run-like id made from a plan timestamp, is passed to the wrong command.
+- Box and table UI rendering now keeps borders aligned without recoloring or stretching cell content.
+
+## [0.5.6] - 2026-05-08
+
+### Added
+
+- **Folder Cleaner Plugin** (`folder_cleaner`): find and clean common generated folders from projects.
+- **Color output mode**: control when lla emits colored output.
+- `sizemap` total summary output for a quick aggregate size overview.
+
+### Changed
+
+- Refined plugin management and installer output with boxed sections, aligned plugin/version rows, clearer update/install summaries, and terminal-width-aware truncation.
+
+### Fixed
+
 - Formatter plugin loading now reports safe errors instead of unwrapping failures.
 
 
