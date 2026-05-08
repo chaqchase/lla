@@ -204,8 +204,12 @@ pub trait ProtobufHandler {
             message: Some(response_msg),
         };
         let mut buf = bytes::BytesMut::with_capacity(proto_msg.encoded_len());
-        proto_msg.encode(&mut buf).unwrap();
-        buf.to_vec()
+        proto_msg
+            .encode(&mut buf)
+            .map(|_| buf.to_vec())
+            .unwrap_or_else(|e| {
+                self.encode_error(&format!("failed to encode plugin response: {}", e))
+            })
     }
 
     fn encode_error(&self, error: &str) -> Vec<u8> {
@@ -216,7 +220,9 @@ pub trait ProtobufHandler {
             )),
         };
         let mut buf = bytes::BytesMut::with_capacity(error_msg.encoded_len());
-        error_msg.encode(&mut buf).unwrap();
+        if error_msg.encode(&mut buf).is_err() {
+            return Vec::new();
+        }
         buf.to_vec()
     }
 }

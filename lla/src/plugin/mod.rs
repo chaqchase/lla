@@ -82,15 +82,30 @@ impl PluginManager {
     fn send_request(&self, plugin_name: &str, request: PluginMessage) -> Result<PluginMessage> {
         if let Some((_, api)) = self.plugins.get(plugin_name) {
             let mut buf = Vec::with_capacity(request.encoded_len());
-            request.encode(&mut buf).unwrap();
+            request.encode(&mut buf).map_err(|e| {
+                LlaError::Plugin(format!(
+                    "Failed to encode request for plugin '{}': {}",
+                    plugin_name, e
+                ))
+            })?;
 
             unsafe {
                 let raw_response =
                     ((**api).handle_request)(std::ptr::null_mut(), buf.as_ptr(), buf.len());
-                let response_vec =
-                    Vec::from_raw_parts(raw_response.ptr, raw_response.len, raw_response.capacity);
-                let response_msg = proto::PluginMessage::decode(&response_vec[..])
-                    .map_err(|e| LlaError::Plugin(format!("Failed to decode response: {}", e)))?;
+                if raw_response.ptr.is_null() {
+                    return Err(LlaError::Plugin(format!(
+                        "Plugin '{}' returned an empty response",
+                        plugin_name
+                    )));
+                }
+                let response_vec = raw_response.into_vec();
+                let response_msg =
+                    proto::PluginMessage::decode(&response_vec[..]).map_err(|e| {
+                        LlaError::Plugin(format!(
+                            "Failed to decode response from plugin '{}': {}",
+                            plugin_name, e
+                        ))
+                    })?;
                 Ok(response_msg)
             }
         } else {
@@ -285,7 +300,10 @@ impl PluginManager {
                                 message: Some(Message::GetName(true)),
                             };
                             let mut buf = Vec::with_capacity(request.encoded_len());
-                            request.encode(&mut buf).unwrap();
+                            if let Err(e) = request.encode(&mut buf) {
+                                eprintln!("⚠️ Failed to encode name request for {:?}: {}", path, e);
+                                return Ok(());
+                            }
 
                             match ((*api).handle_request)(
                                 std::ptr::null_mut(),
@@ -293,11 +311,14 @@ impl PluginManager {
                                 buf.len(),
                             ) {
                                 raw_response => {
-                                    let response_vec = Vec::from_raw_parts(
-                                        raw_response.ptr,
-                                        raw_response.len,
-                                        raw_response.capacity,
-                                    );
+                                    if raw_response.ptr.is_null() {
+                                        eprintln!(
+                                            "⚠️ Plugin returned an empty response for {:?}",
+                                            path
+                                        );
+                                        return Ok(());
+                                    }
+                                    let response_vec = raw_response.into_vec();
                                     match proto::PluginMessage::decode(&response_vec[..]) {
                                         Ok(response_msg) => match response_msg.message {
                                             Some(Message::NameResponse(name)) => {

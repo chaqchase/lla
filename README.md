@@ -263,7 +263,7 @@ lla --timeline
 
 #### Storage Analysis
 
-Visual disk usage insights:
+Visual disk usage insights, including a total size summary:
 
 ```bash
 lla -S # use --include-dirs to calculate directory sizes (recursive; slower on large trees)

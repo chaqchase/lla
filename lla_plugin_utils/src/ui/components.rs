@@ -14,12 +14,11 @@ pub struct Spinner {
 impl Spinner {
     pub fn new() -> Self {
         let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .unwrap()
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-        );
+        let style = ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner())
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        pb.set_style(style);
         pb.enable_steady_tick(Duration::from_millis(80));
         Self { progress_bar: pb }
     }

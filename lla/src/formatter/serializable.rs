@@ -56,7 +56,9 @@ fn uid_to_name(uid: u32) -> Option<String> {
     if uid == 0 && get_user_by_uid(uid).is_none() {
         return None;
     }
-    let mut cache = USER_CACHE.lock().unwrap();
+    let Ok(mut cache) = USER_CACHE.lock() else {
+        return get_user_by_uid(uid).map(|u| u.name().to_string_lossy().into_owned());
+    };
     if let Some(name) = cache.get(&uid) {
         return Some(name.clone());
     }
@@ -71,7 +73,9 @@ fn gid_to_name(gid: u32) -> Option<String> {
     if gid == 0 && get_group_by_gid(gid).is_none() {
         return None;
     }
-    let mut cache = GROUP_CACHE.lock().unwrap();
+    let Ok(mut cache) = GROUP_CACHE.lock() else {
+        return get_group_by_gid(gid).map(|g| g.name().to_string_lossy().into_owned());
+    };
     if let Some(name) = cache.get(&gid) {
         return Some(name.clone());
     }
