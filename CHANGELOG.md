@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-05-08
+
 ### Added
 
 - `folder_cleaner history`, `show-plan`, and `doctor` actions for saved plan/run inspection, run-health diagnostics, and repairable restore workflows.
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Existing `folder_cleaner` configs now merge newly supported default rules, so modern image formats such as AVIF, TIFF, and raw camera files are organized without recreating the config.
 - `folder_cleaner restore` and `apply` now provide helpful recovery when a plan id, or a run-like id made from a plan timestamp, is passed to the wrong command.
 - Box and table UI rendering now keeps borders aligned without recoloring or stretching cell content.
+
 
 ## [0.5.6] - 2026-05-08
 
