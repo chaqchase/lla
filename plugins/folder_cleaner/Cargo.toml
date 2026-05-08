@@ -1,0 +1,26 @@
+[package]
+name = "folder_cleaner"
+version = "0.5.5"
+edition = "2021"
+description = "Safety-first folder organization and cleanup plugin for lla"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+chrono = { workspace = true }
+colored = { workspace = true }
+dialoguer = { workspace = true }
+dirs = { workspace = true }
+glob = { workspace = true }
+lazy_static = "1.4"
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

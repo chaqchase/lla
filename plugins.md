@@ -40,6 +40,7 @@ then copy the generated `.so`, `.dll`, or `.dylib` file from the `target/release
 - [file_meta](https://github.com/chaqchase/lla/tree/main/plugins/file_meta): Displays the file metadata of each file
 - [file_tagger](https://github.com/chaqchase/lla/tree/main/plugins/file_tagger): A plugin for tagging files and filtering by tags
 - [flush_dns](https://github.com/chaqchase/lla/tree/main/plugins/flush_dns): Flush DNS cache on macOS, Linux, and Windows
+- [folder_cleaner](https://github.com/chaqchase/lla/tree/main/plugins/folder_cleaner): Safety-first folder organization and cleanup plugin for lla
 - [git_status](https://github.com/chaqchase/lla/tree/main/plugins/git_status): Shows the git status of each file
 - [google_meet](https://github.com/chaqchase/lla/tree/main/plugins/google_meet): Google Meet plugin for creating meeting rooms and managing links
 - [google_search](https://github.com/chaqchase/lla/tree/main/plugins/google_search): Google search with autosuggestions, history management, and clipboard fallback
