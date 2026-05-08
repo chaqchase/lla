@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-05-08
+
 ### Added
 
 - **Folder Cleaner Plugin** (`folder_cleaner`): find and clean common generated folders from projects.
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Formatter plugin loading now reports safe errors instead of unwrapping failures.
+
 
 ## [0.5.5] - 2026-05-02
 
