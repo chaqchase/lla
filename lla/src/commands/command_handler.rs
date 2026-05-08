@@ -3,7 +3,7 @@ use crate::commands::diff;
 use crate::commands::file_utils::list_directory;
 use crate::commands::init_wizard;
 use crate::commands::jump;
-use crate::commands::plugin_utils::{handle_plugin_action, list_plugins};
+use crate::commands::plugin_utils::{handle_plugin_action, list_plugins, use_plugins};
 use crate::commands::search::run_search;
 use crate::config::{self, Config, ShortcutCommand};
 use crate::error::{LlaError, Result};
@@ -166,7 +166,7 @@ pub fn handle_command(
             installer.update_plugins(plugin_name.as_deref())
         }
         Some(Command::ListPlugins) => list_plugins(plugin_manager),
-        Some(Command::Use) => list_plugins(plugin_manager),
+        Some(Command::Use) => use_plugins(plugin_manager),
         Some(Command::Diff(diff_args)) => diff::run(diff_args.clone()),
         Some(Command::InitConfig { defaults_only }) => {
             if *defaults_only {

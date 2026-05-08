@@ -369,6 +369,10 @@ impl BoxComponent {
         output.push('\n');
         let lines: Vec<&str> = self.content.lines().collect();
 
+        // 2 for left+right border chars
+        let term_width = console::Term::stdout().size().1 as usize;
+        let max_total_width = term_width.saturating_sub(2);
+
         let content_width = lines
             .iter()
             .map(|line| console::measure_text_width(line))
@@ -380,16 +384,31 @@ impl BoxComponent {
             .map(|t| console::measure_text_width(t))
             .unwrap_or(0);
         let inner_width = cmp::max(content_width, title_width) + self.padding * 2;
-        let total_width = self.width.unwrap_or(inner_width);
+        let desired_width = self.width.unwrap_or(inner_width);
+        let total_width = cmp::min(desired_width, max_total_width);
+        let max_content_visible = total_width.saturating_sub(self.padding * 2);
 
         output.push(chars.top_left);
         if let Some(title) = &self.title {
-            output.push(chars.horizontal);
-            output.push(' ');
-            output.push_str(title);
-            output.push(' ');
-            let remaining = total_width.saturating_sub(title_width + 4);
-            output.push_str(&chars.horizontal.to_string().repeat(remaining));
+            let title_vis = console::measure_text_width(title);
+            let available_for_title = total_width.saturating_sub(4);
+            if title_vis <= available_for_title {
+                output.push(chars.horizontal);
+                output.push(' ');
+                output.push_str(title);
+                output.push(' ');
+                let remaining = total_width.saturating_sub(title_vis + 4);
+                output.push_str(&chars.horizontal.to_string().repeat(remaining));
+            } else {
+                let truncated = console::truncate_str(title, available_for_title, "…");
+                output.push(chars.horizontal);
+                output.push(' ');
+                output.push_str(&truncated);
+                output.push(' ');
+                let trunc_vis = console::measure_text_width(&truncated);
+                let remaining = total_width.saturating_sub(trunc_vis + 4);
+                output.push_str(&chars.horizontal.to_string().repeat(remaining));
+            }
         } else {
             output.push_str(&chars.horizontal.to_string().repeat(total_width));
         }
@@ -404,12 +423,21 @@ impl BoxComponent {
         }
 
         for line in lines {
+            let line_width = console::measure_text_width(line);
             output.push(chars.vertical);
             output.push_str(&" ".repeat(self.padding));
-            output.push_str(line);
-            let padding =
-                total_width.saturating_sub(console::measure_text_width(line) + self.padding);
-            output.push_str(&" ".repeat(padding));
+            if line_width <= max_content_visible {
+                output.push_str(line);
+                let padding = total_width.saturating_sub(line_width + self.padding);
+                output.push_str(&" ".repeat(padding));
+            } else {
+                let truncated =
+                    console::truncate_str(line, max_content_visible.saturating_sub(1), "…");
+                let trunc_vis = console::measure_text_width(&truncated);
+                output.push_str(&truncated);
+                let padding = total_width.saturating_sub(trunc_vis + self.padding);
+                output.push_str(&" ".repeat(padding));
+            }
             output.push(chars.vertical);
             output.push('\n');
         }
@@ -449,9 +477,9 @@ impl LlaDialoguerTheme {
         let mut symbols = std::collections::HashMap::new();
         symbols.insert("error".to_string(), "✘".to_string());
         symbols.insert("success".to_string(), "✔".to_string());
-        symbols.insert("pointer".to_string(), "➜".to_string());
-        symbols.insert("unchecked".to_string(), "◯".to_string());
-        symbols.insert("checked".to_string(), "◉".to_string());
+        symbols.insert("pointer".to_string(), "›".to_string());
+        symbols.insert("unchecked".to_string(), "○".to_string());
+        symbols.insert("checked".to_string(), "●".to_string());
         symbols.insert("separator".to_string(), "•".to_string());
         symbols.insert("prompt".to_string(), "⟩".to_string());
         symbols.insert("bullet".to_string(), " ".to_string());
@@ -509,9 +537,10 @@ impl LlaDialoguerTheme {
     fn format_select_prefix(&self, active: bool) -> String {
         if active {
             format!(
-                "{} {}",
-                self.get_symbol("pointer").color(self.get_color("accent")),
-                self.get_symbol("bullet").color(self.get_color("prompt"))
+                " {} ",
+                self.get_symbol("pointer")
+                    .color(self.get_color("accent"))
+                    .bold(),
             )
         } else {
             "   ".to_string()
@@ -609,29 +638,25 @@ impl dialoguer::theme::Theme for LlaDialoguerTheme {
     ) -> std::fmt::Result {
         let padding = " ".repeat(self.padding);
         let check_symbol = if checked {
-            format!(
-                "{}{}",
-                self.get_symbol("checked").color(self.get_color("success")),
-                "·".color(self.get_color("gradient2"))
-            )
+            self.get_symbol("checked")
+                .color(self.get_color("success"))
+                .bold()
+                .to_string()
         } else {
-            format!(
-                "{}{}",
-                self.get_symbol("unchecked")
-                    .color(self.get_color("inactive")),
-                " ".color(self.get_color("gradient3"))
-            )
+            self.get_symbol("unchecked")
+                .color(self.get_color("inactive"))
+                .to_string()
         };
 
-        let text_style = if active {
-            text.color(self.get_color("highlight")).bold()
-        } else {
-            text.color(self.get_color("inactive"))
+        let text_style = match (active, checked) {
+            (true, _) => text.color(self.get_color("highlight")).bold(),
+            (false, true) => text.color(self.get_color("info")),
+            (false, false) => text.color(self.get_color("inactive")),
         };
 
         write!(
             f,
-            "{}{}{} {}",
+            "{}{}{}  {}",
             padding,
             self.format_select_prefix(active),
             check_symbol,

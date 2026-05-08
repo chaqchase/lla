@@ -12,7 +12,7 @@ use lla_plugin_interface::{
     proto::{plugin_message::Message, PluginMessage},
     PluginApi, CURRENT_PLUGIN_API_VERSION,
 };
-use lla_plugin_utils::ui::components::LlaDialoguerTheme;
+use lla_plugin_utils::ui::components::{BoxComponent, BoxStyle, LlaDialoguerTheme};
 use prost::Message as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -291,7 +291,7 @@ impl<'a> InstallerUi<'a> {
     }
 
     fn format_status(&self, kind: StatusKind, message: impl AsRef<str>) -> String {
-        format!("{} {}", self.status_icon(kind), message.as_ref())
+        format!("  {} {}", self.status_icon(kind), message.as_ref())
     }
 
     fn print_status(&self, kind: StatusKind, message: impl AsRef<str>) {
@@ -301,31 +301,25 @@ impl<'a> InstallerUi<'a> {
 
     fn section(&self, title: &str) {
         self.blank_line();
-        self.write_stdout(self.accent_text(&format!("▸ {}", title)));
-        let underline = "─".repeat(title.chars().count() + 4);
-        self.write_stdout(self.muted_text(&underline));
+        let dot = self.stylize("›", self.accent_color(), true);
+        let label = self.accent_text(title);
+        self.write_stdout(format!("  {} {}", dot, label));
     }
 
     fn banner(&self, title: &str) {
-        let padding = 10;
-        let width = title.chars().count() + padding;
-        let line = "═".repeat(width);
-        self.blank_line();
-        self.write_stdout(self.accent_text(&format!("╔{}╗", line)));
-        self.write_stdout(self.highlight_text(&format!("║{: ^width$}║", title, width = width)));
-        self.write_stdout(self.accent_text(&format!("╚{}╝", line)));
-    }
-
-    fn bullet_line(&self, label: &str, value: &str) {
-        let bullet = self.highlight_text("•");
-        let label_text = self.highlight_text(&format!("{}:", label));
-        self.write_stdout(format!("{} {} {}", bullet, label_text, value));
+        let content = format!("  {}", title);
+        let output = BoxComponent::new(content)
+            .style(BoxStyle::Rounded)
+            .title(self.accent_text("lla"))
+            .padding(1)
+            .render();
+        self.write_stdout(output);
     }
 
     fn name_with_version(&self, name: &str, version: &str) -> String {
         let version_tag = format!("v{}", version);
         format!(
-            "{} {}",
+            "{}  {}",
             self.accent_text(name),
             self.muted_text(&version_tag)
         )
@@ -508,31 +502,84 @@ impl InstallSummary {
     }
 
     fn display(&self, ui: &InstallerUi) {
-        ui.section("Installation Summary");
-
         if self.successful.is_empty() && self.failed.is_empty() {
             ui.print_status(StatusKind::Info, "No plugins processed");
             return;
         }
 
+        let mut lines: Vec<String> = Vec::new();
+
         if !self.successful.is_empty() {
-            ui.write_stdout(ui.muted_text("Installed"));
+            let header = format!(
+                "  {} {}",
+                ui.stylize("●", ui.success_color(), true),
+                ui.stylize(
+                    &format!("Installed ({})", self.successful.len()),
+                    ui.success_color(),
+                    true,
+                )
+            );
+            lines.push(header);
+            lines.push(String::new());
             for (name, version) in &self.successful {
-                let entry = ui.name_with_version(name, version);
-                ui.print_status(StatusKind::Success, entry);
-            }
-            if !self.failed.is_empty() {
-                ui.blank_line();
+                lines.push(format!(
+                    "      {}  {}",
+                    ui.accent_text(name),
+                    ui.muted_text(&format!("v{}", version))
+                ));
             }
         }
 
+        if !self.successful.is_empty() && !self.failed.is_empty() {
+            lines.push(String::new());
+        }
+
         if !self.failed.is_empty() {
-            ui.write_stdout(ui.muted_text("Needs attention"));
+            let header = format!(
+                "  {} {}",
+                ui.stylize("●", ui.error_color(), true),
+                ui.stylize(
+                    &format!("Failed ({})", self.failed.len()),
+                    ui.error_color(),
+                    true,
+                )
+            );
+            lines.push(header);
+            lines.push(String::new());
             for (name, error) in &self.failed {
-                let entry = format!("{} {}", ui.highlight_text(name), ui.error_text(error));
-                ui.print_status(StatusKind::Error, entry);
+                lines.push(format!(
+                    "      {}  {}",
+                    ui.highlight_text(name),
+                    ui.error_text(error)
+                ));
             }
         }
+
+        let content = lines.join("\n");
+        let output = BoxComponent::new(content)
+            .style(BoxStyle::Rounded)
+            .title(ui.accent_text("Summary"))
+            .padding(1)
+            .render();
+        ui.write_stdout(output);
+
+        let total = self.successful.len() + self.failed.len();
+        ui.write_stdout(format!(
+            "  {}  {} {} {} {}",
+            ui.muted_text("∑"),
+            ui.stylize(
+                &format!("{} installed", self.successful.len()),
+                ui.success_color(),
+                false,
+            ),
+            ui.muted_text("·"),
+            ui.stylize(
+                &format!("{} failed", self.failed.len()),
+                ui.error_color(),
+                false,
+            ),
+            ui.muted_text(&format!("· {} total", total))
+        ));
     }
 }
 
@@ -559,10 +606,32 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
 
     let install_path_display = install_path.display().to_string();
 
-    ui.section("Environment");
-    ui.bullet_line("Platform", &target.human_label());
-    ui.bullet_line("Install Path", &install_path_display);
-    ui.bullet_line("Requested", &requested_version);
+    let env_lines = vec![
+        format!(
+            "  {}  {}  {}",
+            ui.muted_text("Platform    "),
+            ui.muted_text("│"),
+            ui.highlight_text(&target.human_label())
+        ),
+        format!(
+            "  {}  {}  {}",
+            ui.muted_text("Install Path"),
+            ui.muted_text("│"),
+            ui.highlight_text(&install_path_display)
+        ),
+        format!(
+            "  {}  {}  {}",
+            ui.muted_text("Requested   "),
+            ui.muted_text("│"),
+            ui.highlight_text(&requested_version)
+        ),
+    ];
+    let env_box = BoxComponent::new(env_lines.join("\n"))
+        .style(BoxStyle::Rounded)
+        .title(ui.accent_text("Environment"))
+        .padding(1)
+        .render();
+    ui.write_stdout(env_box);
 
     let release_message = match normalized_version.as_deref() {
         Some(tag) => format!("Fetching release {}", tag),
@@ -621,26 +690,32 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
         &ui,
     )?;
 
-    ui.section("Summary");
     let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    ui.print_status(
-        StatusKind::Info,
-        format!("Previously running {}", ui.highlight_text(&current_version)),
-    );
-    ui.print_status(
-        StatusKind::Success,
-        format!("Now running {}", ui.highlight_text(&release.tag_name)),
-    );
-    ui.print_status(
-        StatusKind::Info,
+    let summary_lines = vec![
         format!(
-            "Binary installed to {}",
-            ui.highlight_text(&install_path_display)
+            "  {}  {}  {}  {}",
+            ui.muted_text("Previous"),
+            ui.muted_text(&current_version),
+            ui.stylize("→", ui.accent_color(), true),
+            ui.stylize(&release.tag_name, ui.success_color(), true),
         ),
-    );
+        format!(
+            "  {}  {}",
+            ui.muted_text("Path    "),
+            ui.highlight_text(&install_path_display),
+        ),
+    ];
+    let summary_content = summary_lines.join("\n");
+    let summary_box = BoxComponent::new(summary_content)
+        .style(BoxStyle::Rounded)
+        .title(ui.accent_text("Upgrade Complete"))
+        .padding(1)
+        .render();
+    ui.write_stdout(summary_box);
+
     ui.print_status(
         StatusKind::Info,
-        "Run `lla --version` to verify the upgrade",
+        format!("Run {} to verify", ui.highlight_text("lla --version")),
     );
 
     // Keep the temporary directory alive until here so the downloaded file is not removed mid-install
@@ -839,6 +914,16 @@ impl PluginInstaller {
 
     fn ui(&self) -> InstallerUi<'_> {
         InstallerUi::new(&self.color_state)
+    }
+
+    fn truncate_desc(desc: &str, max: usize) -> String {
+        if desc.len() <= max {
+            desc.to_string()
+        } else if max > 1 {
+            format!("{}…", &desc[..max - 1])
+        } else {
+            String::new()
+        }
     }
 
     fn get_plugin_version(&self, plugin_dir: &Path) -> Result<String> {
@@ -1304,17 +1389,36 @@ impl PluginInstaller {
             return Ok(plugins.to_vec());
         }
 
+        let max_name_width = plugins.iter().map(|p| p.name.len()).max().unwrap_or(0);
+        let max_ver_width = plugins
+            .iter()
+            .map(|p| p.version.len() + 1)
+            .max()
+            .unwrap_or(0);
+
         ui.section("Select Plugins");
-        ui.write_stdout(ui.muted_text("Space to toggle, Enter to confirm"));
-        ui.blank_line();
+
+        let tw = terminal_size::terminal_size()
+            .map(|(w, _)| w.0 as usize)
+            .unwrap_or(80);
+        // multiselect prefix (~8) + name + ver + separators
+        let fixed_cols = 8 + max_name_width + 2 + max_ver_width + 2 + 1 + 2;
+        let desc_budget = tw.saturating_sub(fixed_cols);
 
         let theme = LlaDialoguerTheme::default();
         let items: Vec<String> = plugins
             .iter()
             .map(|plugin| {
-                let name = ui.name_with_version(&plugin.name, &plugin.version);
-                let description = ui.muted_text(&format!("– {}", plugin.description));
-                format!("{} {}", name, description)
+                let padded_name = format!("{:<width$}", plugin.name, width = max_name_width);
+                let padded_ver = format!("v{:<width$}", plugin.version, width = max_ver_width - 1);
+                let desc = Self::truncate_desc(&plugin.description, desc_budget);
+                format!(
+                    "{}  {}  {}  {}",
+                    ui.accent_text(&padded_name),
+                    ui.muted_text(&padded_ver),
+                    ui.muted_text("│"),
+                    desc
+                )
             })
             .collect();
 
@@ -1409,26 +1513,43 @@ impl PluginInstaller {
 
         let ui = self.ui();
 
-        let plugin_names: Vec<String> = plugin_dirs
+        let plugins_info: Vec<(String, String)> = plugin_dirs
             .iter()
             .map(|p| {
                 let name = Self::get_display_name(p);
                 let version = self
                     .get_plugin_version(p)
                     .unwrap_or_else(|_| "unknown".to_string());
-                ui.name_with_version(&name, &version)
+                (name, version)
             })
             .collect();
 
-        if plugin_names.is_empty() {
+        if plugins_info.is_empty() {
             return Err(LlaError::Plugin("No plugins found".to_string()));
         }
 
+        let max_name_width = plugins_info.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
+        let max_ver_width = plugins_info
+            .iter()
+            .map(|(_, v)| v.len() + 1)
+            .max()
+            .unwrap_or(0);
+
         ui.section("Select Plugins");
-        ui.write_stdout(ui.muted_text("Space to toggle, Enter to confirm"));
-        ui.blank_line();
 
         let theme = LlaDialoguerTheme::default();
+        let plugin_names: Vec<String> = plugins_info
+            .iter()
+            .map(|(name, version)| {
+                let padded_name = format!("{:<width$}", name, width = max_name_width);
+                let padded_ver = format!("v{:<width$}", version, width = max_ver_width - 1);
+                format!(
+                    "{}  {}",
+                    ui.accent_text(&padded_name),
+                    ui.muted_text(&padded_ver),
+                )
+            })
+            .collect();
 
         let selections = MultiSelect::with_theme(&theme)
             .with_prompt("Select plugins to install")
@@ -1449,7 +1570,6 @@ impl PluginInstaller {
     pub fn install_from_prebuilt(&self) -> Result<()> {
         let ui = self.ui();
         ui.banner("Prebuilt Plugin Installation");
-        ui.section("Release Details");
 
         let host = HostTarget::detect()?;
         let agent = Self::github_agent();
@@ -1474,12 +1594,34 @@ impl PluginInstaller {
 
         let checksum = Self::fetch_asset_checksum(&agent, &release, &asset.name)?;
 
-        ui.bullet_line("Release", &release.tag_name);
-        ui.bullet_line("Asset", &asset.name);
+        let mut detail_lines = vec![
+            format!(
+                "  {}  {}  {}",
+                ui.muted_text("Release "),
+                ui.muted_text("│"),
+                ui.highlight_text(&release.tag_name)
+            ),
+            format!(
+                "  {}  {}  {}",
+                ui.muted_text("Asset   "),
+                ui.muted_text("│"),
+                ui.highlight_text(&asset.name)
+            ),
+        ];
         if let Some(ref sum) = checksum {
-            ui.bullet_line("Checksum", sum);
+            detail_lines.push(format!(
+                "  {}  {}  {}",
+                ui.muted_text("Checksum"),
+                ui.muted_text("│"),
+                ui.muted_text(sum)
+            ));
         }
-        ui.blank_line();
+        let detail_box = BoxComponent::new(detail_lines.join("\n"))
+            .style(BoxStyle::Rounded)
+            .title(ui.accent_text("Release"))
+            .padding(1)
+            .render();
+        ui.write_stdout(detail_box);
 
         let temp_dir = tempfile::tempdir()?;
         let archive_path = temp_dir.path().join(&asset.name);
@@ -1640,9 +1782,19 @@ impl PluginInstaller {
     pub fn install_from_git(&self, url: &str) -> Result<()> {
         let ui = self.ui();
         ui.banner("Git Installation");
-        ui.section("Repository");
-        ui.bullet_line("Repository", url);
-        ui.blank_line();
+
+        let repo_line = format!(
+            "  {}  {}  {}",
+            ui.muted_text("Repository"),
+            ui.muted_text("│"),
+            ui.highlight_text(url)
+        );
+        let repo_box = BoxComponent::new(repo_line)
+            .style(BoxStyle::Rounded)
+            .title(ui.accent_text("Source"))
+            .padding(1)
+            .render();
+        ui.write_stdout(repo_box);
 
         let repo_name = url
             .split('/')
@@ -1688,9 +1840,19 @@ impl PluginInstaller {
     pub fn install_from_directory(&self, dir: &str) -> Result<()> {
         let ui = self.ui();
         ui.banner("Local Installation");
-        ui.section("Directory");
-        ui.bullet_line("Directory", dir);
-        ui.blank_line();
+
+        let dir_line = format!(
+            "  {}  {}  {}",
+            ui.muted_text("Directory"),
+            ui.muted_text("│"),
+            ui.highlight_text(dir)
+        );
+        let dir_box = BoxComponent::new(dir_line)
+            .style(BoxStyle::Rounded)
+            .title(ui.accent_text("Source"))
+            .padding(1)
+            .render();
+        ui.write_stdout(dir_box);
 
         let source_dir = PathBuf::from(dir.trim_end_matches('/'))
             .canonicalize()
@@ -2190,21 +2352,30 @@ impl PluginInstaller {
         }
 
         let ui = self.ui();
-        ui.banner("Update Plugins");
-        ui.print_status(
-            StatusKind::Info,
-            format!(
-                "Processing {} {}",
-                plugins.len(),
-                if plugins.len() == 1 {
-                    "plugin"
-                } else {
-                    "plugins"
-                }
-            ),
-        );
+        let plugin_count = plugins.len();
 
-        let mut success = false;
+        let header_content = format!(
+            "  Checking {} {} for updates.",
+            plugin_count,
+            if plugin_count == 1 {
+                "plugin"
+            } else {
+                "plugins"
+            }
+        );
+        let header = BoxComponent::new(header_content)
+            .style(BoxStyle::Rounded)
+            .title(ui.accent_text("Plugin Update"))
+            .padding(1)
+            .render();
+        ui.write_stdout(header);
+
+        // Track results for summary
+        let mut updated: Vec<(String, String, String)> = Vec::new(); // (name, old, new)
+        let mut up_to_date: Vec<(String, String)> = Vec::new(); // (name, version)
+        let mut failed: Vec<(String, String)> = Vec::new(); // (name, error)
+        let mut prebuilt: Vec<String> = Vec::new();
+
         for (name, metadata) in plugins.into_iter() {
             let plugin_label = ui.highlight_text(name);
 
@@ -2220,23 +2391,17 @@ impl PluginInstaller {
                     let temp_dir = match tempfile::tempdir() {
                         Ok(dir) => dir,
                         Err(e) => {
+                            let err_msg = format!("temp directory error: {}", e);
                             if let Some(ref pb) = spinner {
-                                let msg = format!(
-                                    "{} {}",
-                                    plugin_label,
-                                    ui.error_text(&format!("temp directory error: {}", e))
-                                );
+                                let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                                 ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                             } else {
                                 ui.print_status(
                                     StatusKind::Error,
-                                    format!(
-                                        "{} {}",
-                                        plugin_label,
-                                        ui.error_text(&format!("temp directory error: {}", e))
-                                    ),
+                                    format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                                 );
                             }
+                            failed.push((name.clone(), err_msg));
                             continue;
                         }
                     };
@@ -2247,23 +2412,17 @@ impl PluginInstaller {
                         .output()?;
 
                     if !output.status.success() {
+                        let err_msg = "Failed to clone repository".to_string();
                         if let Some(ref pb) = spinner {
-                            let msg = format!(
-                                "{} {}",
-                                plugin_label,
-                                ui.error_text("Failed to clone repository")
-                            );
+                            let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                             ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                         } else {
                             ui.print_status(
                                 StatusKind::Error,
-                                format!(
-                                    "{} {}",
-                                    plugin_label,
-                                    ui.error_text("Failed to clone repository")
-                                ),
+                                format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                             );
                         }
+                        failed.push((name.clone(), err_msg));
                         continue;
                     }
 
@@ -2282,23 +2441,17 @@ impl PluginInstaller {
                             .map(|n| n == name)
                             .unwrap_or(false)
                     }) else {
+                        let err_msg = "Plugin not found in repository".to_string();
                         if let Some(ref pb) = spinner {
-                            let msg = format!(
-                                "{} {}",
-                                plugin_label,
-                                ui.error_text("Plugin not found in repository")
-                            );
+                            let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                             ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                         } else {
                             ui.print_status(
                                 StatusKind::Error,
-                                format!(
-                                    "{} {}",
-                                    plugin_label,
-                                    ui.error_text("Plugin not found in repository")
-                                ),
+                                format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                             );
                         }
+                        failed.push((name.clone(), err_msg));
                         continue;
                     };
 
@@ -2308,6 +2461,11 @@ impl PluginInstaller {
                             let mut updated_metadata = metadata.clone();
 
                             let (kind, message) = if new_version != metadata.version {
+                                updated.push((
+                                    name.clone(),
+                                    metadata.version.clone(),
+                                    new_version.clone(),
+                                ));
                                 (
                                     StatusKind::Success,
                                     format!(
@@ -2320,12 +2478,13 @@ impl PluginInstaller {
                                     ),
                                 )
                             } else {
+                                up_to_date.push((name.clone(), new_version.clone()));
                                 (
                                     StatusKind::Info,
                                     format!(
                                         "{} {}",
                                         plugin_label,
-                                        ui.muted_text(&format!("already at {}", new_version))
+                                        ui.muted_text(&format!("already at v{}", new_version))
                                     ),
                                 )
                             };
@@ -2333,7 +2492,6 @@ impl PluginInstaller {
                             updated_metadata.version = new_version;
                             updated_metadata.update_timestamp();
                             self.update_plugin_metadata(name, updated_metadata)?;
-                            success = true;
 
                             if let Some(ref pb) = spinner {
                                 ui.complete_progress_standalone(pb, kind, message);
@@ -2342,16 +2500,17 @@ impl PluginInstaller {
                             }
                         }
                         Err(e) => {
+                            let err_msg = e.to_string();
                             if let Some(ref pb) = spinner {
-                                let msg =
-                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string()));
+                                let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                                 ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                             } else {
                                 ui.print_status(
                                     StatusKind::Error,
-                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
+                                    format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                                 );
                             }
+                            failed.push((name.clone(), err_msg));
                         }
                     }
                 }
@@ -2359,23 +2518,17 @@ impl PluginInstaller {
                     let source_dir = PathBuf::from(directory);
 
                     if !source_dir.exists() {
+                        let err_msg = "Source directory not found".to_string();
                         if let Some(ref pb) = spinner {
-                            let msg = format!(
-                                "{} {}",
-                                plugin_label,
-                                ui.error_text("Source directory not found")
-                            );
+                            let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                             ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                         } else {
                             ui.print_status(
                                 StatusKind::Error,
-                                format!(
-                                    "{} {}",
-                                    plugin_label,
-                                    ui.error_text("Source directory not found")
-                                ),
+                                format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                             );
                         }
+                        failed.push((name.clone(), err_msg));
                         continue;
                     }
 
@@ -2385,6 +2538,11 @@ impl PluginInstaller {
                             let mut updated_metadata = metadata.clone();
 
                             let (kind, message) = if new_version != metadata.version {
+                                updated.push((
+                                    name.clone(),
+                                    metadata.version.clone(),
+                                    new_version.clone(),
+                                ));
                                 (
                                     StatusKind::Success,
                                     format!(
@@ -2397,12 +2555,13 @@ impl PluginInstaller {
                                     ),
                                 )
                             } else {
+                                up_to_date.push((name.clone(), new_version.clone()));
                                 (
                                     StatusKind::Info,
                                     format!(
                                         "{} {}",
                                         plugin_label,
-                                        ui.muted_text(&format!("already at {}", new_version))
+                                        ui.muted_text(&format!("already at v{}", new_version))
                                     ),
                                 )
                             };
@@ -2410,7 +2569,6 @@ impl PluginInstaller {
                             updated_metadata.version = new_version;
                             updated_metadata.update_timestamp();
                             self.update_plugin_metadata(name, updated_metadata)?;
-                            success = true;
 
                             if let Some(ref pb) = spinner {
                                 ui.complete_progress_standalone(pb, kind, message);
@@ -2419,45 +2577,115 @@ impl PluginInstaller {
                             }
                         }
                         Err(e) => {
+                            let err_msg = e.to_string();
                             if let Some(ref pb) = spinner {
-                                let msg =
-                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string()));
+                                let msg = format!("{} {}", plugin_label, ui.error_text(&err_msg));
                                 ui.complete_progress_standalone(pb, StatusKind::Error, msg);
                             } else {
                                 ui.print_status(
                                     StatusKind::Error,
-                                    format!("{} {}", plugin_label, ui.error_text(&e.to_string())),
+                                    format!("{} {}", plugin_label, ui.error_text(&err_msg)),
                                 );
                             }
+                            failed.push((name.clone(), err_msg));
                         }
                     }
                 }
                 PluginSource::Prebuilt { .. } => {
+                    let msg = format!(
+                        "{} {}",
+                        plugin_label,
+                        ui.muted_text("prebuilt · run `lla install --prebuilt` to refresh")
+                    );
                     if let Some(ref pb) = spinner {
-                        let msg = format!(
-                            "{} {}\n  {}",
-                            plugin_label,
-                            ui.muted_text("uses prebuilt binaries"),
-                            ui.muted_text("Run `lla install --prebuilt` to refresh")
-                        );
                         ui.complete_progress_standalone(pb, StatusKind::Info, msg);
                     } else {
-                        ui.print_status(
-                            StatusKind::Info,
-                            format!(
-                                "{} {}\n  {}",
-                                plugin_label,
-                                ui.muted_text("uses prebuilt binaries"),
-                                ui.muted_text("Run `lla install --prebuilt` to refresh")
-                            ),
-                        );
+                        ui.print_status(StatusKind::Info, msg);
                     }
-                    success = true;
+                    prebuilt.push(name.clone());
                 }
             }
         }
 
-        if success {
+        // Render update summary
+        let mut summary_lines: Vec<String> = Vec::new();
+
+        if !updated.is_empty() {
+            summary_lines.push(format!(
+                "  {} {}",
+                ui.stylize("●", ui.success_color(), true),
+                ui.stylize(
+                    &format!("Updated ({})", updated.len()),
+                    ui.success_color(),
+                    true,
+                )
+            ));
+            summary_lines.push(String::new());
+            for (name, old_ver, new_ver) in &updated {
+                summary_lines.push(format!(
+                    "      {}  {}",
+                    ui.accent_text(name),
+                    ui.muted_text(&format!("v{} → v{}", old_ver, new_ver))
+                ));
+            }
+        }
+
+        if !updated.is_empty() && !up_to_date.is_empty() {
+            summary_lines.push(String::new());
+        }
+
+        if !up_to_date.is_empty() {
+            summary_lines.push(format!(
+                "  {} {}",
+                ui.muted_text("●"),
+                ui.muted_text(&format!("Up to date ({})", up_to_date.len()))
+            ));
+            summary_lines.push(String::new());
+            for (name, ver) in &up_to_date {
+                summary_lines.push(format!(
+                    "      {}  {}",
+                    ui.muted_text(name),
+                    ui.muted_text(&format!("v{}", ver))
+                ));
+            }
+        }
+
+        if !failed.is_empty() {
+            if !summary_lines.is_empty() {
+                summary_lines.push(String::new());
+            }
+            summary_lines.push(format!(
+                "  {} {}",
+                ui.stylize("●", ui.error_color(), true),
+                ui.stylize(
+                    &format!("Failed ({})", failed.len()),
+                    ui.error_color(),
+                    true,
+                )
+            ));
+            summary_lines.push(String::new());
+            for (name, err) in &failed {
+                summary_lines.push(format!(
+                    "      {}  {}",
+                    ui.highlight_text(name),
+                    ui.error_text(err)
+                ));
+            }
+        }
+
+        if !summary_lines.is_empty() {
+            ui.blank_line();
+            let content = summary_lines.join("\n");
+            let summary_box = BoxComponent::new(content)
+                .style(BoxStyle::Rounded)
+                .title(ui.accent_text("Update Summary"))
+                .padding(1)
+                .render();
+            ui.write_stdout(summary_box);
+        }
+
+        let has_success = !updated.is_empty() || !up_to_date.is_empty() || !prebuilt.is_empty();
+        if has_success {
             Ok(())
         } else if let Some(name) = plugin_name {
             Err(LlaError::Plugin(format!("Failed to update {}", name)))

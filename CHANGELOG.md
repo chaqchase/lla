@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Folder Cleaner Plugin** (`folder_cleaner`): find and clean common generated folders from projects.
+- **Color output mode**: control when lla emits colored output.
+- `sizemap` total summary output for a quick aggregate size overview.
+
+### Changed
+
+- Refined plugin management and installer output with boxed sections, aligned plugin/version rows, clearer update/install summaries, and terminal-width-aware truncation.
+
+### Fixed
+
+- Formatter plugin loading now reports safe errors instead of unwrapping failures.
+
 ## [0.5.5] - 2026-05-02
 
 ### Fixed
