@@ -1,6 +1,6 @@
 [package]
 name = "folder_cleaner"
-version = "0.5.6"
+version = "0.5.7"
 edition = "2021"
 description = "Safety-first folder organization and cleanup plugin for lla"
 
