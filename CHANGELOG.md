@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Existing configs with a missing plugins directory now recreate that directory during load instead of warning and falling back to defaults.
+
 ## [0.5.8] - 2026-07-04
 
 ### Added
