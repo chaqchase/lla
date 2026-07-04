@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{validate_long_date_format, Config};
 use crate::error::Result;
 use crate::theme;
 use colored::*;
@@ -237,6 +237,15 @@ pub fn run_wizard() -> Result<()> {
         .with_prompt("Show relative timestamps (e.g., 2h ago) in long view?")
         .default(config.formatters.long.relative_dates)
         .interact()?;
+    let date_format: String = Input::with_theme(&ui_theme)
+        .with_prompt("Date format for absolute timestamps in long view")
+        .with_initial_text(config.formatters.long.date_format.clone())
+        .allow_empty(false)
+        .validate_with(|value: &String| -> std::result::Result<(), String> {
+            validate_long_date_format("formatters.long.date_format", value)
+                .map_err(|err| err.to_string())
+        })
+        .interact_text()?;
 
     const BASE_LONG_COLUMN_CHOICES: [(&str, &str); 8] = [
         ("Permissions", "permissions"),
@@ -357,6 +366,7 @@ pub fn run_wizard() -> Result<()> {
     config.filter.respect_gitignore = respect_gitignore;
     config.formatters.long.hide_group = hide_group;
     config.formatters.long.relative_dates = relative_dates;
+    config.formatters.long.date_format = date_format;
     config.formatters.long.columns = long_columns.clone();
     config.listers.recursive.max_entries = recursive_limit;
     config.enabled_plugins = selected_plugins;

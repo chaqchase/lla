@@ -504,8 +504,12 @@ fn triplet_no_color(mode: u32, _shift: u32) -> String {
 }
 
 pub fn colorize_date(date: &std::time::SystemTime) -> ColoredString {
+    colorize_date_with_format(date, "%b %d %H:%M")
+}
+
+pub fn colorize_date_with_format(date: &std::time::SystemTime, format: &str) -> ColoredString {
     let datetime: chrono::DateTime<chrono::Local> = (*date).into();
-    let formatted = datetime.format("%b %d %H:%M").to_string();
+    let formatted = datetime.format(format).to_string();
 
     if is_no_color() {
         formatted.normal()
