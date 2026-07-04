@@ -39,6 +39,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--disable-plugin', 'disable-plugin', [CompletionResultType]::ParameterName, 'Disable specific plugins')
             [CompletionResult]::new('--plugins-dir', 'plugins-dir', [CompletionResultType]::ParameterName, 'Specify the plugins directory')
             [CompletionResult]::new('--permission-format', 'permission-format', [CompletionResultType]::ParameterName, 'Format for displaying permissions (symbolic, octal, binary, verbose, compact)')
+            [CompletionResult]::new('--date-format', 'date-format', [CompletionResultType]::ParameterName, 'Format absolute dates in long format using chrono strftime syntax (e.g., ''%Y-%m-%d %H:%M'')')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-V', 'V', [CompletionResultType]::ParameterName, 'Print version information')
