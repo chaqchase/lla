@@ -1,4 +1,4 @@
-use crate::config::{Config, ShortcutCommand};
+use crate::config::{validate_long_date_format, Config, ShortcutCommand};
 use crate::error::{LlaError, Result};
 use crate::filter::{parse_size_range, parse_time_range, NumericRange, TimeRange};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
@@ -53,6 +53,7 @@ pub struct Args {
     pub permission_format: String,
     pub hide_group: bool,
     pub relative_dates: bool,
+    pub date_format: String,
     pub output_mode: OutputMode,
     pub command: Option<Command>,
     pub search: Option<String>,
@@ -533,6 +534,12 @@ impl Args {
                     .long("relative-dates")
                     .help("Show relative dates (e.g., '2h ago') in long format"),
             )
+            .arg(
+                Arg::with_name("date-format")
+                    .long("date-format")
+                    .takes_value(true)
+                    .help("Format absolute dates in long format using chrono strftime syntax (e.g., '%Y-%m-%d %H:%M')"),
+            )
             .subcommand(
                 SubCommand::with_name("install")
                     .about("Install a plugin")
@@ -846,6 +853,7 @@ impl Args {
                     permission_format: config.permission_format.clone(),
                     hide_group: config.formatters.long.hide_group,
                     relative_dates: config.formatters.long.relative_dates,
+                    date_format: config.formatters.long.date_format.clone(),
                     output_mode: OutputMode::Human,
                     command: Some(Command::Shortcut(ShortcutAction::Run(
                         potential_shortcut.clone(),
@@ -1168,6 +1176,12 @@ impl Args {
             .transpose()?
             .unwrap_or_default();
 
+        let date_format = matches
+            .value_of("date-format")
+            .unwrap_or(&config.formatters.long.date_format)
+            .to_string();
+        validate_long_date_format("date-format", &date_format)?;
+
         Ok(Args {
             directory: matches.value_of("directory").unwrap_or(".").to_string(),
             depth: matches
@@ -1252,6 +1266,7 @@ impl Args {
             hide_group: matches.is_present("hide-group") || config.formatters.long.hide_group,
             relative_dates: matches.is_present("relative-dates")
                 || config.formatters.long.relative_dates,
+            date_format,
             output_mode: {
                 let pretty = matches.is_present("pretty");
                 if matches.is_present("json") {

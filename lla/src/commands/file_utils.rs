@@ -841,6 +841,7 @@ pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> 
             args.permission_format.clone(),
             args.hide_group,
             args.relative_dates,
+            args.date_format.clone(),
             columns,
         ))
     } else if args.tree_format {
@@ -1056,6 +1057,7 @@ mod tests {
             permission_format: "symbolic".to_string(),
             hide_group: false,
             relative_dates: false,
+            date_format: crate::config::DEFAULT_LONG_DATE_FORMAT.to_string(),
             output_mode: OutputMode::Human,
             command: None,
             search: None,

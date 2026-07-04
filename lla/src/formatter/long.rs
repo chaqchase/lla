@@ -1,5 +1,6 @@
 use super::column_config::ColumnKey;
 use super::FileFormatter;
+use crate::config::DEFAULT_LONG_DATE_FORMAT;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
@@ -25,6 +26,7 @@ pub struct LongFormatter {
     pub permission_format: String,
     pub hide_group: bool,
     pub relative_dates: bool,
+    pub date_format: String,
     columns: Vec<ColumnKey>,
     has_plugins_column: bool,
 }
@@ -35,6 +37,7 @@ impl LongFormatter {
         permission_format: String,
         hide_group: bool,
         relative_dates: bool,
+        date_format: String,
         columns: Vec<ColumnKey>,
     ) -> Self {
         let filtered_columns: Vec<ColumnKey> = columns
@@ -54,6 +57,7 @@ impl LongFormatter {
             permission_format,
             hide_group,
             relative_dates,
+            date_format,
             columns: final_columns,
             has_plugins_column,
         }
@@ -200,8 +204,21 @@ impl LongFormatter {
         if self.relative_dates {
             colorize_date_relative(&time).to_string()
         } else {
-            colorize_date(&time).to_string()
+            colorize_date_with_format(&time, &self.date_format).to_string()
         }
+    }
+}
+
+impl Default for LongFormatter {
+    fn default() -> Self {
+        Self::new(
+            false,
+            "symbolic".to_string(),
+            false,
+            false,
+            DEFAULT_LONG_DATE_FORMAT.to_string(),
+            vec![ColumnKey::Name],
+        )
     }
 }
 
@@ -262,5 +279,70 @@ fn pad_right(value: &str, width: usize) -> String {
         value.to_string()
     } else {
         format!("{}{}", value, " ".repeat(width - visible))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, Local};
+
+    fn plain(value: &str) -> String {
+        let stripped = strip_ansi_escapes::strip(value).unwrap_or_default();
+        String::from_utf8_lossy(&stripped).into_owned()
+    }
+
+    fn expected(seconds: u64, format: &str) -> String {
+        let time = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds);
+        let datetime: DateTime<Local> = time.into();
+        datetime.format(format).to_string()
+    }
+
+    #[test]
+    fn default_timestamp_format_is_unchanged() {
+        let formatter = LongFormatter::default();
+        let seconds = 1_700_000_000;
+
+        assert_eq!(
+            plain(&formatter.format_timestamp(seconds)),
+            expected(seconds, DEFAULT_LONG_DATE_FORMAT)
+        );
+    }
+
+    #[test]
+    fn custom_timestamp_format_can_include_year() {
+        let mut formatter = LongFormatter::default();
+        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+        let seconds = 1_700_000_000;
+
+        assert_eq!(
+            plain(&formatter.format_timestamp(seconds)),
+            expected(seconds, "%Y-%m-%d %H:%M")
+        );
+    }
+
+    #[test]
+    fn relative_dates_take_precedence_over_custom_format() {
+        let mut formatter = LongFormatter::default();
+        formatter.relative_dates = true;
+        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+        let seconds = 1_700_000_000;
+
+        let rendered = plain(&formatter.format_timestamp(seconds));
+
+        assert_ne!(rendered, expected(seconds, "%Y-%m-%d %H:%M"));
+        assert!(
+            rendered.contains("ago") || rendered.contains("from now") || rendered == "now",
+            "unexpected relative date output: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn zero_timestamp_renders_placeholder() {
+        let mut formatter = LongFormatter::default();
+        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+
+        assert_eq!(formatter.format_timestamp(0), "-");
     }
 }

@@ -458,54 +458,29 @@ fn triplet(mode: u32, shift: u32) -> String {
     format!("{}{}{}", r, w, x)
 }
 
-fn triplet_no_color(mode: u32, _shift: u32) -> String {
-    let file_type = if mode & 0o170000 == 0o120000 {
-        "l"
-    } else if mode & 0o170000 == 0o040000 {
-        "d"
+fn triplet_no_color(mode: u32, shift: u32) -> String {
+    let r = if mode >> (shift + 2) & 1u32 != 0 {
+        "r"
     } else {
         "-"
     };
-    let read = |shift| {
-        if mode >> shift & 0o4u32 != 0u32 {
-            "r"
-        } else {
-            "-"
-        }
+    let w = if mode >> (shift + 1) & 1u32 != 0 {
+        "w"
+    } else {
+        "-"
     };
-    let write = |shift| {
-        if mode >> shift & 0o2u32 != 0u32 {
-            "w"
-        } else {
-            "-"
-        }
-    };
-    let exec = |shift| {
-        if mode >> shift & 0o1u32 != 0u32 {
-            "x"
-        } else {
-            "-"
-        }
-    };
+    let x = if mode >> shift & 1u32 != 0 { "x" } else { "-" };
 
-    format!(
-        "{}{}{}{}{}{}{}{}{}{}",
-        file_type,
-        read(6),
-        write(6),
-        exec(6),
-        read(3),
-        write(3),
-        exec(3),
-        read(0),
-        write(0),
-        exec(0)
-    )
+    format!("{}{}{}", r, w, x)
 }
 
 pub fn colorize_date(date: &std::time::SystemTime) -> ColoredString {
+    colorize_date_with_format(date, "%b %d %H:%M")
+}
+
+pub fn colorize_date_with_format(date: &std::time::SystemTime, format: &str) -> ColoredString {
     let datetime: chrono::DateTime<chrono::Local> = (*date).into();
-    let formatted = datetime.format("%b %d %H:%M").to_string();
+    let formatted = datetime.format(format).to_string();
 
     if is_no_color() {
         formatted.normal()
@@ -572,4 +547,38 @@ pub fn colorize_symlink_target(path: &Path) -> ColoredString {
         .color(get_color(&theme.colors.symlink))
         .italic()
         .underline()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_color_symbolic_permissions_for_directory_are_not_duplicated() {
+        assert_eq!(
+            format_permissions_no_color(0o040755, Some("symbolic")),
+            "drwxr-xr-x"
+        );
+    }
+
+    #[test]
+    fn no_color_symbolic_permissions_for_regular_file_are_not_duplicated() {
+        assert_eq!(
+            format_permissions_no_color(0o100644, Some("symbolic")),
+            "-rw-r--r--"
+        );
+    }
+
+    #[test]
+    fn no_color_non_symbolic_permission_formats_are_unchanged() {
+        assert_eq!(format_permissions_no_color(0o100644, Some("octal")), "-644");
+        assert_eq!(
+            format_permissions_no_color(0o100644, Some("binary")),
+            "-110100100"
+        );
+        assert_eq!(
+            format_permissions_no_color(0o100644, Some("compact")),
+            "644"
+        );
+    }
 }

@@ -151,16 +151,23 @@ Options and tweaks:
   lla -l --relative-dates
   ```
 
+- Show the year in long-format dates:
+
+  ```bash
+  lla -l --date-format "%Y-%m-%d %H:%M"
+  ```
+
 To make these defaults, add to your config (`~/.config/lla/config.toml`):
 
 ```toml
 [formatters.long]
 hide_group = true
 relative_dates = true
+date_format = "%Y-%m-%d %H:%M"
 columns = ["permissions", "size", "modified", "user", "group", "name", "field:git_status", "field:tags"]
 ```
 
-The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `size`, `modified`, `user`, `group`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`).
+The `date_format` value uses Chrono strftime syntax. The default is `%b %d %H:%M`, preserving the existing `Aug 16 00:18` style. The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `size`, `modified`, `user`, `group`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`).
 
 #### Tree Structure
 
@@ -561,6 +568,7 @@ lla --csv
 | `--include-dirs`      | Include recursive directory sizes in metadata (expensive on large directory trees)   | `lla -l --include-dirs`         |
 | `--no-color`          | Disable all colors in the output                                                      | `lla --no-color`                |
 | `--permission-format` | Set the format for displaying permissions (symbolic, octal, binary, verbose, compact) | `lla --permission-format octal` |
+| `--date-format`       | Format absolute dates in long view using Chrono strftime syntax                       | `lla -l --date-format "%Y-%m-%d %H:%M"` |
 
 ### Sort & Filter Options
 

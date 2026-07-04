@@ -1,6 +1,7 @@
 use crate::commands::args::ConfigAction;
 use crate::error::{ConfigErrorKind, LlaError, Result};
 use crate::theme::{load_theme, Theme};
+use chrono::format::{Item, StrftimeItems};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -10,6 +11,8 @@ use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
+
+pub const DEFAULT_LONG_DATE_FORMAT: &str = "%b %d %H:%M";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TreeFormatterConfig {
@@ -104,6 +107,8 @@ pub struct LongFormatterConfig {
     pub hide_group: bool,
     #[serde(default)]
     pub relative_dates: bool,
+    #[serde(default = "default_long_date_format")]
+    pub date_format: String,
     #[serde(default = "default_long_columns")]
     pub columns: Vec<String>,
 }
@@ -113,9 +118,14 @@ impl Default for LongFormatterConfig {
         Self {
             hide_group: false,
             relative_dates: false,
+            date_format: default_long_date_format(),
             columns: default_long_columns(),
         }
     }
+}
+
+fn default_long_date_format() -> String {
+    DEFAULT_LONG_DATE_FORMAT.to_string()
 }
 
 fn default_long_columns() -> Vec<String> {
@@ -127,6 +137,24 @@ fn default_long_columns() -> Vec<String> {
         "group".to_string(),
         "name".to_string(),
     ]
+}
+
+pub fn validate_long_date_format(key: &str, value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
+            key.to_string(),
+            "must not be empty".to_string(),
+        )));
+    }
+
+    if StrftimeItems::new(value).any(|item| matches!(item, Item::Error)) {
+        return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
+            key.to_string(),
+            "must be a valid chrono strftime format".to_string(),
+        )));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -558,6 +586,11 @@ hide_group = {}
 # Default: false
 relative_dates = {}
 
+# Date/time format for absolute dates in long format
+# Uses chrono strftime syntax (e.g., "%Y-%m-%d %H:%M" to show the year)
+# Default: "%b %d %H:%M"
+date_format = "{}"
+
 # Column order for long view (use built-in keys or field:<custom_field> for plugin data)
 columns = {}
 
@@ -631,6 +664,7 @@ editor = {}"#,
             self.formatters.grid.max_width,
             self.formatters.long.hide_group,
             self.formatters.long.relative_dates,
+            self.formatters.long.date_format,
             long_columns,
             table_columns,
             self.listers.recursive.max_entries.unwrap_or(0),
@@ -871,6 +905,11 @@ editor = {}"#,
             }
         }
 
+        validate_long_date_format(
+            "formatters.long.date_format",
+            &self.formatters.long.date_format,
+        )?;
+
         if let Some(max_entries) = self.listers.recursive.max_entries {
             if max_entries > 100_000 {
                 return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
@@ -1095,6 +1134,10 @@ editor = {}"#,
                     ))
                 })?;
                 self.formatters.long.columns = columns;
+            }
+            ["formatters", "long", "date_format"] => {
+                validate_long_date_format(key, value)?;
+                self.formatters.long.date_format = value.to_string();
             }
             ["formatters", "table", "columns"] => {
                 let columns: Vec<String> = serde_json::from_str(value).map_err(|_| {
@@ -1413,6 +1456,7 @@ fn print_config_summary(config_path: &Path, config: &Config) {
             "absolute",
         ),
     );
+    print_row("Long date format", &config.formatters.long.date_format);
     print_row(
         "Hide group",
         format_toggle(config.formatters.long.hide_group, "hidden", "visible"),
@@ -1658,5 +1702,44 @@ fn json_value_to_string(value: &JsonValue) -> String {
                 .collect();
             format!("{{{}}}", items.join(", "))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_date_format_defaults_to_existing_output_shape() {
+        let config = Config::default();
+
+        assert_eq!(config.formatters.long.date_format, DEFAULT_LONG_DATE_FORMAT);
+    }
+
+    #[test]
+    fn generated_config_includes_long_date_format() {
+        let content = Config::default().generate_config_content();
+
+        assert!(content.contains("date_format = \"%b %d %H:%M\""));
+        assert!(content.contains("%Y-%m-%d %H:%M"));
+    }
+
+    #[test]
+    fn config_set_updates_long_date_format() {
+        let plugins_dir = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.plugins_dir = plugins_dir.path().to_path_buf();
+
+        config
+            .set_value("formatters.long.date_format", "%Y-%m-%d %H:%M")
+            .unwrap();
+
+        assert_eq!(config.formatters.long.date_format, "%Y-%m-%d %H:%M");
+    }
+
+    #[test]
+    fn long_date_format_rejects_empty_and_invalid_formats() {
+        assert!(validate_long_date_format("formatters.long.date_format", "").is_err());
+        assert!(validate_long_date_format("formatters.long.date_format", "%Q").is_err());
     }
 }
