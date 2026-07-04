@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Long format now supports custom absolute date formatting with `--date-format` and `[formatters.long].date_format`, making year-inclusive timestamps possible without changing the default output.
+
+### Fixed
+
+- No-color symbolic permissions now render as normal 10-character permission strings instead of repeating permission blocks in long-style output.
+
 ## [0.5.7] - 2026-05-08
 
 ### Added
