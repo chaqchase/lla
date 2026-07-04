@@ -404,6 +404,7 @@ impl Config {
         if path.exists() {
             let contents = fs::read_to_string(path)?;
             let config: Config = toml::from_str(&contents)?;
+            config.ensure_plugins_dir()?;
             config.validate()?;
             Ok(config)
         } else {
@@ -1735,6 +1736,21 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.formatters.long.date_format, "%Y-%m-%d %H:%M");
+    }
+
+    #[test]
+    fn loading_existing_config_creates_missing_plugins_dir() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let plugins_dir = config_dir.path().join("missing-plugins");
+        let config_path = config_dir.path().join("config.toml");
+        let mut config = Config::default();
+        config.plugins_dir = plugins_dir.clone();
+        fs::write(&config_path, config.generate_config_content()).unwrap();
+
+        let loaded = Config::load(&config_path).unwrap();
+
+        assert_eq!(loaded.plugins_dir, plugins_dir);
+        assert!(loaded.plugins_dir.is_dir());
     }
 
     #[test]
