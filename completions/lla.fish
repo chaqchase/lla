@@ -13,6 +13,7 @@ complete -c lla -n "__fish_use_subcommand" -l search-pipe -d 'After --search fin
 complete -c lla -n "__fish_use_subcommand" -l disable-plugin -d 'Disable specific plugins' -r
 complete -c lla -n "__fish_use_subcommand" -l plugins-dir -d 'Specify the plugins directory' -r
 complete -c lla -n "__fish_use_subcommand" -l permission-format -d 'Format for displaying permissions (symbolic, octal, binary, verbose, compact)' -r -f -a "{symbolic	,octal	,binary	,verbose	,compact	}"
+complete -c lla -n "__fish_use_subcommand" -l date-format -d 'Format absolute dates in long format using chrono strftime syntax (e.g., \'%Y-%m-%d %H:%M\')' -r
 complete -c lla -n "__fish_use_subcommand" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_use_subcommand" -s V -l version -d 'Print version information'
 complete -c lla -n "__fish_use_subcommand" -l json -d 'Output a single JSON array'

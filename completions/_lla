@@ -33,6 +33,7 @@ _lla() {
 '*--disable-plugin=[Disable specific plugins]: : ' \
 '--plugins-dir=[Specify the plugins directory]: : ' \
 '--permission-format=[Format for displaying permissions (symbolic, octal, binary, verbose, compact)]: :(symbolic octal binary verbose compact)' \
+'--date-format=[Format absolute dates in long format using chrono strftime syntax (e.g., '\''%Y-%m-%d %H:%M'\'')]: : ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
 '-V[Print version information]' \

@@ -91,7 +91,7 @@ _lla() {
 
     case "${cmd}" in
         lla)
-            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --preset --size --modified --created --case-sensitive --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --relative-dates <directory> diff jump install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
+            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -a -A --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --preset --size --modified --created --case-sensitive --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --no-dirs --no-files --no-symlinks --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --relative-dates --date-format <directory> diff jump install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -167,6 +167,10 @@ _lla() {
                     ;;
                 --permission-format)
                     COMPREPLY=($(compgen -W "symbolic octal binary verbose compact" -- "${cur}"))
+                    return 0
+                    ;;
+                --date-format)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 *)

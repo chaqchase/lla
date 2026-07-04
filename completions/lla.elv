@@ -36,6 +36,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --disable-plugin 'Disable specific plugins'
             cand --plugins-dir 'Specify the plugins directory'
             cand --permission-format 'Format for displaying permissions (symbolic, octal, binary, verbose, compact)'
+            cand --date-format 'Format absolute dates in long format using chrono strftime syntax (e.g., ''%Y-%m-%d %H:%M'')'
             cand -h 'Print help information'
             cand --help 'Print help information'
             cand -V 'Print version information'
