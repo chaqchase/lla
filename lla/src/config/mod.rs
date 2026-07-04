@@ -1726,7 +1726,9 @@ mod tests {
 
     #[test]
     fn config_set_updates_long_date_format() {
+        let plugins_dir = tempfile::tempdir().unwrap();
         let mut config = Config::default();
+        config.plugins_dir = plugins_dir.path().to_path_buf();
 
         config
             .set_value("formatters.long.date_format", "%Y-%m-%d %H:%M")
