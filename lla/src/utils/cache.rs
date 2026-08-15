@@ -51,7 +51,9 @@ impl ListingCache {
             entries: entries.iter().map(SerializableEntry::from).collect(),
         };
 
-        let data = serde_json::to_vec_pretty(&listing)?;
+        // This cache is machine-owned and can be large for recursive listings.
+        // Compact JSON substantially reduces serialization and filesystem work.
+        let data = serde_json::to_vec(&listing)?;
         fs::write(&path, data)?;
         Ok(())
     }

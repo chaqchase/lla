@@ -15,6 +15,7 @@ use commands::command_handler::handle_command;
 use config::Config;
 use error::{LlaError, Result};
 use plugin::PluginManager;
+use std::collections::HashSet;
 use utils::color::set_theme;
 
 fn main() {
@@ -73,6 +74,26 @@ fn load_config() -> Result<(Config, Option<error::LlaError>)> {
 
 fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManager> {
     let mut plugin_manager = PluginManager::new(config.clone());
-    plugin_manager.discover_plugins(&args.plugins_dir)?;
+    match &args.command {
+        Some(Command::ListPlugins | Command::Use) => {
+            plugin_manager.discover_plugins(&args.plugins_dir)?;
+        }
+        Some(Command::PluginAction(name, _, _)) => {
+            let names = HashSet::from([config.resolve_plugin_alias(name)]);
+            plugin_manager.discover_plugins_named(&args.plugins_dir, &names)?;
+        }
+        None => {
+            let mut names: HashSet<_> = config.enabled_plugins.iter().cloned().collect();
+            names.extend(args.enable_plugin.iter().cloned());
+            names.extend(args.disable_plugin.iter().cloned());
+            names.extend(
+                args.search_pipelines
+                    .iter()
+                    .map(|pipeline| pipeline.plugin.clone()),
+            );
+            plugin_manager.discover_plugins_named(&args.plugins_dir, &names)?;
+        }
+        _ => {}
+    }
     Ok(plugin_manager)
 }

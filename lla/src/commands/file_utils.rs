@@ -278,39 +278,47 @@ pub fn convert_metadata(metadata: &std::fs::Metadata) -> EntryMetadata {
     }
 }
 
-fn calculate_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
-    use rayon::prelude::*;
-
+fn calculate_dir_size(path: &Path) -> std::io::Result<u64> {
     if !path.is_dir() {
         return Ok(0);
     }
 
-    let entries: Vec<_> = std::fs::read_dir(path)?.collect::<std::io::Result<_>>()?;
+    // Directory entries are already processed in parallel by the caller. Spawning a
+    // nested Rayon traversal at every level creates a huge number of tiny tasks and
+    // makes metadata-heavy trees dramatically slower. Keep one iterative walk per
+    // top-level directory and avoid metadata syscalls for directories and symlinks.
+    let mut pending = vec![path.to_path_buf()];
+    let mut files = Vec::new();
 
-    entries
-        .par_iter()
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                pending.push(entry.path());
+            } else {
+                files.push(entry.path());
+            }
+        }
+    }
+
+    // Flatten the work before parallelizing it. This keeps a single bounded Rayon
+    // job graph instead of recursively spawning a new parallel reduction for every
+    // directory, while still parallelizing the expensive metadata calls.
+    files
+        .into_par_iter()
         .try_fold(
             || 0u64,
-            |acc, entry| {
-                let metadata = entry.metadata()?;
-                if metadata.is_symlink() {
-                    return Ok(acc);
-                }
-
-                let path = entry.path();
-                let size = if metadata.is_dir() {
-                    calculate_dir_size(&path)?
-                } else {
-                    metadata.len()
-                };
-
-                Ok(acc + size)
-            },
+            |total, file| Ok(total.saturating_add(fs::symlink_metadata(file)?.len())),
         )
-        .try_reduce(|| 0, |a, b| Ok(a + b))
+        .try_reduce(|| 0u64, |left, right| Ok(left.saturating_add(right)))
 }
 
-fn needs_directory_sizes(args: &Args) -> bool {
+fn needs_directory_sizes(args: &Args, config: &Config) -> bool {
     if !args.include_dirs {
         return false;
     }
@@ -321,8 +329,21 @@ fn needs_directory_sizes(args: &Args) -> bool {
     }
 
     // Preserve size-aware behavior for views and operations that consume size.
-    args.long_format
-        || args.table_format
+    (args.long_format
+        && config
+            .formatters
+            .long
+            .columns
+            .iter()
+            .any(|column| column == "size"))
+        || (args.table_format
+            && (config.formatters.table.columns.is_empty()
+                || config
+                    .formatters
+                    .table
+                    .columns
+                    .iter()
+                    .any(|column| column == "size")))
         || args.sizemap_format
         || args.fuzzy_format
         || args.sort_by == "size"
@@ -347,7 +368,7 @@ pub fn list_and_decorate_files(
         )?
     };
 
-    let should_calculate_dir_sizes = needs_directory_sizes(args);
+    let should_calculate_dir_sizes = needs_directory_sizes(args, config);
 
     let entries: Vec<DecoratedEntry> = raw_paths
         .into_par_iter()
@@ -444,6 +465,14 @@ pub fn list_and_decorate_files(
                 return None;
             }
 
+            if !filter
+                .filter_files(std::slice::from_ref(&path))
+                .map(|v| !v.is_empty())
+                .unwrap_or(false)
+            {
+                return None;
+            }
+
             if should_calculate_dir_sizes && metadata.is_dir {
                 if let Ok(dir_size) = calculate_dir_size(&path) {
                     metadata.size = dir_size;
@@ -451,14 +480,6 @@ pub fn list_and_decorate_files(
             }
 
             if !matches_metadata_filters(args, &metadata) {
-                return None;
-            }
-
-            if !filter
-                .filter_files(std::slice::from_ref(&path))
-                .map(|v| !v.is_empty())
-                .unwrap_or(false)
-            {
                 return None;
             }
 
@@ -962,7 +983,7 @@ impl ListingContext {
             depth: args.depth,
             tree_format: args.tree_format,
             recursive_format: args.recursive_format,
-            include_dir_sizes: needs_directory_sizes(args),
+            include_dir_sizes: needs_directory_sizes(args, config),
             dirs_only: args.dirs_only,
             files_only: args.files_only,
             symlinks_only: args.symlinks_only,
@@ -1070,28 +1091,54 @@ mod tests {
     fn skips_directory_sizes_for_non_size_human_views() {
         let mut args = args_with_include_dirs();
         args.grid_format = true;
+        let config = Config::default();
 
-        assert!(!needs_directory_sizes(&args));
+        assert!(!needs_directory_sizes(&args, &config));
 
-        let context = ListingContext::from_args(&args, &Config::default());
+        let context = ListingContext::from_args(&args, &config);
         assert!(!context.include_dir_sizes);
     }
 
     #[test]
     fn includes_directory_sizes_for_size_aware_views_and_outputs() {
+        let config = Config::default();
         let mut long_args = args_with_include_dirs();
         long_args.long_format = true;
-        assert!(needs_directory_sizes(&long_args));
+        assert!(needs_directory_sizes(&long_args, &config));
 
         let mut json_args = args_with_include_dirs();
         json_args.output_mode = OutputMode::Json { pretty: false };
-        assert!(needs_directory_sizes(&json_args));
+        assert!(needs_directory_sizes(&json_args, &config));
 
         let mut sorted_args = args_with_include_dirs();
         sorted_args.sort_by = "size".to_string();
-        assert!(needs_directory_sizes(&sorted_args));
+        assert!(needs_directory_sizes(&sorted_args, &config));
 
-        let context = ListingContext::from_args(&long_args, &Config::default());
+        let context = ListingContext::from_args(&long_args, &config);
         assert!(context.include_dir_sizes);
+    }
+
+    #[test]
+    fn skips_directory_sizes_when_detailed_view_omits_size_column() {
+        let mut args = args_with_include_dirs();
+        args.long_format = true;
+        let mut config = Config::default();
+        config.formatters.long.columns = vec!["permissions".into(), "name".into()];
+
+        assert!(!needs_directory_sizes(&args, &config));
+    }
+
+    #[test]
+    fn iterative_directory_size_counts_files_and_skips_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(root.path().join("one"), [0u8; 7]).unwrap();
+        fs::write(nested.join("two"), [0u8; 11]).unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.path().join("one"), nested.join("link")).unwrap();
+
+        assert_eq!(calculate_dir_size(root.path()).unwrap(), 18);
     }
 }

@@ -482,6 +482,10 @@ pub fn colorize_date_with_format(date: &std::time::SystemTime, format: &str) -> 
     let datetime: chrono::DateTime<chrono::Local> = (*date).into();
     let formatted = datetime.format(format).to_string();
 
+    colorize_date_text(formatted)
+}
+
+pub fn colorize_date_text(formatted: String) -> ColoredString {
     if is_no_color() {
         formatted.normal()
     } else {
