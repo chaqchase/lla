@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use super::FileLister;
 use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
@@ -1231,13 +1233,9 @@ impl SearchBar {
                     false
                 }
             }
-            (KeyCode::End, KeyModifiers::NONE) => {
-                if self.cursor_pos < self.query.len() {
-                    self.cursor_pos = self.query.len();
-                    true
-                } else {
-                    false
-                }
+            (KeyCode::End, KeyModifiers::NONE) if self.cursor_pos < self.query.len() => {
+                self.cursor_pos = self.query.len();
+                true
             }
             _ => false,
         }

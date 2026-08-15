@@ -1778,10 +1778,7 @@ impl PluginInstaller {
 
         let mut plugins = Vec::new();
         for path in plugin_paths {
-            match Self::load_prebuilt_plugin(&path) {
-                Ok(plugin) => plugins.push(plugin),
-                Err(err) => return Err(err),
-            }
+            plugins.push(Self::load_prebuilt_plugin(&path)?);
         }
 
         let selected_plugins = self.select_prebuilt_plugins(&plugins)?;

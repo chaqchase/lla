@@ -129,20 +129,9 @@ impl LastGitCommitPlugin {
 
         match serde_json::from_str::<serde_json::Value>(trimmed) {
             Ok(json) => {
-                let hash = match json.get("hash").and_then(|v| v.as_str()) {
-                    Some(h) => h.to_string(),
-                    None => return None,
-                };
-
-                let author = match json.get("author").and_then(|v| v.as_str()) {
-                    Some(a) => a.to_string(),
-                    None => return None,
-                };
-
-                let time = match json.get("time").and_then(|v| v.as_str()) {
-                    Some(t) => t.to_string(),
-                    None => return None,
-                };
+                let hash = json.get("hash").and_then(|v| v.as_str())?.to_string();
+                let author = json.get("author").and_then(|v| v.as_str())?.to_string();
+                let time = json.get("time").and_then(|v| v.as_str())?.to_string();
 
                 Some((hash, author, time))
             }

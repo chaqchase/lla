@@ -134,9 +134,11 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
             abs_src.to_string_lossy().into_owned(),
         );
 
-        // Heuristic for symlink from mode bits (if present)
+        // Heuristic for symlink from POSIX mode bits (if present).
+        const FILE_TYPE_MASK: u32 = 0o170000;
+        const SYMLINK_TYPE: u32 = 0o120000;
         let is_symlink = match file.unix_mode() {
-            Some(m) => (m & (libc::S_IFMT as u32)) == (libc::S_IFLNK as u32),
+            Some(m) => (m & FILE_TYPE_MASK) == SYMLINK_TYPE,
             None => false,
         };
 

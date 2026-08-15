@@ -163,7 +163,7 @@ lazy_static! {
 
                 if files.is_empty() {
                     list.add_item(
-                        KeyValue::new("Info", format!("No files found for tag [{}].", &args[0]))
+                        KeyValue::new("Info", format!("No files found for tag [{}].", args[0]))
                             .key_color("bright_blue")
                             .value_color("bright_yellow")
                             .key_width(12)
@@ -171,7 +171,7 @@ lazy_static! {
                     );
                 } else {
                     list.add_item(
-                        KeyValue::new(format!("All Files for [{}]", &args[0]), files.join(", "))
+                        KeyValue::new(format!("All Files for [{}]", args[0]), files.join(", "))
                             .key_color("bright_green")
                             .value_color("bright_cyan")
                             .key_width(12)
