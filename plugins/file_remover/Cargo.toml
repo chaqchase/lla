@@ -1,6 +1,6 @@
 [package]
 name = "file_remover"
-version = "0.5.9"
+version = "0.5.10"
 edition = "2021"
 description = "A plugin for lla that provides interactive file and directory removal"
 

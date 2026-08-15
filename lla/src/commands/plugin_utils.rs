@@ -308,6 +308,7 @@ pub fn handle_plugin_action(
 ) -> Result<()> {
     let resolved_plugin = config.resolve_plugin_alias(plugin_name);
     let mut plugin_manager = PluginManager::new(config.clone());
-    plugin_manager.discover_plugins(&config.plugins_dir)?;
+    let requested = std::collections::HashSet::from([resolved_plugin.clone()]);
+    plugin_manager.discover_plugins_named(&config.plugins_dir, &requested)?;
     plugin_manager.perform_plugin_action(&resolved_plugin, action, args)
 }

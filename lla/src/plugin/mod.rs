@@ -25,9 +25,15 @@ fn normalize_plugin_format(format: &str) -> Option<&'static str> {
     }
 }
 
+fn plugin_name_hint(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    Some(stem.strip_prefix("lib").unwrap_or(stem).to_string())
+}
+
 pub struct PluginManager {
     plugins: HashMap<String, (Library, *mut PluginApi)>,
     loaded_paths: HashSet<PathBuf>,
+    supported_formats: HashMap<String, HashSet<String>>,
     pub enabled_plugins: HashSet<String>,
     config: Config,
 }
@@ -38,6 +44,7 @@ impl PluginManager {
         PluginManager {
             plugins: HashMap::new(),
             loaded_paths: HashSet::new(),
+            supported_formats: HashMap::new(),
             enabled_plugins,
             config,
         }
@@ -355,7 +362,34 @@ impl PluginManager {
     }
 
     pub fn discover_plugins<P: AsRef<Path>>(&mut self, plugin_dir: P) -> Result<()> {
+        self.discover_plugins_impl(plugin_dir.as_ref(), None)
+    }
+
+    pub fn discover_plugins_named<P: AsRef<Path>>(
+        &mut self,
+        plugin_dir: P,
+        names: &HashSet<String>,
+    ) -> Result<()> {
         let plugin_dir = plugin_dir.as_ref();
+        if names.is_empty() {
+            if !plugin_dir.is_dir() {
+                fs::create_dir_all(plugin_dir).map_err(|e| {
+                    LlaError::Plugin(format!(
+                        "Failed to create plugin directory {:?}: {}",
+                        plugin_dir, e
+                    ))
+                })?;
+            }
+            return Ok(());
+        }
+        self.discover_plugins_impl(plugin_dir, Some(names))
+    }
+
+    fn discover_plugins_impl(
+        &mut self,
+        plugin_dir: &Path,
+        names: Option<&HashSet<String>>,
+    ) -> Result<()> {
         if !plugin_dir.is_dir() {
             fs::create_dir_all(plugin_dir).map_err(|e| {
                 LlaError::Plugin(format!(
@@ -365,20 +399,69 @@ impl PluginManager {
             })?;
         }
 
+        let mut candidates = Vec::new();
         for entry in fs::read_dir(plugin_dir)? {
             let entry = entry?;
             let path = entry.path();
             if let Some(extension) = path.extension() {
                 if extension == "so" || extension == "dll" || extension == "dylib" {
-                    match self.load_plugin(&path) {
-                        Ok(_) => (),
-                        Err(e) => eprintln!("Failed to load plugin {:?}: {}", path, e),
-                    }
+                    candidates.push(path);
                 }
             }
         }
 
+        if let Some(names) = names {
+            // Installed libraries conventionally use lib<plugin-name>.<ext>. Load
+            // just the requested libraries on the hot path. If a third-party plugin
+            // uses a non-standard filename, fall back to discovery so compatibility
+            // and the existing error suggestions are preserved.
+            let (matching, remaining): (Vec<_>, Vec<_>) = candidates
+                .into_iter()
+                .partition(|path| plugin_name_hint(path).is_some_and(|name| names.contains(&name)));
+
+            self.load_plugin_candidates(matching);
+            if names.iter().any(|name| !self.plugins.contains_key(name)) {
+                self.load_plugin_candidates(remaining);
+            }
+        } else {
+            self.load_plugin_candidates(candidates);
+        }
+
         Ok(())
+    }
+
+    fn load_plugin_candidates(&mut self, candidates: Vec<PathBuf>) {
+        for path in candidates {
+            if let Err(e) = self.load_plugin(&path) {
+                eprintln!("Failed to load plugin {:?}: {}", path, e);
+            }
+        }
+    }
+
+    fn supports_format(&mut self, plugin_name: &str, format: &str) -> bool {
+        if let Some(formats) = self.supported_formats.get(plugin_name) {
+            return formats.contains(format);
+        }
+
+        let formats = self
+            .send_request(
+                plugin_name,
+                PluginMessage {
+                    message: Some(Message::GetSupportedFormats(true)),
+                },
+            )
+            .ok()
+            .and_then(|response| match response.message {
+                Some(Message::FormatsResponse(response)) => {
+                    Some(response.formats.into_iter().collect::<HashSet<_>>())
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        let supports = formats.contains(format);
+        self.supported_formats
+            .insert(plugin_name.to_string(), formats);
+        supports
     }
 
     pub fn enable_plugin(&mut self, name: &str) -> Result<()> {
@@ -418,23 +501,11 @@ impl PluginManager {
             return;
         }
 
-        let supported_names: Vec<_> = {
-            let mut names = Vec::new();
-            for name in self.enabled_plugins.iter() {
-                let request = PluginMessage {
-                    message: Some(Message::GetSupportedFormats(true)),
-                };
-
-                if let Ok(response) = self.send_request(name, request) {
-                    if let Some(Message::FormatsResponse(formats_response)) = response.message {
-                        if formats_response.formats.iter().any(|f| f == plugin_format) {
-                            names.push(name.clone());
-                        }
-                    }
-                }
-            }
-            names
-        };
+        let enabled_names: Vec<_> = self.enabled_plugins.iter().cloned().collect();
+        let supported_names: Vec<_> = enabled_names
+            .into_iter()
+            .filter(|name| self.supports_format(name, plugin_format))
+            .collect();
 
         if supported_names.is_empty() {
             return;
@@ -470,24 +541,9 @@ impl PluginManager {
         }
 
         let mut result = Vec::with_capacity(self.enabled_plugins.len());
-        for name in self.enabled_plugins.iter() {
-            let supports_format = match self.send_request(
-                name,
-                PluginMessage {
-                    message: Some(Message::GetSupportedFormats(true)),
-                },
-            ) {
-                Ok(response) => {
-                    if let Some(Message::FormatsResponse(formats)) = response.message {
-                        formats.formats.iter().any(|f| f == plugin_format)
-                    } else {
-                        false
-                    }
-                }
-                Err(_) => false,
-            };
-
-            if supports_format {
+        let enabled_names: Vec<_> = self.enabled_plugins.iter().cloned().collect();
+        for name in enabled_names {
+            if self.supports_format(&name, plugin_format) {
                 let request = PluginMessage {
                     message: Some(Message::FormatField(proto::FormatFieldRequest {
                         entry: Some(entry.clone()),
@@ -495,7 +551,7 @@ impl PluginManager {
                     })),
                 };
 
-                if let Ok(response) = self.send_request(name, request) {
+                if let Ok(response) = self.send_request(&name, request) {
                     if let Some(Message::FieldResponse(field_response)) = response.message {
                         if let Some(field) = field_response.field {
                             result.push(field);
@@ -612,5 +668,35 @@ impl PluginManager {
                 Err(_) => Ok(false),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_name_hint_handles_platform_library_prefix() {
+        assert_eq!(
+            plugin_name_hint(Path::new("libfile_hash.dylib")).as_deref(),
+            Some("file_hash")
+        );
+        assert_eq!(
+            plugin_name_hint(Path::new("file_hash.dll")).as_deref(),
+            Some("file_hash")
+        );
+    }
+
+    #[test]
+    fn empty_selective_discovery_still_creates_custom_plugin_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let plugin_dir = root.path().join("plugins");
+        let mut manager = PluginManager::new(Config::default());
+
+        manager
+            .discover_plugins_named(&plugin_dir, &HashSet::new())
+            .unwrap();
+
+        assert!(plugin_dir.is_dir());
     }
 }

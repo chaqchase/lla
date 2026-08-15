@@ -5,6 +5,8 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
+use chrono::format::{Item, StrftimeItems};
+use chrono::{DateTime, Local};
 use console;
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use once_cell::sync::Lazy;
@@ -26,7 +28,7 @@ pub struct LongFormatter {
     pub permission_format: String,
     pub hide_group: bool,
     pub relative_dates: bool,
-    pub date_format: String,
+    date_format_items: Vec<Item<'static>>,
     columns: Vec<ColumnKey>,
     has_plugins_column: bool,
 }
@@ -40,6 +42,7 @@ impl LongFormatter {
         date_format: String,
         columns: Vec<ColumnKey>,
     ) -> Self {
+        let date_format_items = compile_date_format(&date_format);
         let filtered_columns: Vec<ColumnKey> = columns
             .into_iter()
             .filter(|column| !(hide_group && column.is_group()))
@@ -57,7 +60,7 @@ impl LongFormatter {
             permission_format,
             hide_group,
             relative_dates,
-            date_format,
+            date_format_items,
             columns: final_columns,
             has_plugins_column,
         }
@@ -204,9 +207,28 @@ impl LongFormatter {
         if self.relative_dates {
             colorize_date_relative(&time).to_string()
         } else {
-            colorize_date_with_format(&time, &self.date_format).to_string()
+            let datetime: DateTime<Local> = time.into();
+            let formatted = datetime
+                .format_with_items(self.date_format_items.iter())
+                .to_string();
+            colorize_date_text(formatted).to_string()
         }
     }
+
+    #[cfg(test)]
+    fn set_date_format(&mut self, format: &str) {
+        self.date_format_items = compile_date_format(format);
+    }
+}
+
+fn compile_date_format(format: &str) -> Vec<Item<'static>> {
+    StrftimeItems::new(format)
+        .parse_to_owned()
+        .unwrap_or_else(|_| {
+            StrftimeItems::new(DEFAULT_LONG_DATE_FORMAT)
+                .parse_to_owned()
+                .expect("default date format must be valid")
+        })
 }
 
 impl Default for LongFormatter {
@@ -312,7 +334,7 @@ mod tests {
     #[test]
     fn custom_timestamp_format_can_include_year() {
         let mut formatter = LongFormatter::default();
-        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+        formatter.set_date_format("%Y-%m-%d %H:%M");
         let seconds = 1_700_000_000;
 
         assert_eq!(
@@ -325,7 +347,7 @@ mod tests {
     fn relative_dates_take_precedence_over_custom_format() {
         let mut formatter = LongFormatter::default();
         formatter.relative_dates = true;
-        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+        formatter.set_date_format("%Y-%m-%d %H:%M");
         let seconds = 1_700_000_000;
 
         let rendered = plain(&formatter.format_timestamp(seconds));
@@ -341,7 +363,7 @@ mod tests {
     #[test]
     fn zero_timestamp_renders_placeholder() {
         let mut formatter = LongFormatter::default();
-        formatter.date_format = "%Y-%m-%d %H:%M".to_string();
+        formatter.set_date_format("%Y-%m-%d %H:%M");
 
         assert_eq!(formatter.format_timestamp(0), "-");
     }

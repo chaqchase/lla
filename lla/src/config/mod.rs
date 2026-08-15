@@ -966,6 +966,10 @@ editor = {}"#,
     }
 
     pub fn set_value(&mut self, key: &str, value: &str) -> Result<()> {
+        self.set_value_at_path(key, value, &Self::get_config_path())
+    }
+
+    fn set_value_at_path(&mut self, key: &str, value: &str, config_path: &Path) -> Result<()> {
         match key.split('.').collect::<Vec<_>>().as_slice() {
             ["plugins_dir"] => {
                 let new_dir = PathBuf::from(value);
@@ -1203,7 +1207,7 @@ editor = {}"#,
                 )));
             }
         }
-        self.save(&Self::get_config_path())?;
+        self.save(config_path)?;
         Ok(())
     }
 
@@ -1727,15 +1731,23 @@ mod tests {
 
     #[test]
     fn config_set_updates_long_date_format() {
-        let plugins_dir = tempfile::tempdir().unwrap();
+        let config_dir = tempfile::tempdir().unwrap();
+        let plugins_dir = config_dir.path().join("plugins");
+        let config_path = config_dir.path().join("config.toml");
+        fs::create_dir(&plugins_dir).unwrap();
         let mut config = Config::default();
-        config.plugins_dir = plugins_dir.path().to_path_buf();
+        config.plugins_dir = plugins_dir;
 
         config
-            .set_value("formatters.long.date_format", "%Y-%m-%d %H:%M")
+            .set_value_at_path(
+                "formatters.long.date_format",
+                "%Y-%m-%d %H:%M",
+                &config_path,
+            )
             .unwrap();
 
         assert_eq!(config.formatters.long.date_format, "%Y-%m-%d %H:%M");
+        assert!(config_path.is_file());
     }
 
     #[test]

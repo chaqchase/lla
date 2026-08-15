@@ -79,6 +79,9 @@ pub fn record_visit(dir: &str, config: &Config) {
 
     let mut store = JumpStore::load();
     let abs = canonicalize_best_effort(path);
+    if store.history.first() == Some(&abs) {
+        return;
+    }
     // Remove existing entry if present and push front
     store.history.retain(|p| p != &abs);
     store.history.insert(0, abs);
