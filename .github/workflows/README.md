@@ -41,12 +41,15 @@ This repository uses regular CI for pull requests and a short two-action release
   - `cargo fmt --all -- --check`
   - `cargo test --workspace`
 - Builds and verifies all release assets before publishing:
-  - CLI binaries: `lla-linux-*`, `lla-macos-*`
+  - full-featured CLI binaries: `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`
+  - core-only static musl binaries: `lla-linux-{amd64,arm64}-musl`
   - plugin archives: `plugins-*.tar.gz` and `plugins-*.zip`
   - Linux packages: `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`
   - `themes.zip`
   - final `SHA256SUMS`
 - GNU/Linux CLI and plugin artifacts are built with pinned Zig tooling and must not require glibc newer than 2.28.
+- Musl binaries must have no ELF interpreter or dynamic dependencies and pass core CLI smoke tests in amd64 and arm64 Alpine containers.
+- amd64 and arm64 APK packages contain static musl binaries; the i686 APK remains a legacy GNU-based package.
 - Publishes crates.io packages in dependency order:
   - `lla_plugin_interface`
   - `lla_plugin_utils`
@@ -73,3 +76,4 @@ This repository uses regular CI for pull requests and a short two-action release
 - `.github/scripts/release_helpers.sh` contains shared validation, expected asset, checksum, crates.io, and GitHub release helpers.
 - `scripts/build_plugins.sh` builds plugin dynamic libraries and produces both `.tar.gz` and `.zip` archives for each release target.
 - `.github/scripts/check_glibc_baseline.sh` enforces the documented GNU/Linux compatibility baseline.
+- `.github/scripts/smoke_test_musl.sh` exercises core features and the explicit plugin error inside Alpine.

@@ -787,6 +787,7 @@ editor = {}"#,
         })
     }
 
+    #[cfg(feature = "dynamic-plugins")]
     pub fn enable_plugin(&mut self, plugin_name: &str) -> Result<()> {
         self.ensure_plugins_dir().map_err(|e| {
             LlaError::Config(ConfigErrorKind::InvalidPath(format!(
@@ -801,6 +802,7 @@ editor = {}"#,
         Ok(())
     }
 
+    #[cfg(feature = "dynamic-plugins")]
     pub fn disable_plugin(&mut self, plugin_name: &str) -> Result<()> {
         self.enabled_plugins.retain(|name| name != plugin_name);
         self.save(&Self::get_config_path())?;
@@ -920,6 +922,7 @@ editor = {}"#,
             }
         }
 
+        #[cfg(feature = "dynamic-plugins")]
         for plugin in &self.enabled_plugins {
             let possible_names = [
                 format!("lib{}.dylib", plugin),
@@ -1769,5 +1772,29 @@ mod tests {
     fn long_date_format_rejects_empty_and_invalid_formats() {
         assert!(validate_long_date_format("formatters.long.date_format", "").is_err());
         assert!(validate_long_date_format("formatters.long.date_format", "%Q").is_err());
+    }
+
+    #[cfg(feature = "dynamic-plugins")]
+    #[test]
+    fn dynamic_build_rejects_missing_enabled_plugins() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.plugins_dir = config_dir.path().join("plugins");
+        fs::create_dir(&config.plugins_dir).unwrap();
+        config.enabled_plugins = vec!["missing_plugin".to_string()];
+
+        assert!(config.validate().is_err());
+    }
+
+    #[cfg(not(feature = "dynamic-plugins"))]
+    #[test]
+    fn static_build_ignores_enabled_plugins_during_validation() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.plugins_dir = config_dir.path().join("plugins");
+        fs::create_dir(&config.plugins_dir).unwrap();
+        config.enabled_plugins = vec!["missing_plugin".to_string()];
+
+        assert!(config.validate().is_ok());
     }
 }

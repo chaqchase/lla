@@ -8,7 +8,7 @@ use crate::commands::search::run_search;
 use crate::config::{self, Config, ShortcutCommand};
 use crate::error::{LlaError, Result};
 use crate::installer::PluginInstaller;
-use crate::plugin::PluginManager;
+use crate::plugin::{PluginManager, DYNAMIC_PLUGINS_AVAILABLE, DYNAMIC_PLUGINS_UNAVAILABLE};
 use crate::utils::color::ColorState;
 use clap_complete;
 use colored::*;
@@ -16,6 +16,28 @@ use dialoguer::{Input, Select};
 use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use std::fs::{self, create_dir_all, File};
 use std::io::Write;
+
+fn command_requires_dynamic_plugins(args: &Args) -> bool {
+    let plugin_command = matches!(
+        &args.command,
+        Some(
+            Command::Install(_)
+                | Command::Update(_)
+                | Command::ListPlugins
+                | Command::Use
+                | Command::PluginAction(_, _, _)
+                | Command::Clean
+                | Command::Shortcut(
+                    ShortcutAction::Add(_, _) | ShortcutAction::Create | ShortcutAction::Run(_, _),
+                )
+        )
+    );
+
+    plugin_command
+        || !args.enable_plugin.is_empty()
+        || !args.disable_plugin.is_empty()
+        || !args.search_pipelines.is_empty()
+}
 
 fn install_completion(
     shell: clap_complete::Shell,
@@ -141,6 +163,10 @@ pub fn handle_command(
     plugin_manager: &mut PluginManager,
     config_error: Option<LlaError>,
 ) -> Result<()> {
+    if !DYNAMIC_PLUGINS_AVAILABLE && command_requires_dynamic_plugins(args) {
+        return Err(LlaError::Plugin(DYNAMIC_PLUGINS_UNAVAILABLE.to_string()));
+    }
+
     let color_state = ColorState::new(args);
 
     match &args.command {

@@ -5,6 +5,10 @@ mod filter;
 mod formatter;
 mod installer;
 mod lister;
+#[cfg(feature = "dynamic-plugins")]
+mod plugin;
+#[cfg(not(feature = "dynamic-plugins"))]
+#[path = "plugin/static.rs"]
 mod plugin;
 mod sorter;
 mod theme;
@@ -14,7 +18,7 @@ use commands::args::{Args, Command};
 use commands::command_handler::handle_command;
 use config::Config;
 use error::{LlaError, Result};
-use plugin::PluginManager;
+use plugin::{PluginManager, DYNAMIC_PLUGINS_AVAILABLE, DYNAMIC_PLUGINS_UNAVAILABLE};
 use std::collections::HashSet;
 use utils::color::set_theme;
 
@@ -34,6 +38,9 @@ fn run() -> Result<()> {
     theme::set_no_color(args.no_color);
 
     if let Some(Command::Clean) = args.command {
+        if !DYNAMIC_PLUGINS_AVAILABLE {
+            return Err(LlaError::Plugin(DYNAMIC_PLUGINS_UNAVAILABLE.to_string()));
+        }
         println!("🔄 Starting plugin cleaning...");
         let mut plugin_manager = PluginManager::new(config.clone());
         return plugin_manager.clean_plugins();
