@@ -9,6 +9,7 @@ This repository uses regular CI for pull requests and a short two-action release
 
 - Triggered on pushes and pull requests to `main` when Rust sources, manifests, proto files, scripts, workflow files, package metadata, or toolchain files change.
 - Runs formatting, Clippy, tests, and release-mode build checks across Linux and macOS.
+- Builds GNU/Linux artifacts against an explicit glibc 2.28 baseline and rejects newer symbol requirements.
 - Clippy stays in regular CI; release publishing is gated by formatting, tests, validation, asset verification, and publish dry-runs.
 
 ## Prepare Release (`prepare-release.yml`)
@@ -45,6 +46,7 @@ This repository uses regular CI for pull requests and a short two-action release
   - Linux packages: `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`
   - `themes.zip`
   - final `SHA256SUMS`
+- GNU/Linux CLI and plugin artifacts are built with pinned Zig tooling and must not require glibc newer than 2.28.
 - Publishes crates.io packages in dependency order:
   - `lla_plugin_interface`
   - `lla_plugin_utils`
@@ -70,3 +72,4 @@ This repository uses regular CI for pull requests and a short two-action release
 - `.github/scripts/prepare_release.sh` updates release versions and changelog content for the generated PR.
 - `.github/scripts/release_helpers.sh` contains shared validation, expected asset, checksum, crates.io, and GitHub release helpers.
 - `scripts/build_plugins.sh` builds plugin dynamic libraries and produces both `.tar.gz` and `.zip` archives for each release target.
+- `.github/scripts/check_glibc_baseline.sh` enforces the documented GNU/Linux compatibility baseline.
