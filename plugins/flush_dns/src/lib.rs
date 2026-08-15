@@ -197,7 +197,7 @@ impl FlushDnsPlugin {
         {
             // Linux command - try systemd-resolve first, then nscd
             let result = std::process::Command::new("sudo")
-                .args(&["systemd-resolve", "--flush-caches"])
+                .args(["systemd-resolve", "--flush-caches"])
                 .output();
 
             if let Ok(output) = result {
@@ -208,7 +208,7 @@ impl FlushDnsPlugin {
 
             // Try nscd as fallback
             let result = std::process::Command::new("sudo")
-                .args(&["systemctl", "restart", "nscd"])
+                .args(["systemctl", "restart", "nscd"])
                 .output();
 
             if let Ok(output) = result {
@@ -224,7 +224,7 @@ impl FlushDnsPlugin {
         {
             // Windows command
             let output = std::process::Command::new("ipconfig")
-                .args(&["/flushdns"])
+                .args(["/flushdns"])
                 .output()
                 .map_err(|e| format!("Failed to execute command: {}", e))?;
 

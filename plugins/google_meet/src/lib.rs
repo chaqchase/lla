@@ -280,7 +280,7 @@ impl GoogleMeetPlugin {
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("cmd")
-                .args(&["/C", "start", &url])
+                .args(["/C", "start", &url])
                 .spawn()
                 .map_err(|e| format!("Failed to open browser: {}", e))?;
         }
@@ -308,7 +308,7 @@ impl GoogleMeetPlugin {
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("cmd")
-                .args(&["/C", "start", url])
+                .args(["/C", "start", url])
                 .spawn()
                 .map_err(|e| format!("Failed to open browser: {}", e))?;
         }
