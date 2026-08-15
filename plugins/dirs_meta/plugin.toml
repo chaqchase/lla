@@ -1,0 +1,37 @@
+[plugin]
+id = "dev.lla.dirs-meta"
+name = "dirs_meta"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "dirs_meta"
+description = "Calculate directory counts and sizes"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["clear-cache", "stats", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:tree"]
+
+[[fields]]
+name = "dir_file_count"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "dir_subdir_count"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "dir_total_size"
+type = "bytes"
+sortable = true
+filterable = true

@@ -1,0 +1,36 @@
+[plugin]
+id = "dev.lla.file-meta"
+name = "file_meta"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "file_meta"
+description = "Expose detailed filesystem metadata"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:selection"]
+
+[[fields]]
+name = "size"
+type = "bytes"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "modified"
+type = "timestamp"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "permissions"
+type = "integer"
+filterable = true

@@ -1,0 +1,18 @@
+[plugin]
+id = "dev.lla.file-mover"
+name = "file_mover"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "file_mover"
+description = "Interactively move files and directories"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["add", "move-all", "move-partial", "clear", "show", "help"]
+
+[permissions]
+filesystem = ["read:tree", "write:selected-destination", "delete:selection"]
+clipboard = true

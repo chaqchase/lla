@@ -177,13 +177,13 @@ impl FlushDnsPlugin {
         {
             // macOS command
             let output = std::process::Command::new("sudo")
-                .args(&["dscacheutil", "-flushcache"])
+                .args(["dscacheutil", "-flushcache"])
                 .output()
                 .map_err(|e| format!("Failed to execute command: {}", e))?;
 
             // Also flush mDNSResponder
             let _ = std::process::Command::new("sudo")
-                .args(&["killall", "-HUP", "mDNSResponder"])
+                .args(["killall", "-HUP", "mDNSResponder"])
                 .output();
 
             if output.status.success() {

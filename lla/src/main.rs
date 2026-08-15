@@ -41,9 +41,8 @@ fn run() -> Result<()> {
         if !DYNAMIC_PLUGINS_AVAILABLE {
             return Err(LlaError::Plugin(DYNAMIC_PLUGINS_UNAVAILABLE.to_string()));
         }
-        println!("🔄 Starting plugin cleaning...");
         let mut plugin_manager = PluginManager::new(config.clone());
-        return plugin_manager.clean_plugins();
+        return plugin_manager.clean_plugins(&args.plugins_dir);
     }
 
     let mut plugin_manager = initialize_plugin_manager(&args, &config)?;
@@ -81,13 +80,18 @@ fn load_config() -> Result<(Config, Option<error::LlaError>)> {
 
 fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManager> {
     let mut plugin_manager = PluginManager::new(config.clone());
+    let plugin_paths = config.plugin_search_paths(Some(&args.plugins_dir));
     match &args.command {
         Some(Command::ListPlugins | Command::Use) => {
-            plugin_manager.discover_plugins(&args.plugins_dir)?;
+            plugin_manager.discover_plugin_paths(&plugin_paths)?;
         }
-        Some(Command::PluginAction(name, _, _)) => {
+        Some(
+            Command::PluginAction(name, _, _)
+            | Command::PluginInfo(name)
+            | Command::PluginPermissions(name),
+        ) => {
             let names = HashSet::from([config.resolve_plugin_alias(name)]);
-            plugin_manager.discover_plugins_named(&args.plugins_dir, &names)?;
+            plugin_manager.discover_plugin_paths_named(&plugin_paths, &names)?;
         }
         None => {
             let mut names: HashSet<_> = config.enabled_plugins.iter().cloned().collect();
@@ -98,7 +102,7 @@ fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManag
                     .iter()
                     .map(|pipeline| pipeline.plugin.clone()),
             );
-            plugin_manager.discover_plugins_named(&args.plugins_dir, &names)?;
+            plugin_manager.discover_plugin_paths_named(&plugin_paths, &names)?;
         }
         _ => {}
     }

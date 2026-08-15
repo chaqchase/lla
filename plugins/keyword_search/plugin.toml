@@ -1,0 +1,25 @@
+[plugin]
+id = "dev.lla.keyword-search"
+name = "keyword_search"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "keyword_search"
+description = "Search selected file contents for keywords"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["search", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection", "write:user-path"]
+clipboard = true
+
+[[fields]]
+name = "keyword_matches"
+type = "string"
+filterable = true

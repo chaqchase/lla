@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.flush-dns"
+name = "flush_dns"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "flush_dns"
+description = "Flush the operating system DNS cache"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["flush", "history", "clear-history", "preferences", "help"]
+
+[permissions]
+process = true

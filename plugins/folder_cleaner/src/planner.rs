@@ -117,6 +117,14 @@ fn plan_cleanup(
         .map(|action| action.source.clone())
         .collect::<HashSet<_>>();
     let protected_dirs = protected_dirs(report, destination_dirs, actions);
+    let mut quarantine = QuarantinePlanner {
+        report,
+        config,
+        plan_id,
+        actions,
+        reserved_targets,
+        cleanup_sources: &mut cleanup_sources,
+    };
 
     if config.cleanup.temp_files || config.cleanup.os_junk || config.cleanup.old_archives {
         for entry in report.entries.iter().filter(|entry| entry.is_file) {
@@ -126,17 +134,7 @@ fn plan_cleanup(
 
             let reason = cleanup_reason(entry, report, config);
             if let Some(reason) = reason {
-                add_quarantine_action(
-                    report,
-                    config,
-                    plan_id,
-                    entry,
-                    reason,
-                    None,
-                    actions,
-                    reserved_targets,
-                    &mut cleanup_sources,
-                );
+                quarantine.add(entry, reason, None);
             }
         }
     }
@@ -153,16 +151,10 @@ fn plan_cleanup(
             });
 
             for entry in sorted.into_iter().skip(1) {
-                add_quarantine_action(
-                    report,
-                    config,
-                    plan_id,
+                quarantine.add(
                     entry,
                     "duplicate file; oldest copy kept".to_string(),
                     Some(hash.clone()),
-                    actions,
-                    reserved_targets,
-                    &mut cleanup_sources,
                 );
             }
         }
@@ -200,56 +192,48 @@ fn plan_cleanup(
                 continue;
             }
 
-            add_quarantine_action(
-                report,
-                config,
-                plan_id,
-                entry,
-                "empty directory".to_string(),
-                None,
-                actions,
-                reserved_targets,
-                &mut cleanup_sources,
-            );
+            quarantine.add(entry, "empty directory".to_string(), None);
         }
     }
 }
 
-fn add_quarantine_action(
-    report: &ScanReport,
-    config: &FolderCleanerConfig,
-    plan_id: &str,
-    entry: &ScannedEntry,
-    reason: String,
-    hash: Option<String>,
-    actions: &mut Vec<PlanAction>,
-    reserved_targets: &mut HashSet<PathBuf>,
-    cleanup_sources: &mut HashSet<PathBuf>,
-) {
-    if !cleanup_sources.insert(entry.path.clone()) {
-        return;
+struct QuarantinePlanner<'a> {
+    report: &'a ScanReport,
+    config: &'a FolderCleanerConfig,
+    plan_id: &'a str,
+    actions: &'a mut Vec<PlanAction>,
+    reserved_targets: &'a mut HashSet<PathBuf>,
+    cleanup_sources: &'a mut HashSet<PathBuf>,
+}
+
+impl QuarantinePlanner<'_> {
+    fn add(&mut self, entry: &ScannedEntry, reason: String, hash: Option<String>) {
+        if !self.cleanup_sources.insert(entry.path.clone()) {
+            return;
+        }
+
+        self.actions.retain(|action| action.source != entry.path);
+        let relative = relative_to(&self.report.root, &entry.path);
+        let target = unique_target(
+            &self
+                .report
+                .root
+                .join(&self.config.safety.quarantine_dir)
+                .join(self.plan_id)
+                .join(relative),
+            self.reserved_targets,
+        );
+
+        self.actions.push(PlanAction {
+            id: self.actions.len() + 1,
+            kind: OperationKind::Quarantine,
+            source: entry.path.clone(),
+            target,
+            reason,
+            category: None,
+            hash,
+        });
     }
-
-    actions.retain(|action| action.source != entry.path);
-    let relative = relative_to(&report.root, &entry.path);
-    let target = unique_target(
-        &report
-            .root
-            .join(&config.safety.quarantine_dir)
-            .join(plan_id)
-            .join(relative),
-        reserved_targets,
-    );
-
-    actions.push(PlanAction {
-        id: actions.len() + 1,
-        kind: OperationKind::Quarantine,
-        source: entry.path.clone(),
-        target,
-        reason,
-        category: None,
-        hash,
-    });
 }
 
 fn destination_dirs(report: &ScanReport, config: &FolderCleanerConfig) -> HashSet<PathBuf> {

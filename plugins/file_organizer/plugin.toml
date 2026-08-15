@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.file-organizer"
+name = "file_organizer"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "file_organizer"
+description = "Organize files using configurable strategies"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["organize", "preview", "help"]
+
+[permissions]
+filesystem = ["read:tree", "write:tree", "delete:selection"]

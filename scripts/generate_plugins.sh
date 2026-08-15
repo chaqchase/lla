@@ -62,10 +62,10 @@ cd lla/${plugin_dir}
 cargo build --release
 \`\`\`
 
-Then, copy the generated \`.so\`, \`.dll\`, or \`.dylib\` file from the \`target/release\` directory to your LLA plugins directory.
+Then create \`~/.config/lla/plugins/${name}\` and copy both \`plugin.toml\` and the generated \`.so\`, \`.dll\`, or \`.dylib\` into it.
 
 EOL
     fi
 done
 
-echo "Generated $output_file" 
+echo "Generated $output_file"

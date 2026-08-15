@@ -14,13 +14,16 @@ pub struct ConfigManager<T: PluginConfig> {
 
 impl<T: PluginConfig> ConfigManager<T> {
     pub fn new(plugin_name: &str) -> Self {
-        let config_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".config")
-            .join("lla")
-            .join("plugins")
-            .join(plugin_name)
-            .join("config.toml");
+        let config_root = std::env::var_os("LLA_PLUGIN_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".config")
+                    .join("lla")
+                    .join("plugins")
+            });
+        let config_path = config_root.join(plugin_name).join("config.toml");
 
         if let Some(parent) = config_path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {

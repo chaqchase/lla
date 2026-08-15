@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.folder-cleaner"
+name = "folder_cleaner"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "folder_cleaner"
+description = "Plan, quarantine and restore generated-folder cleanup"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["scan", "preview", "clean", "apply", "restore", "quarantine-list", "quarantine-empty", "history", "show-plan", "doctor", "config-wizard", "help"]
+
+[permissions]
+filesystem = ["read:tree", "write:tree", "delete:quarantine"]

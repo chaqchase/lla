@@ -26,6 +26,9 @@ fn command_requires_dynamic_plugins(args: &Args) -> bool {
                 | Command::ListPlugins
                 | Command::Use
                 | Command::PluginAction(_, _, _)
+                | Command::PluginDoctor
+                | Command::PluginInfo(_)
+                | Command::PluginPermissions(_)
                 | Command::Clean
                 | Command::Shortcut(
                     ShortcutAction::Add(_, _) | ShortcutAction::Create | ShortcutAction::Run(_, _),
@@ -230,6 +233,24 @@ pub fn handle_command(
                 plugin_manager.perform_plugin_action(&resolved_plugin, action, action_args)
             }
         }
+        Some(Command::PluginDoctor) => {
+            let plugin_paths = config.plugin_search_paths(Some(&args.plugins_dir));
+            if plugin_manager.doctor(&plugin_paths)? {
+                Ok(())
+            } else {
+                Err(LlaError::Plugin(
+                    "Plugin Platform v2 diagnostics found problems".to_string(),
+                ))
+            }
+        }
+        Some(Command::PluginInfo(plugin_name)) => {
+            let resolved = config.resolve_plugin_alias(plugin_name);
+            plugin_manager.print_manifest(&resolved, false)
+        }
+        Some(Command::PluginPermissions(plugin_name)) => {
+            let resolved = config.resolve_plugin_alias(plugin_name);
+            plugin_manager.print_manifest(&resolved, true)
+        }
         Some(Command::Jump(action)) => jump::handle_jump(action, config),
         Some(Command::Clean) => unreachable!(),
         None => {
@@ -316,7 +337,7 @@ fn handle_shortcut_action(
 
             // Create plugin manager to query plugins
             let mut plugin_manager = PluginManager::new(config.clone());
-            plugin_manager.discover_plugins(&config.plugins_dir)?;
+            plugin_manager.discover_plugin_paths(&config.plugin_search_paths(None))?;
 
             // Get all discovered plugins
             let all_plugins = plugin_manager.list_plugins();

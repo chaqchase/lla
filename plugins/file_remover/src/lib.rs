@@ -49,11 +49,11 @@ lazy_static! {
             "remove",
             "remove [path]",
             "Remove files/directories from current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_remover --action remove",
                 "lla plugin --name file_remover --action remove --args /path/to/dir"
             ],
-            |args| FileRemoverPlugin::remove_action(args)
+            FileRemoverPlugin::remove_action
         );
 
         lla_plugin_utils::define_action!(
@@ -61,7 +61,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_remover --action help"],
+            ["lla plugin --name file_remover --action help"],
             |_| FileRemoverPlugin::help_action()
         );
 
@@ -108,7 +108,7 @@ impl FileRemoverPlugin {
     }
 
     fn remove_action(args: &[String]) -> Result<(), String> {
-        let dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         let entries = fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?

@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "brew"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -220,7 +220,7 @@ checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "categorizer"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "code_complexity"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -332,7 +332,7 @@ dependencies = [
 
 [[package]]
 name = "code_snippet_extractor"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "base64 0.21.7",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "dirs_meta"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "duplicate_file_detector"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "file_copier"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "colored",
  "dialoguer",
@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "file_hash"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "file_meta"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "file_mover"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "colored",
  "dialoguer",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "file_organizer"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "chrono",
  "colored",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "file_remover"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "colored",
  "dialoguer",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "file_tagger"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "flush_dns"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -860,7 +860,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "folder_cleaner"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "chrono",
  "colored",
@@ -1011,7 +1011,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "git_status"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "google_meet"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "google_search"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "hackernews"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "jwt"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "keyword_search"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "kill_process"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "colored",
  "console",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "last_git_commit"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -1592,7 +1592,7 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "lla"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "atty",
  "chrono",
@@ -1642,16 +1642,18 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_interface"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "prost",
  "prost-build",
+ "protoc-bin-vendored",
  "serde",
+ "toml",
 ]
 
 [[package]]
 name = "lla_plugin_utils"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -1738,7 +1740,7 @@ checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
 
 [[package]]
 name = "npm"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -2167,6 +2169,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "protoc-bin-vendored"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1c381df33c98266b5f08186583660090a4ffa0889e76c7e9a5e175f645a67fa"
+dependencies = [
+ "protoc-bin-vendored-linux-aarch_64",
+ "protoc-bin-vendored-linux-ppcle_64",
+ "protoc-bin-vendored-linux-s390_64",
+ "protoc-bin-vendored-linux-x86_32",
+ "protoc-bin-vendored-linux-x86_64",
+ "protoc-bin-vendored-macos-aarch_64",
+ "protoc-bin-vendored-macos-x86_64",
+ "protoc-bin-vendored-win32",
+]
+
+[[package]]
+name = "protoc-bin-vendored-linux-aarch_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c350df4d49b5b9e3ca79f7e646fde2377b199e13cfa87320308397e1f37e1a4c"
+
+[[package]]
+name = "protoc-bin-vendored-linux-ppcle_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a55a63e6c7244f19b5c6393f025017eb5d793fd5467823a099740a7a4222440c"
+
+[[package]]
+name = "protoc-bin-vendored-linux-s390_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dba5565db4288e935d5330a07c264a4ee8e4a5b4a4e6f4e83fad824cc32f3b0"
+
+[[package]]
+name = "protoc-bin-vendored-linux-x86_32"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8854774b24ee28b7868cd71dccaae8e02a2365e67a4a87a6cd11ee6cdbdf9cf5"
+
+[[package]]
+name = "protoc-bin-vendored-linux-x86_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b38b07546580df720fa464ce124c4b03630a6fb83e05c336fea2a241df7e5d78"
+
+[[package]]
+name = "protoc-bin-vendored-macos-aarch_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89278a9926ce312e51f1d999fee8825d324d603213344a9a706daa009f1d8092"
+
+[[package]]
+name = "protoc-bin-vendored-macos-x86_64"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81745feda7ccfb9471d7a4de888f0652e806d5795b61480605d4943176299756"
+
+[[package]]
+name = "protoc-bin-vendored-win32"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
+
+[[package]]
 name = "quick-xml"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2285,7 +2351,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "remove_paywall"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",
@@ -2611,7 +2677,7 @@ checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "sizeviz"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "colored",
@@ -2647,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "speed_test"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -3664,7 +3730,7 @@ dependencies = [
 
 [[package]]
 name = "youtube"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "arboard",
  "bytes",

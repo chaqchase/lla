@@ -1,0 +1,18 @@
+[plugin]
+id = "dev.lla.file-copier"
+name = "file_copier"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "file_copier"
+description = "Interactively copy files and directories"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["add", "copy-all", "copy-partial", "clear", "show", "help"]
+
+[permissions]
+filesystem = ["read:tree", "write:selected-destination"]
+clipboard = true

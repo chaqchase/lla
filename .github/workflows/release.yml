@@ -283,8 +283,12 @@ jobs:
       - name: Verify glibc baseline
         if: runner.os == 'Linux'
         run: |
-          mapfile -t plugins < <(find "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}" -maxdepth 1 -type f -name '*.so' | sort)
+          mapfile -t plugins < <(find "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}" -type f -name '*.so' | sort)
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
+
+      - name: Verify Plugin Platform v2
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
+        run: ./scripts/verify_plugins_v2.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
 
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4

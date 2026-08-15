@@ -41,6 +41,10 @@ while IFS= read -r manifest; do
   perl -0pi -e 's/(^version\s*=\s*")[^"]+(")/$1$ENV{VERSION}$2/m' "$manifest"
 done < <(find plugins -mindepth 2 -maxdepth 2 -name Cargo.toml | sort)
 
+while IFS= read -r manifest; do
+  perl -0pi -e 's/(^version\s*=\s*")[^"]+(")/$1$ENV{VERSION}$2/m' "$manifest"
+done < <(find plugins -mindepth 2 -maxdepth 2 -name plugin.toml | sort)
+
 tmp_changelog="$(mktemp)"
 today="$(date +%F)"
 

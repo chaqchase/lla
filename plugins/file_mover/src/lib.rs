@@ -101,11 +101,11 @@ lazy_static! {
             "add",
             "add [path]",
             "Add files/directories to clipboard from current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_mover --action add",
                 "lla plugin --name file_mover --action add --args /path/to/dir"
             ],
-            |args| FileMoverPlugin::add_action(args)
+            FileMoverPlugin::add_action
         );
 
         lla_plugin_utils::define_action!(
@@ -113,11 +113,11 @@ lazy_static! {
             "move-all",
             "move-all [target_path]",
             "Move all items from clipboard to current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_mover --action move-all",
                 "lla plugin --name file_mover --action move-all --args /path/to/target"
             ],
-            |args| FileMoverPlugin::move_all_action(args)
+            FileMoverPlugin::move_all_action
         );
 
         lla_plugin_utils::define_action!(
@@ -125,11 +125,11 @@ lazy_static! {
             "move-partial",
             "move-partial [target_path]",
             "Move selected items from clipboard to current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_mover --action move-partial",
                 "lla plugin --name file_mover --action move-partial --args /path/to/target"
             ],
-            |args| FileMoverPlugin::move_partial_action(args)
+            FileMoverPlugin::move_partial_action
         );
 
         lla_plugin_utils::define_action!(
@@ -137,7 +137,7 @@ lazy_static! {
             "clear",
             "clear",
             "Clear the clipboard",
-            vec!["lla plugin --name file_mover --action clear"],
+            ["lla plugin --name file_mover --action clear"],
             |_| FileMoverPlugin::clear_action()
         );
 
@@ -146,7 +146,7 @@ lazy_static! {
             "show",
             "show",
             "Show clipboard contents",
-            vec!["lla plugin --name file_mover --action show"],
+            ["lla plugin --name file_mover --action show"],
             |_| FileMoverPlugin::show_action()
         );
 
@@ -155,7 +155,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_mover --action help"],
+            ["lla plugin --name file_mover --action help"],
             |_| FileMoverPlugin::help_action()
         );
 
@@ -187,7 +187,7 @@ impl FileMoverPlugin {
 
     fn add_action(args: &[String]) -> Result<(), String> {
         let mut plugin = Self::new();
-        let dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         let entries = fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?
@@ -250,7 +250,7 @@ impl FileMoverPlugin {
             return Ok(());
         }
 
-        let target_dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let target_dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         for path in items {
             let new_path = target_dir.join(path.file_name().ok_or("Invalid file name")?);
@@ -292,7 +292,7 @@ impl FileMoverPlugin {
             return Ok(());
         }
 
-        let target_dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let target_dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         for &idx in &selections {
             let path = &items[idx];

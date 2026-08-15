@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PaywallService {
+    #[default]
     TwelveFt,
     ArchiveIs,
     RemovePaywall,
@@ -96,12 +97,6 @@ impl PaywallService {
             PaywallService::Freedium,
             PaywallService::GoogleCache,
         ]
-    }
-}
-
-impl Default for PaywallService {
-    fn default() -> Self {
-        PaywallService::TwelveFt
     }
 }
 
@@ -369,14 +364,12 @@ impl RemovePaywallPlugin {
         println!("{}", list.render());
 
         // Copy to clipboard if enabled
-        if self.base.config().copy_to_clipboard {
-            if Self::copy_to_clipboard(&bypass_url).is_ok() {
-                println!(
-                    "   {} {}",
-                    "📋".bright_green(),
-                    "Bypass URL copied to clipboard!".bright_green()
-                );
-            }
+        if self.base.config().copy_to_clipboard && Self::copy_to_clipboard(&bypass_url).is_ok() {
+            println!(
+                "   {} {}",
+                "📋".bright_green(),
+                "Bypass URL copied to clipboard!".bright_green()
+            );
         }
 
         // Open in browser if enabled

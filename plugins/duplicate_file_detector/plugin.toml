@@ -1,0 +1,34 @@
+[plugin]
+id = "dev.lla.duplicate-file-detector"
+name = "duplicate_file_detector"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "duplicate_file_detector"
+description = "Detect files with identical content"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["clear-cache", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:tree"]
+
+[[fields]]
+name = "has_duplicates"
+type = "boolean"
+filterable = true
+
+[[fields]]
+name = "is_duplicate"
+type = "boolean"
+filterable = true
+
+[[fields]]
+name = "original_path"
+type = "path"
+filterable = true

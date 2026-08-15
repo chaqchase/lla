@@ -108,6 +108,14 @@ validate_release_versions() {
       exit 1
     fi
   done < <(find plugins -mindepth 2 -maxdepth 2 -name Cargo.toml | sort)
+
+  while IFS= read -r manifest; do
+    plugin_version="$(awk -F '"' '/^version[[:space:]]*=/ { print $2; exit }' "$manifest")"
+    if [[ "$plugin_version" != "$version" ]]; then
+      log_error "$manifest is version $plugin_version, expected $version"
+      exit 1
+    fi
+  done < <(find plugins -mindepth 2 -maxdepth 2 -name plugin.toml | sort)
 }
 
 crate_version_published() {

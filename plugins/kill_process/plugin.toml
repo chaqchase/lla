@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.kill-process"
+name = "kill_process"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "kill_process"
+description = "Inspect and terminate operating-system processes"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["list", "kill", "force-kill", "kill-by-name", "force-kill-by-name", "kill-by-pid", "force-kill-by-pid", "help"]
+
+[permissions]
+process = true

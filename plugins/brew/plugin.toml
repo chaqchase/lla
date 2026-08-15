@@ -1,0 +1,18 @@
+[plugin]
+id = "dev.lla.brew"
+name = "brew"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "brew"
+description = "Manage Homebrew packages"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["list", "search", "outdated", "install", "uninstall", "upgrade", "info", "cleanup", "doctor", "menu", "help"]
+
+[permissions]
+network = ["formulae.brew.sh", "github.com"]
+process = true

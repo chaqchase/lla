@@ -417,6 +417,7 @@ pub fn list_and_decorate_files(
                                 gid: 0,
                             }),
                             custom_fields,
+                            typed_fields: Default::default(),
                         });
                     }
                     return None;
@@ -497,14 +498,13 @@ pub fn list_and_decorate_files(
                 path: path.to_string_lossy().into_owned(),
                 metadata: Some(metadata),
                 custom_fields,
+                typed_fields: Default::default(),
             })
         })
         .collect();
 
     let mut decorated_entries = entries;
-    for entry in &mut decorated_entries {
-        plugin_manager.decorate_entry(entry, format);
-    }
+    plugin_manager.decorate_entries(&mut decorated_entries, format);
 
     Ok(decorated_entries)
 }
@@ -744,6 +744,7 @@ pub fn list_and_decorate_single_file(
         path: path.to_string_lossy().into_owned(),
         metadata: Some(metadata),
         custom_fields,
+        typed_fields: Default::default(),
     };
 
     plugin_manager.decorate_entry(&mut entry, format);

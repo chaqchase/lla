@@ -2,6 +2,31 @@
 
 This crate provides a plugin interface for the `lla` command line tool.
 
+## Plugin Platform v2
+
+API v2 exports `_plugin_create_v2` and uses `PluginBufferV2`. A response is
+copied by the host and released through the plugin's own `free_response`
+callback, so Rust allocator ownership never crosses the dynamic-library
+boundary. The host releases the API object through its plugin-owned `destroy`
+callback before unloading the library. The declaration macro catches unwinding
+plugin panics at the FFI boundary and also exports the legacy v1 symbol during
+the migration period.
+
+Every distributed plugin must include a `plugin.toml` validated through
+`lla_plugin_interface::manifest::PluginManifest`. Manifests declare an API
+range instead of a single exact version and describe the plugin's runtime,
+capabilities, permissions, and typed fields. Native permissions are
+declarative; native plugins must be treated as trusted code.
+
+The host accepts a v2 package only when the loaded runtime exports the v2 ABI
+and its name, version, supported formats, and action IDs match the manifest.
+Release checksum inventories are verified before native code is loaded.
+
+The protobuf contract includes batch decoration and typed values. Existing
+plugin implementations receive batch requests through the v2 adapter, which
+serializes them through their established per-entry handler while holding one
+thread-safe plugin instance.
+
 ## Plugin Architecture
 
 The plugin system in `lla` is designed to be robust and version-independent, using a message-passing architecture that ensures ABI compatibility across different Rust versions. Here's how it works:

@@ -320,6 +320,10 @@ impl CodeSnippetExtractorPlugin {
         .to_string()
     }
 
+    fn format_snippet_count(value: &str) -> String {
+        format!("[{} snippets]", value)
+    }
+
     fn extract_snippet(
         &mut self,
         file_path: &str,
@@ -1251,19 +1255,20 @@ impl Plugin for CodeSnippetExtractorPlugin {
                         if let Some(file_path) = entry.path.to_str() {
                             let snippet_count = self.list_snippets_by_file(file_path).len();
                             if snippet_count > 0 {
-                                entry.custom_fields.insert(
-                                    "snippet_count".to_string(),
-                                    format!("[{} snippets]", snippet_count),
-                                );
+                                entry
+                                    .custom_fields
+                                    .insert("snippet_count".to_string(), snippet_count.to_string());
                             }
                         }
                         PluginResponse::Decorated(entry)
                     }
                     PluginRequest::FormatField(entry, format) => {
-                        let field = if format == "snippet_count" {
-                            entry.custom_fields.get("snippet_count").cloned()
-                        } else {
-                            None
+                        let field = match format.as_str() {
+                            "default" | "long" | "snippet_count" => entry
+                                .custom_fields
+                                .get("snippet_count")
+                                .map(|count| Self::format_snippet_count(count)),
+                            _ => None,
                         };
                         PluginResponse::FormattedField(field)
                     }
@@ -1301,5 +1306,18 @@ lla_plugin_interface::declare_plugin!(CodeSnippetExtractorPlugin);
 impl Default for CodeSnippetExtractorPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_snippet_counts_keep_the_existing_label() {
+        assert_eq!(
+            CodeSnippetExtractorPlugin::format_snippet_count("3"),
+            "[3 snippets]"
+        );
     }
 }

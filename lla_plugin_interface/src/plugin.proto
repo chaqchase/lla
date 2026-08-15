@@ -19,6 +19,7 @@ message DecoratedEntry {
     string path = 1;
     EntryMetadata metadata = 2;
     map<string, string> custom_fields = 3;
+    map<string, TypedValue> typed_fields = 4;
 }
 
 message PluginMessage {
@@ -31,6 +32,7 @@ message PluginMessage {
         FormatFieldRequest format_field = 6;
         ActionRequest action = 7;
         bool list_actions = 8;
+        BatchDecorateRequest decorate_batch = 9;
         string name_response = 101;
         string version_response = 102;
         string description_response = 103;
@@ -40,7 +42,29 @@ message PluginMessage {
         ActionResponse action_response = 107;
         string error_response = 108;
         ListActionsResponse list_actions_response = 109;
+        BatchDecorateResponse decorate_batch_response = 110;
     }
+}
+
+message TypedValue {
+    oneof value {
+        string string_value = 1;
+        sint64 integer_value = 2;
+        double float_value = 3;
+        bool boolean_value = 4;
+        uint64 bytes_value = 5;
+        uint64 timestamp_value = 6;
+        string path_value = 7;
+    }
+}
+
+message BatchDecorateRequest {
+    repeated DecoratedEntry entries = 1;
+    string format = 2;
+}
+
+message BatchDecorateResponse {
+    repeated DecoratedEntry entries = 1;
 }
 
 message FormatFieldRequest {
@@ -75,4 +99,4 @@ message ActionInfo {
 
 message ListActionsResponse {
     repeated ActionInfo actions = 1;
-} 
+}

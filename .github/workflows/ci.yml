@@ -9,6 +9,7 @@ on:
       - "**/Cargo.lock"
       - "**/*.proto"
       - "**/*.sh"
+      - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
       - "nfpm.yaml"
@@ -21,6 +22,7 @@ on:
       - "**/Cargo.lock"
       - "**/*.proto"
       - "**/*.sh"
+      - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
       - "nfpm.yaml"
@@ -151,6 +153,12 @@ jobs:
         run: |
           mapfile -t artifacts < <(find "target/${{ matrix.target }}/release" -maxdepth 1 -type f \( -name lla -o -name '*.so' \) | sort)
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${artifacts[@]}"
+
+      - name: Verify Plugin Platform v2
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
+          ./scripts/verify_plugins_v2.sh dist/plugins-linux-amd64
 
       - name: Verify static musl linkage
         if: matrix.libc == 'musl'

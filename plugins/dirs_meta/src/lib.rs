@@ -34,7 +34,7 @@ lazy_static! {
             "clear-cache",
             "clear-cache",
             "Clear the directory analysis cache",
-            vec!["lla plugin --name dirs_meta --action clear-cache"],
+            ["lla plugin --name dirs_meta --action clear-cache"],
             |_| {
                 let spinner = SPINNER.write();
                 spinner.set_status("Clearing cache...".to_string());
@@ -60,8 +60,8 @@ lazy_static! {
             "stats",
             "stats <path>",
             "Show detailed statistics for a directory",
-            vec!["lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""],
-            |args| DirsPlugin::stats_action(args)
+            ["lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""],
+            DirsPlugin::stats_action
         );
 
         lla_plugin_utils::define_action!(
@@ -69,7 +69,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name dirs_meta --action help"],
+            ["lla plugin --name dirs_meta --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Directory Metadata Plugin".to_string());
                 help.add_section("Description".to_string())
@@ -311,6 +311,7 @@ impl DirsPlugin {
         };
 
         let colors = &self.base.config().colors;
+        let total_size_display = Self::format_total_size(total_size);
         match format {
             "long" => {
                 let modified = entry
@@ -352,7 +353,7 @@ impl DirsPlugin {
                 );
 
                 list.add_item(
-                    KeyValue::new("Total Size", total_size)
+                    KeyValue::new("Total Size", &total_size_display)
                         .key_color(colors.get("size").unwrap_or(&"white".to_string()))
                         .value_color(colors.get("size").unwrap_or(&"white".to_string()))
                         .key_width(12)
@@ -371,12 +372,19 @@ impl DirsPlugin {
             }
             "default" => Some(format!(
                 "\n{}\n",
-                TextBlock::new(format!("{} files, {}", file_count, total_size))
+                TextBlock::new(format!("{} files, {}", file_count, total_size_display))
                     .color(colors.get("info").unwrap_or(&"white".to_string()))
                     .build()
             )),
             _ => None,
         }
+    }
+
+    fn format_total_size(value: &str) -> String {
+        value
+            .parse::<u64>()
+            .map(format_size)
+            .unwrap_or_else(|_| value.to_string())
     }
 }
 
@@ -411,7 +419,7 @@ impl Plugin for DirsPlugin {
                                     .insert("dir_subdir_count".to_string(), dir_count.to_string());
                                 entry
                                     .custom_fields
-                                    .insert("dir_total_size".to_string(), format_size(total_size));
+                                    .insert("dir_total_size".to_string(), total_size.to_string());
                             }
                         }
                         PluginResponse::Decorated(entry)
@@ -456,3 +464,14 @@ impl ConfigurablePlugin for DirsPlugin {
 impl ProtobufHandler for DirsPlugin {}
 
 lla_plugin_interface::declare_plugin!(DirsPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_byte_values_keep_the_existing_human_size_display() {
+        assert_eq!(DirsPlugin::format_total_size("1024"), format_size(1024));
+        assert_eq!(DirsPlugin::format_total_size("legacy"), "legacy");
+    }
+}

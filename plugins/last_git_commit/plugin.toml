@@ -1,0 +1,37 @@
+[plugin]
+id = "dev.lla.last-git-commit"
+name = "last_git_commit"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "last_git_commit"
+description = "Expose the last Git commit for each entry"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:tree"]
+process = true
+
+[[fields]]
+name = "commit_hash"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "commit_author"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "commit_time"
+type = "timestamp"
+sortable = true
+filterable = true
