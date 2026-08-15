@@ -69,11 +69,7 @@ pub fn colorize_file_name_with_icon(path: &Path, content: String) -> ColoredStri
     let name = parts[1];
 
     if is_no_color() {
-        return if path.is_dir() {
-            format!("{} {}", icon, name).normal()
-        } else {
-            format!("{} {}", icon, name).normal()
-        };
+        return format!("{} {}", icon, name).normal();
     }
 
     let theme = get_theme();
@@ -150,11 +146,11 @@ pub fn colorize_permissions(permissions: &Permissions, format: Option<&str>) -> 
     let theme = get_theme();
 
     match format.unwrap_or("symbolic") {
-        "octal" => format_octal_permissions(mode, &theme),
-        "binary" => format_binary_permissions(mode, &theme),
-        "verbose" => format_verbose_permissions(mode, &theme),
-        "compact" => format_compact_permissions(mode, &theme),
-        _ => format_symbolic_permissions(mode, &theme),
+        "octal" => format_octal_permissions(mode, theme),
+        "binary" => format_binary_permissions(mode, theme),
+        "verbose" => format_verbose_permissions(mode, theme),
+        "compact" => format_compact_permissions(mode, theme),
+        _ => format_symbolic_permissions(mode, theme),
     }
 }
 

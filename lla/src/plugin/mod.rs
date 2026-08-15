@@ -722,7 +722,7 @@ impl PluginManager {
                             healthy = false;
                             let checksum_error = checksum_result.err();
                             println!(
-                                "    ✗ {}: {}{}",
+                                "    ✗ {}: {}",
                                 manifest.plugin.name,
                                 if !compatible {
                                     "incompatible API"
@@ -734,8 +734,7 @@ impl PluginManager {
                                     "manifest/runtime metadata mismatch"
                                 } else {
                                     ""
-                                },
-                                ""
+                                }
                             );
                         }
                     }
@@ -1583,7 +1582,7 @@ mod tests {
         let mut manager = PluginManager::new(Config::default());
 
         manager
-            .discover_plugin_paths_named(&[plugin_dir.clone()], &HashSet::new())
+            .discover_plugin_paths_named(std::slice::from_ref(&plugin_dir), &HashSet::new())
             .unwrap();
 
         assert!(plugin_dir.is_dir());

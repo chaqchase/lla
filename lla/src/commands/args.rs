@@ -224,7 +224,7 @@ impl Args {
                         Arg::with_name("shell")
                             .long("shell")
                             .takes_value(true)
-                            .possible_values(&["bash", "zsh", "fish"]) 
+                            .possible_values(["bash", "zsh", "fish"])
                             .help("Override shell detection for setup (bash|zsh|fish)"),
                     ),
             )
@@ -524,7 +524,7 @@ impl Args {
                     .long("permission-format")
                     .help("Format for displaying permissions (symbolic, octal, binary, verbose, compact)")
                     .takes_value(true)
-                    .possible_values(&["symbolic", "octal", "binary",  "verbose", "compact"])
+                    .possible_values(["symbolic", "octal", "binary",  "verbose", "compact"])
                     .default_value(&config.permission_format),
             )
             .arg(

@@ -7,7 +7,6 @@ use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
 use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, Local};
-use console;
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use once_cell::sync::Lazy;
 use unicode_width::UnicodeWidthStr;
@@ -172,7 +171,7 @@ impl LongFormatter {
 
         let with_target = if metadata.is_symlink {
             if let Some(target) = entry.custom_fields.get("symlink_target") {
-                if entry.custom_fields.get("invalid_symlink").is_some() {
+                if entry.custom_fields.contains_key("invalid_symlink") {
                     let broken_target = console::style(target).red().bold();
                     format!("{} -> {} (broken)", base_name, broken_target)
                 } else {
@@ -182,7 +181,7 @@ impl LongFormatter {
                         colorize_symlink_target(Path::new(target))
                     )
                 }
-            } else if entry.custom_fields.get("invalid_symlink").is_some() {
+            } else if entry.custom_fields.contains_key("invalid_symlink") {
                 let broken_indicator = console::style("(broken link)").red().bold();
                 format!("{} -> {}", base_name, broken_indicator)
             } else {
@@ -345,8 +344,10 @@ mod tests {
 
     #[test]
     fn relative_dates_take_precedence_over_custom_format() {
-        let mut formatter = LongFormatter::default();
-        formatter.relative_dates = true;
+        let mut formatter = LongFormatter {
+            relative_dates: true,
+            ..Default::default()
+        };
         formatter.set_date_format("%Y-%m-%d %H:%M");
         let seconds = 1_700_000_000;
 

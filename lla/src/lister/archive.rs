@@ -126,7 +126,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
 
         let mode = file
             .unix_mode()
-            .unwrap_or_else(|| if is_dir { 0o755 } else { 0o644 });
+            .unwrap_or(if is_dir { 0o755 } else { 0o644 });
 
         let mut custom_fields = HashMap::new();
         custom_fields.insert(
@@ -241,9 +241,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
             header.size().unwrap_or(0)
         };
         let modified = header.mtime().unwrap_or(0);
-        let mode = header
-            .mode()
-            .unwrap_or_else(|_| if is_dir { 0o755 } else { 0o644 });
+        let mode = header.mode().unwrap_or(if is_dir { 0o755 } else { 0o644 });
         let uid = header.uid().unwrap_or(0) as u32;
         let gid = header.gid().unwrap_or(0) as u32;
 
@@ -271,7 +269,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
                 is_dir,
                 is_file,
                 is_symlink,
-                permissions: mode as u32,
+                permissions: mode,
                 uid,
                 gid,
             }),

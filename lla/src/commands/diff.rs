@@ -496,11 +496,8 @@ fn relativize_git_path(path: &str, prefix: &str) -> Option<String> {
 
     let normalized_prefix = prefix.trim_end_matches('/');
     let prefix_with_sep = format!("{}/", normalized_prefix);
-    if let Some(stripped) = path.strip_prefix(&prefix_with_sep) {
-        Some(stripped.to_string())
-    } else {
-        None
-    }
+    path.strip_prefix(&prefix_with_sep)
+        .map(|stripped| stripped.to_string())
 }
 
 fn render_diff(
@@ -696,7 +693,7 @@ fn format_delta_with_percent(
     if delta == 0 {
         return "0B".to_string();
     }
-    let magnitude = human_size(delta.abs() as u64);
+    let magnitude = human_size(delta.unsigned_abs());
     let percent = match (left_size, right_size) {
         (Some(left), Some(right)) if left > 0 => {
             let pct = ((right as f64 - left as f64) / left as f64) * 100.0;
@@ -727,7 +724,7 @@ fn format_delta(delta: i64) -> String {
     if delta == 0 {
         return "0B".to_string();
     }
-    let magnitude = human_size(delta.abs() as u64);
+    let magnitude = human_size(delta.unsigned_abs());
     let text = if delta > 0 {
         format!("+{}", magnitude)
     } else {
@@ -829,7 +826,7 @@ fn calculate_stats(rows: &[DiffRow]) -> DiffStats {
                 if stats
                     .largest_growth
                     .as_ref()
-                    .map_or(true, |(_, d)| delta > *d)
+                    .is_none_or(|(_, d)| delta > *d)
                 {
                     stats.largest_growth = Some((row.path.clone(), delta));
                 }
@@ -840,7 +837,7 @@ fn calculate_stats(rows: &[DiffRow]) -> DiffStats {
                 if stats
                     .largest_shrink
                     .as_ref()
-                    .map_or(true, |(_, d)| delta < *d)
+                    .is_none_or(|(_, d)| delta < *d)
                 {
                     stats.largest_shrink = Some((row.path.clone(), delta));
                 }
@@ -851,7 +848,7 @@ fn calculate_stats(rows: &[DiffRow]) -> DiffStats {
                     && stats
                         .largest_growth
                         .as_ref()
-                        .map_or(true, |(_, d)| delta > *d)
+                        .is_none_or(|(_, d)| delta > *d)
                 {
                     stats.largest_growth = Some((row.path.clone(), delta));
                 }
@@ -859,7 +856,7 @@ fn calculate_stats(rows: &[DiffRow]) -> DiffStats {
                     && stats
                         .largest_shrink
                         .as_ref()
-                        .map_or(true, |(_, d)| delta < *d)
+                        .is_none_or(|(_, d)| delta < *d)
                 {
                     stats.largest_shrink = Some((row.path.clone(), delta));
                 }

@@ -59,8 +59,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        continue-on-error: true
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace

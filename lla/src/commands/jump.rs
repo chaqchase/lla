@@ -121,9 +121,7 @@ fn add_bookmark(path: &str, config: &Config) -> Result<()> {
     if !store.bookmarks.iter().any(|q| q == &abs) {
         store.bookmarks.push(abs);
     }
-    store
-        .save()
-        .map_err(|e| LlaError::Other(format!("{}", e)))?;
+    store.save().map_err(|e| LlaError::Other(e.to_string()))?;
     Ok(())
 }
 
@@ -132,9 +130,7 @@ fn remove_bookmark(path: &str) -> Result<()> {
     let abs = canonicalize_best_effort(p);
     let mut store = JumpStore::load();
     store.bookmarks.retain(|q| q != &abs);
-    store
-        .save()
-        .map_err(|e| LlaError::Other(format!("{}", e)))?;
+    store.save().map_err(|e| LlaError::Other(e.to_string()))?;
     Ok(())
 }
 
@@ -157,9 +153,7 @@ fn list_entries(config: &Config) -> Result<()> {
 fn clear_history() -> Result<()> {
     let mut store = JumpStore::load();
     store.history.clear();
-    store
-        .save()
-        .map_err(|e| LlaError::Other(format!("{}", e)))?;
+    store.save().map_err(|e| LlaError::Other(e.to_string()))?;
     Ok(())
 }
 
@@ -229,7 +223,7 @@ fn setup_shell_integration(shell_override: Option<&str>) -> Result<()> {
         env::var("SHELL")
             .unwrap_or_default()
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or("unknown")
             .to_string()
     };
@@ -242,7 +236,7 @@ fn setup_shell_integration(shell_override: Option<&str>) -> Result<()> {
             println!("❌ Unsupported shell: {}", shell);
             println!("   Supported shells: bash, zsh, fish");
             println!("   Please set up manually using the documentation.");
-            return Ok(());
+            Ok(())
         }
     }
 }

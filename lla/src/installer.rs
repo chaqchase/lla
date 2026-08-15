@@ -631,7 +631,7 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
 
     let install_path_display = install_path.display().to_string();
 
-    let env_lines = vec![
+    let env_lines = [
         format!(
             "  {}  {}  {}",
             ui.muted_text("Platform    "),
@@ -716,7 +716,7 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
     )?;
 
     let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let summary_lines = vec![
+    let summary_lines = [
         format!(
             "  {}  {}  {}  {}",
             ui.muted_text("Previous"),
@@ -1891,7 +1891,7 @@ impl PluginInstaller {
 
         let repo_name = url
             .split('/')
-            .last()
+            .next_back()
             .ok_or_else(|| LlaError::Plugin(format!("Invalid GitHub URL: {}", url)))?
             .trim_end_matches(".git");
 
@@ -2204,21 +2204,19 @@ impl PluginInstaller {
         if let Some(pb) = pb {
             if let Some(stderr) = child.stderr.take() {
                 let reader = std::io::BufReader::new(stderr);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        if line.trim().starts_with("Compiling") {
-                            let parts: Vec<&str> = line.split_whitespace().collect();
-                            if parts.len() >= 2 {
-                                let package_info = parts[1..].join(" ");
-                                pb.set_message(format!(
-                                    "{} {}",
-                                    ui.progress_message("Building", &plugin_name),
-                                    ui.muted_text(&format!("({})", package_info))
-                                ));
-                            }
-                        } else if line.trim().starts_with("Finished") {
-                            pb.set_message(ui.progress_message("Finalizing", &plugin_name));
+                for line in reader.lines().map_while(std::result::Result::ok) {
+                    if line.trim().starts_with("Compiling") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            let package_info = parts[1..].join(" ");
+                            pb.set_message(format!(
+                                "{} {}",
+                                ui.progress_message("Building", &plugin_name),
+                                ui.muted_text(&format!("({})", package_info))
+                            ));
                         }
+                    } else if line.trim().starts_with("Finished") {
+                        pb.set_message(ui.progress_message("Finalizing", &plugin_name));
                     }
                 }
             }
@@ -2530,7 +2528,7 @@ impl PluginInstaller {
 
                     let repo_name = url
                         .split('/')
-                        .last()
+                        .next_back()
                         .map(|n| n.trim_end_matches(".git"))
                         .unwrap_or(name);
 

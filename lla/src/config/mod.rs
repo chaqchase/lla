@@ -75,7 +75,7 @@ fn default_table_columns() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FormatterConfig {
     #[serde(default)]
     pub tree: TreeFormatterConfig,
@@ -87,18 +87,6 @@ pub struct FormatterConfig {
     pub table: TableFormatterConfig,
     #[serde(default)]
     pub sizemap: SizeMapConfig,
-}
-
-impl Default for FormatterConfig {
-    fn default() -> Self {
-        Self {
-            tree: TreeFormatterConfig::default(),
-            grid: GridFormatterConfig::default(),
-            long: LongFormatterConfig::default(),
-            table: TableFormatterConfig::default(),
-            sizemap: SizeMapConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -355,9 +343,7 @@ pub fn load_config_layers(start_dir: Option<&Path>) -> Result<(ConfigLayers, Opt
     let mut effective_config = global_config.clone();
     let profile_path = match find_profile_file(start_dir)? {
         Some(path) => {
-            if let Err(profile_err) = effective_config.apply_profile_file(&path) {
-                return Err(profile_err);
-            }
+            effective_config.apply_profile_file(&path)?;
             Some(path)
         }
         None => None,
@@ -1796,8 +1782,10 @@ mod tests {
         let plugins_dir = config_dir.path().join("plugins");
         let config_path = config_dir.path().join("config.toml");
         fs::create_dir(&plugins_dir).unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = plugins_dir;
+        let mut config = Config {
+            plugins_dir,
+            ..Default::default()
+        };
 
         config
             .set_value_at_path(
@@ -1816,8 +1804,10 @@ mod tests {
         let config_dir = tempfile::tempdir().unwrap();
         let plugins_dir = config_dir.path().join("missing-plugins");
         let config_path = config_dir.path().join("config.toml");
-        let mut config = Config::default();
-        config.plugins_dir = plugins_dir.clone();
+        let config = Config {
+            plugins_dir: plugins_dir.clone(),
+            ..Default::default()
+        };
         fs::write(&config_path, config.generate_config_content()).unwrap();
 
         let loaded = Config::load(&config_path).unwrap();
@@ -1836,8 +1826,10 @@ mod tests {
     #[test]
     fn dynamic_build_rejects_missing_enabled_plugins() {
         let config_dir = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = config_dir.path().join("plugins");
+        let mut config = Config {
+            plugins_dir: config_dir.path().join("plugins"),
+            ..Default::default()
+        };
         fs::create_dir(&config.plugins_dir).unwrap();
         config.enabled_plugins = vec!["missing_plugin".to_string()];
 
@@ -1848,8 +1840,10 @@ mod tests {
     #[test]
     fn static_build_ignores_enabled_plugins_during_validation() {
         let config_dir = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = config_dir.path().join("plugins");
+        let mut config = Config {
+            plugins_dir: config_dir.path().join("plugins"),
+            ..Default::default()
+        };
         fs::create_dir(&config.plugins_dir).unwrap();
         config.enabled_plugins = vec!["missing_plugin".to_string()];
 

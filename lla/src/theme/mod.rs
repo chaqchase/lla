@@ -12,7 +12,6 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tempfile;
 
 static NO_COLOR: AtomicBool = AtomicBool::new(false);
 
@@ -37,9 +36,9 @@ fn theme_file_name(path: &Path) -> Result<&OsStr> {
 #[serde(untagged)]
 pub enum ColorValue {
     Named(String),
-    RGB { r: u8, g: u8, b: u8 },
-    RGBA { r: u8, g: u8, b: u8, a: f32 },
-    HSL { h: f32, s: f32, l: f32 },
+    Rgb { r: u8, g: u8, b: u8 },
+    Rgba { r: u8, g: u8, b: u8, a: f32 },
+    Hsl { h: f32, s: f32, l: f32 },
     Hex(String),
     None,
 }
@@ -194,17 +193,17 @@ pub fn color_value_to_color(color_value: &ColorValue) -> Color {
     match color_value {
         ColorValue::None => Color::White,
         ColorValue::Named(name) => str_to_color(name),
-        ColorValue::RGB { r, g, b } => Color::TrueColor {
+        ColorValue::Rgb { r, g, b } => Color::TrueColor {
             r: *r,
             g: *g,
             b: *b,
         },
-        ColorValue::RGBA { r, g, b, a: _ } => Color::TrueColor {
+        ColorValue::Rgba { r, g, b, a: _ } => Color::TrueColor {
             r: *r,
             g: *g,
             b: *b,
         },
-        ColorValue::HSL { h, s, l } => {
+        ColorValue::Hsl { h, s, l } => {
             let rgb = hsl_to_rgb(*h, *s, *l);
             Color::TrueColor {
                 r: rgb.0,
@@ -416,7 +415,7 @@ pub fn get_file_color(path: &std::path::Path) -> Option<Color> {
             return Some(color_value_to_color(color));
         }
 
-        for (group_name, _) in &theme.extensions.groups {
+        for group_name in theme.extensions.groups.keys() {
             if let Some(extensions) = theme.extensions.groups.get(group_name) {
                 if extensions.iter().any(|e| e.to_lowercase() == ext) {
                     if let Some(color) = theme.extensions.colors.get(group_name) {
@@ -431,10 +430,10 @@ pub fn get_file_color(path: &std::path::Path) -> Option<Color> {
 }
 
 fn pattern_matches(pattern: &str, filename: &str) -> bool {
-    if pattern.starts_with('*') {
-        filename.ends_with(&pattern[1..])
-    } else if pattern.ends_with('*') {
-        filename.starts_with(&pattern[..pattern.len() - 1])
+    if let Some(pattern) = pattern.strip_prefix('*') {
+        filename.ends_with(pattern)
+    } else if let Some(pattern) = pattern.strip_suffix('*') {
+        filename.starts_with(pattern)
     } else {
         filename == pattern
     }
@@ -781,13 +780,12 @@ fn render_directory_sample(theme: &Theme) {
         .max(5);
 
     println!(
-        "{} {} {} {} {} {}",
+        "{} {} {} {} {} Name",
         pad_right_plain("Permissions", 12),
         pad_left_plain("Size", max_size_len),
         pad_right_plain("Modified", max_date_len),
         pad_right_plain("User", max_user_len),
-        pad_right_plain("Group", max_group_len),
-        "Name"
+        pad_right_plain("Group", max_group_len)
     );
     for entry in &entries {
         let perms = format_permissions_sample(entry.perms, theme);

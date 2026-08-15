@@ -35,13 +35,13 @@ pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             let mut a_num = 0u64;
             let mut b_num = 0u64;
 
-            while a_chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            while a_chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 if let Some(digit) = a_chars.next() {
                     a_num = a_num * 10 + digit.to_digit(10).unwrap() as u64;
                 }
             }
 
-            while b_chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            while b_chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 if let Some(digit) = b_chars.next() {
                     b_num = b_num * 10 + digit.to_digit(10).unwrap() as u64;
                 }

@@ -35,12 +35,10 @@ fn build_name_filter_args(args_cfg: &Args) -> Vec<String> {
     // We only map simple extension (.ext) and glob: patterns to ripgrep globs.
     let mut args = Vec::new();
     if let Some(filter_str) = &args_cfg.filter {
-        if filter_str.starts_with("glob:") {
-            let g = &filter_str[5..];
+        if let Some(g) = filter_str.strip_prefix("glob:") {
             args.push("--glob".to_string());
             args.push(g.to_string());
-        } else if filter_str.starts_with('.') {
-            let ext = &filter_str[1..];
+        } else if let Some(ext) = filter_str.strip_prefix('.') {
             args.push("--glob".to_string());
             args.push(format!("**/*.{}", ext));
         }
@@ -77,8 +75,8 @@ pub fn run_search(args: &Args, config: &Config, plugin_manager: &mut PluginManag
 
     // Use fixed-string mode by default for literal matching (safer for user input)
     // Users can override with regex: prefix if they want regex behavior
-    let (search_pattern, use_fixed_string) = if pattern.starts_with("regex:") {
-        (&pattern[6..], false)
+    let (search_pattern, use_fixed_string) = if let Some(pattern) = pattern.strip_prefix("regex:") {
+        (pattern, false)
     } else {
         (pattern.as_str(), true)
     };
@@ -139,21 +137,17 @@ pub fn run_search(args: &Args, config: &Config, plugin_manager: &mut PluginManag
     walker.hidden(!args.almost_all && (args.no_dotfiles || config.filter.no_dotfiles));
     walker.git_ignore(true).git_exclude(true).parents(true);
     let walker = walker.build();
-    for dent in walker {
-        if let Ok(d) = dent {
-            let p = d.path();
-            // Skip directories under excluded prefixes
-            if !config.exclude_paths.is_empty() {
-                let abs = p;
-                if config.exclude_paths.iter().any(|ex| abs.starts_with(ex)) {
-                    continue;
-                }
+    for d in walker.flatten() {
+        let p = d.path();
+        // Skip directories under excluded prefixes
+        if !config.exclude_paths.is_empty() {
+            let abs = p;
+            if config.exclude_paths.iter().any(|ex| abs.starts_with(ex)) {
+                continue;
             }
-            if p.is_file() {
-                if args.files_only || (!args.no_files) {
-                    paths.push(p.to_path_buf());
-                }
-            }
+        }
+        if p.is_file() && (args.files_only || (!args.no_files)) {
+            paths.push(p.to_path_buf());
         }
     }
 
@@ -295,8 +289,8 @@ fn render_pretty(matches: &[RgMatch], args: &Args) -> Result<()> {
                             let e = display_col_at(&center_text, sm.end, TABSTOP);
                             let end = e.min(markers.len());
                             let start = s.min(end);
-                            for i in start..end {
-                                markers[i] = '^';
+                            for marker in markers.iter_mut().take(end).skip(start) {
+                                *marker = '^';
                             }
                         }
                         let marker_line: String = markers.into_iter().collect();
@@ -330,7 +324,7 @@ fn render_csv(matches: &[RgMatch]) -> Result<()> {
     for data in matches {
         let file = data.path.text.clone();
         let line_no = data.line_number;
-        let col = data.submatches.get(0).map(|sm| sm.start + 1).unwrap_or(1);
+        let col = data.submatches.first().map(|sm| sm.start + 1).unwrap_or(1);
         let text = data.lines.text.replace('\n', "");
         let text_escaped = text.replace('"', "\"\"");
         println!(
@@ -344,10 +338,8 @@ fn render_csv(matches: &[RgMatch]) -> Result<()> {
 fn collect_matches(stdout: &[u8]) -> Vec<RgMatch> {
     let mut matches = Vec::new();
     for line in String::from_utf8_lossy(stdout).lines() {
-        if let Ok(ev) = serde_json::from_str::<RipgrepEvent>(line) {
-            if let RipgrepEvent::Match { data } = ev {
-                matches.push(data);
-            }
+        if let Ok(RipgrepEvent::Match { data }) = serde_json::from_str::<RipgrepEvent>(line) {
+            matches.push(data);
         }
     }
     matches

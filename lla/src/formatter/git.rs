@@ -465,6 +465,7 @@ impl GitFormatter {
         row
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_table(
         files: &[DecoratedEntry],
         plugin_manager: &mut PluginManager,

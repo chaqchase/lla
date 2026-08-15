@@ -185,7 +185,7 @@ pub fn handle_command(
         }
         Some(Command::Theme) => crate::theme::select_theme(config),
         Some(Command::ThemePull) => crate::theme::pull_themes(&color_state),
-        Some(Command::ThemeInstall(path)) => crate::theme::install_themes(&path, &color_state),
+        Some(Command::ThemeInstall(path)) => crate::theme::install_themes(path, &color_state),
         Some(Command::ThemePreview(name)) => crate::theme::preview_theme(name),
         Some(Command::Shortcut(action)) => handle_shortcut_action(action, config, &color_state),
         Some(Command::Install(source)) => handle_install(source, args),
@@ -347,11 +347,7 @@ fn handle_shortcut_action(
                 .collect();
 
             if plugin_names.is_empty() {
-                if color_state.is_enabled() {
-                    println!("✗ No plugins found. Install plugins first",);
-                } else {
-                    println!("✗ No plugins found. Install plugins first");
-                }
+                println!("✗ No plugins found. Install plugins first");
                 return Ok(());
             }
 
@@ -381,11 +377,7 @@ fn handle_shortcut_action(
 
                         if selection == items_with_cancel.len() - 1 {
                             // User selected Cancel
-                            if color_state.is_enabled() {
-                                println!("✗ Cancelled");
-                            } else {
-                                println!("✗ Cancelled");
-                            }
+                            println!("✗ Cancelled");
                             return Ok(());
                         }
 
@@ -463,11 +455,7 @@ fn handle_shortcut_action(
                                 .interact_text()?;
 
                             if shortcut_name.is_empty() {
-                                if color_state.is_enabled() {
-                                    println!("✗ Shortcut name cannot be empty\n");
-                                } else {
-                                    println!("✗ Shortcut name cannot be empty\n");
-                                }
+                                println!("✗ Shortcut name cannot be empty\n");
                                 WizardState::EnterName(plugin.clone(), action.clone())
                             } else if config.get_shortcut(&shortcut_name).is_some() {
                                 if color_state.is_enabled() {
@@ -594,7 +582,7 @@ fn handle_shortcut_action(
         }
         ShortcutAction::Import(file_path, merge) => {
             // Read and parse file
-            let content = fs::read_to_string(&file_path).map_err(|e| {
+            let content = fs::read_to_string(file_path).map_err(|e| {
                 LlaError::Other(format!("Failed to read file '{}': {}", file_path, e))
             })?;
 
@@ -625,9 +613,7 @@ fn handle_shortcut_action(
 
                 // Merge plugin aliases
                 for (alias, plugin) in import_data.plugin_aliases {
-                    if !config.plugin_aliases.contains_key(&alias) {
-                        config.plugin_aliases.insert(alias, plugin);
-                    }
+                    config.plugin_aliases.entry(alias).or_insert(plugin);
                 }
                 config.save(&Config::get_config_path())?;
 
