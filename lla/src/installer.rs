@@ -7,12 +7,14 @@ use console::Term;
 use dialoguer::MultiSelect;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+#[cfg(feature = "dynamic-plugins")]
 use libloading::Library;
-use lla_plugin_interface::{
-    proto::{plugin_message::Message, PluginMessage},
-    PluginApi, CURRENT_PLUGIN_API_VERSION,
-};
+#[cfg(feature = "dynamic-plugins")]
+use lla_plugin_interface::proto::{plugin_message::Message, PluginMessage};
+#[cfg(feature = "dynamic-plugins")]
+use lla_plugin_interface::{PluginApi, CURRENT_PLUGIN_API_VERSION};
 use lla_plugin_utils::ui::components::{BoxComponent, BoxStyle, LlaDialoguerTheme};
+#[cfg(feature = "dynamic-plugins")]
 use prost::Message as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -23,6 +25,7 @@ use std::io::{BufRead, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(feature = "dynamic-plugins")]
 use std::ptr;
 use std::time::{Duration, Instant, SystemTime};
 use tar::Archive;
@@ -111,51 +114,70 @@ struct CliBinaryTarget {
     os_label: &'static str,
     arch_label: &'static str,
     display_os: &'static str,
+    musl: bool,
 }
 
 impl CliBinaryTarget {
     fn detect() -> Result<Self> {
         use std::env::consts::{ARCH, OS};
 
-        match (OS, ARCH) {
+        Self::for_platform(OS, ARCH, cfg!(target_env = "musl"))
+    }
+
+    fn for_platform(os: &str, arch: &str, musl: bool) -> Result<Self> {
+        if musl && os == "linux" && arch != "x86_64" && arch != "aarch64" {
+            return Err(LlaError::Other(format!(
+                "Unsupported platform for static musl CLI upgrades: {}-{} (supported: Linux on amd64 and arm64)",
+                os, arch
+            )));
+        }
+
+        match (os, arch) {
             ("macos", "x86_64") => Ok(Self {
                 os_label: "macos",
                 arch_label: "amd64",
                 display_os: "macOS",
+                musl: false,
             }),
             ("macos", "aarch64") => Ok(Self {
                 os_label: "macos",
                 arch_label: "arm64",
                 display_os: "macOS",
+                musl: false,
             }),
             ("linux", "x86_64") => Ok(Self {
                 os_label: "linux",
                 arch_label: "amd64",
                 display_os: "Linux",
+                musl,
             }),
             ("linux", "aarch64") => Ok(Self {
                 os_label: "linux",
                 arch_label: "arm64",
                 display_os: "Linux",
+                musl,
             }),
             ("linux", arch) if arch == "i686" || arch == "x86" => Ok(Self {
                 os_label: "linux",
                 arch_label: "i686",
                 display_os: "Linux",
+                musl: false,
             }),
             _ => Err(LlaError::Other(format!(
                 "Unsupported platform for CLI upgrades: {}-{} (supported: macOS/Linux on amd64, arm64, i686)",
-                OS, ARCH
+                os, arch
             ))),
         }
     }
 
     fn asset_name(&self) -> String {
-        format!("lla-{}-{}", self.os_label, self.arch_label)
+        let musl_suffix = if self.musl { "-musl" } else { "" };
+        format!("lla-{}-{}{}", self.os_label, self.arch_label, musl_suffix)
     }
 
     fn human_label(&self) -> String {
-        format!("{} ({})", self.display_os, self.arch_label)
+        let libc = if self.musl { " musl" } else { "" };
+        format!("{}{} ({})", self.display_os, libc, self.arch_label)
     }
 }
 
@@ -1315,6 +1337,7 @@ impl PluginInstaller {
         Ok(plugins)
     }
 
+    #[cfg(feature = "dynamic-plugins")]
     fn load_prebuilt_plugin(path: &Path) -> Result<PrebuiltPlugin> {
         unsafe {
             let library = Library::new(path).map_err(|err| {
@@ -1376,6 +1399,13 @@ impl PluginInstaller {
                 description,
             })
         }
+    }
+
+    #[cfg(not(feature = "dynamic-plugins"))]
+    fn load_prebuilt_plugin(_path: &Path) -> Result<PrebuiltPlugin> {
+        Err(LlaError::Plugin(
+            crate::plugin::DYNAMIC_PLUGINS_UNAVAILABLE.to_string(),
+        ))
     }
 
     fn select_prebuilt_plugins(&self, plugins: &[PrebuiltPlugin]) -> Result<Vec<PrebuiltPlugin>> {
@@ -1473,6 +1503,7 @@ impl PluginInstaller {
         self.update_plugin_metadata(&plugin.name, metadata)
     }
 
+    #[cfg(feature = "dynamic-plugins")]
     unsafe fn send_plugin_request(
         api: *mut PluginApi,
         message: PluginMessage,
@@ -1489,6 +1520,7 @@ impl PluginInstaller {
             .map_err(|err| LlaError::Plugin(format!("Failed to decode plugin response: {}", err)))
     }
 
+    #[cfg(feature = "dynamic-plugins")]
     unsafe fn query_plugin_string(
         api: *mut PluginApi,
         message: PluginMessage,
@@ -2692,5 +2724,49 @@ impl PluginInstaller {
         } else {
             Err(LlaError::Plugin("No plugins were updated".to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CliBinaryTarget, PluginInstaller};
+    use std::io::Write;
+
+    #[test]
+    fn cli_asset_names_distinguish_gnu_and_musl() {
+        let gnu = CliBinaryTarget::for_platform("linux", "aarch64", false).unwrap();
+        let musl = CliBinaryTarget::for_platform("linux", "aarch64", true).unwrap();
+        let musl_amd64 = CliBinaryTarget::for_platform("linux", "x86_64", true).unwrap();
+
+        assert_eq!(gnu.asset_name(), "lla-linux-arm64");
+        assert_eq!(musl.asset_name(), "lla-linux-arm64-musl");
+        assert_eq!(musl_amd64.asset_name(), "lla-linux-amd64-musl");
+        assert_eq!(musl.human_label(), "Linux musl (arm64)");
+    }
+
+    #[test]
+    fn cli_asset_names_preserve_macos_and_i686_gnu() {
+        let macos = CliBinaryTarget::for_platform("macos", "aarch64", false).unwrap();
+        let i686 = CliBinaryTarget::for_platform("linux", "i686", false).unwrap();
+
+        assert_eq!(macos.asset_name(), "lla-macos-arm64");
+        assert_eq!(i686.asset_name(), "lla-linux-i686");
+    }
+
+    #[test]
+    fn static_musl_upgrade_rejects_i686() {
+        let error = CliBinaryTarget::for_platform("linux", "i686", true).unwrap_err();
+        assert!(error.to_string().contains("static musl CLI upgrades"));
+    }
+
+    #[test]
+    fn cli_checksum_calculation_remains_available_without_plugins() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"abc").unwrap();
+
+        assert_eq!(
+            PluginInstaller::calculate_sha256(file.path()).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

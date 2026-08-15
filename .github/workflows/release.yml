@@ -22,6 +22,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_ZIGBUILD_VERSION: "0.23.0"
+  GLIBC_BASELINE: "2.28"
+  ZIG_VERSION: "0.15.2"
 
 jobs:
   validate:
@@ -131,14 +134,23 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: lla-linux-amd64
+            libc: gnu
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact_name: lla-linux-arm64
-            cross_compile: true
+            libc: gnu
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
             artifact_name: lla-linux-i686
-            cross_compile: true
+            libc: gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: lla-linux-amd64-musl
+            libc: musl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact_name: lla-linux-arm64-musl
+            libc: musl
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: lla-macos-amd64
@@ -161,17 +173,13 @@ jobs:
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
-        if: matrix.cross_compile && runner.os == 'Linux'
+      - name: Install pinned Zig build tools
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-i686-linux-gnu crossbuild-essential-arm64 crossbuild-essential-i386
-
-      - name: Set cross-compilation environment
-        if: matrix.cross_compile && runner.os == 'Linux'
-        run: |
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=i686-linux-gnu-gcc" >> "$GITHUB_ENV"
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install "ziglang==$ZIG_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -179,7 +187,32 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p lla
+        run: |
+          if [[ "${{ matrix.libc }}" == "musl" ]]; then
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --no-default-features
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}" -p lla
+          else
+            cargo build --release --target "${{ matrix.target }}" -p lla
+          fi
+
+      - name: Verify glibc baseline
+        if: matrix.libc == 'gnu'
+        run: .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "target/${{ matrix.target }}/release/lla"
+
+      - name: Verify static musl linkage
+        if: matrix.libc == 'musl'
+        run: |
+          binary="target/${{ matrix.target }}/release/lla"
+          file "$binary" | grep -q "statically linked"
+          if readelf -W -l "$binary" | grep -q 'INTERP'; then
+            echo "Static musl binary unexpectedly contains an ELF interpreter" 1>&2
+            exit 1
+          fi
+          if readelf -W -d "$binary" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "Static musl binary unexpectedly contains dynamic dependencies" 1>&2
+            exit 1
+          fi
 
       - name: Prepare binary artifact
         run: cp "target/${{ matrix.target }}/release/lla" "${{ matrix.artifact_name }}"
@@ -198,15 +231,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             os_label: linux
             arch_label: amd64
-          - runner: ubuntu-22.04
+          - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             os_label: linux
             arch_label: arm64
-          - runner: ubuntu-22.04
+          - runner: ubuntu-latest
             target: i686-unknown-linux-gnu
             os_label: linux
             arch_label: i686
@@ -231,19 +264,27 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cross toolchain
-        if: runner.os == 'Linux' && (contains(matrix.target, 'aarch64') || contains(matrix.target, 'i686'))
+      - name: Install pinned Zig build tools
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-i686-linux-gnu crossbuild-essential-arm64 crossbuild-essential-i386
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-          elif [[ "${{ matrix.target }}" == "i686-unknown-linux-gnu" ]]; then
-            echo "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=i686-linux-gnu-gcc" >> "$GITHUB_ENV"
-          fi
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install "ziglang==$ZIG_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
 
       - name: Build plugin archives
-        run: ./scripts/build_plugins.sh --target ${{ matrix.target }}
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
+          else
+            ./scripts/build_plugins.sh --target "${{ matrix.target }}"
+          fi
+
+      - name: Verify glibc baseline
+        if: runner.os == 'Linux'
+        run: |
+          mapfile -t plugins < <(find "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}" -maxdepth 1 -type f -name '*.so' | sort)
+          .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
 
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
@@ -252,6 +293,40 @@ jobs:
           path: |
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
+
+  test_musl:
+    name: Test Musl (${{ matrix.arch }})
+    needs: [validate, build_core]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            artifact_name: lla-linux-amd64-musl
+          - arch: arm64
+            platform: linux/arm64
+            artifact_name: lla-linux-arm64-musl
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - name: Download musl artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: core-${{ matrix.artifact_name }}
+          path: musl-artifact
+
+      - name: Run Alpine smoke tests
+        run: |
+          chmod +x "musl-artifact/${{ matrix.artifact_name }}"
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "$PWD:/work" -w /work alpine:3.23 \
+            sh -c 'apk add --no-cache bash ripgrep >/dev/null && .github/scripts/smoke_test_musl.sh "musl-artifact/${{ matrix.artifact_name }}"'
 
   build_packages:
     name: Build OS Packages
@@ -283,31 +358,34 @@ jobs:
           set -euo pipefail
           mkdir -p packages
 
-          for binary in core_binaries/lla-linux-*; do
+          for binary in core_binaries/lla-linux-amd64 core_binaries/lla-linux-arm64 core_binaries/lla-linux-i686; do
             [ -f "$binary" ] || continue
             artifact_name="$(basename "$binary")"
 
             case "$artifact_name" in
-              *amd64)
+              lla-linux-amd64)
                 ARCH="amd64"
                 DEB_ARCH="amd64"
                 RPM_ARCH="x86_64"
                 APK_ARCH="x86_64"
                 PACMAN_ARCH="x86_64"
+                APK_BINARY="core_binaries/lla-linux-amd64-musl"
                 ;;
-              *arm64)
+              lla-linux-arm64)
                 ARCH="arm64"
                 DEB_ARCH="arm64"
                 RPM_ARCH="aarch64"
                 APK_ARCH="aarch64"
                 PACMAN_ARCH="aarch64"
+                APK_BINARY="core_binaries/lla-linux-arm64-musl"
                 ;;
-              *i686)
+              lla-linux-i686)
                 ARCH="386"
                 DEB_ARCH="i386"
                 RPM_ARCH="i686"
                 APK_ARCH="x86"
                 PACMAN_ARCH="i686"
+                APK_BINARY="$binary"
                 ;;
               *)
                 echo "Skipping unsupported artifact $artifact_name"
@@ -324,10 +402,19 @@ jobs:
 
             nfpm pkg --config "$tmp_config" --packager deb --target "packages/lla_${VERSION}_${DEB_ARCH}.deb"
             nfpm pkg --config "$tmp_config" --packager rpm --target "packages/lla-${VERSION}-1.${RPM_ARCH}.rpm"
-            nfpm pkg --config "$tmp_config" --packager apk --target "packages/lla-${VERSION}-r0.${APK_ARCH}.apk"
             nfpm pkg --config "$tmp_config" --packager archlinux --target "packages/lla-${VERSION}-1-${PACMAN_ARCH}.pkg.tar.zst"
 
             rm -f "$tmp_config"
+
+            if [[ ! -f "$APK_BINARY" ]]; then
+              echo "Missing APK binary: $APK_BINARY" 1>&2
+              exit 1
+            fi
+            export BINARY_PATH="$APK_BINARY"
+            apk_config="$(mktemp)"
+            envsubst < nfpm.yaml > "$apk_config"
+            nfpm pkg --config "$apk_config" --packager apk --target "packages/lla-${VERSION}-r0.${APK_ARCH}.apk"
+            rm -f "$apk_config"
           done
 
       - name: Upload package artifacts
@@ -356,7 +443,7 @@ jobs:
 
   collect_assets:
     name: Verify Release Assets
-    needs: [validate, quality, build_core, build_plugins, build_packages, package_themes]
+    needs: [validate, quality, build_core, build_plugins, test_musl, build_packages, package_themes]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}

@@ -10,6 +10,9 @@ keywords = ["cli", "ls", "blazing-fast"]
 categories = ["command-line-utilities"]
 exclude = ["docs"]
 
+[features]
+default = ["dynamic-plugins"]
+dynamic-plugins = ["dep:libloading"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,14 +26,14 @@ colored.workspace = true
 rayon.workspace = true
 chrono.workspace = true
 chrono-humanize = "0.2"
-libloading.workspace = true
+libloading = { workspace = true, optional = true }
 serde_json.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
 users.workspace = true
 parking_lot.workspace = true
-lla_plugin_interface = { version = "0.5.10", path = "../lla_plugin_interface" }
-lla_plugin_utils = { version = "0.5.10", path = "../lla_plugin_utils" }
+lla_plugin_interface = { version = "0.5.11", path = "../lla_plugin_interface" }
+lla_plugin_utils = { version = "0.5.11", path = "../lla_plugin_utils" }
 once_cell.workspace = true
 dashmap.workspace = true
 unicode-width.workspace = true

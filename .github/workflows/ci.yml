@@ -28,6 +28,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_ZIGBUILD_VERSION: "0.23.0"
+  GLIBC_BASELINE: "2.28"
+  ZIG_VERSION: "0.15.2"
 
 jobs:
   test:
@@ -70,17 +73,28 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: lla-linux-amd64
+            libc: gnu
             pkg_formats: "deb,rpm,apk,pacman"
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact_name: lla-linux-arm64
-            cross_compile: true
+            libc: gnu
             pkg_formats: "deb,rpm,apk,pacman"
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
             artifact_name: lla-linux-i686
-            cross_compile: true
+            libc: gnu
             pkg_formats: "deb,rpm,apk,pacman"
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: lla-linux-amd64-musl
+            libc: musl
+            pkg_formats: "apk"
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact_name: lla-linux-arm64-musl
+            libc: musl
+            pkg_formats: "apk"
 
           # macOS builds
           - os: macos-latest
@@ -107,18 +121,13 @@ jobs:
           rustup target add ${{ matrix.target }} --toolchain stable
           rustup target list --installed
 
-      - name: Install cross-compilation tools
-        if: matrix.cross_compile && runner.os == 'Linux'
+      - name: Install pinned Zig build tools
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-i686-linux-gnu
-          sudo apt-get install -y crossbuild-essential-arm64 crossbuild-essential-i386
-
-      - name: Set cross-compilation environment
-        if: matrix.cross_compile && runner.os == 'Linux'
-        run: |
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=i686-linux-gnu-gcc" >> $GITHUB_ENV
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install "ziglang==$ZIG_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -128,7 +137,34 @@ jobs:
       - name: Build release
         env:
           RUSTUP_TOOLCHAIN: stable
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          if [[ "${{ matrix.libc }}" == "musl" ]]; then
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --no-default-features
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}"
+          else
+            cargo build --release --target "${{ matrix.target }}"
+          fi
+
+      - name: Verify glibc baseline
+        if: matrix.libc == 'gnu'
+        run: |
+          mapfile -t artifacts < <(find "target/${{ matrix.target }}/release" -maxdepth 1 -type f \( -name lla -o -name '*.so' \) | sort)
+          .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${artifacts[@]}"
+
+      - name: Verify static musl linkage
+        if: matrix.libc == 'musl'
+        run: |
+          binary="target/${{ matrix.target }}/release/lla"
+          file "$binary" | grep -q "statically linked"
+          if readelf -W -l "$binary" | grep -q 'INTERP'; then
+            echo "Static musl binary unexpectedly contains an ELF interpreter" 1>&2
+            exit 1
+          fi
+          if readelf -W -d "$binary" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "Static musl binary unexpectedly contains dynamic dependencies" 1>&2
+            exit 1
+          fi
 
       - name: Prepare binary (Unix)
         if: runner.os != 'Windows'
@@ -140,3 +176,35 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}
+
+  musl_smoke:
+    name: Musl Smoke (${{ matrix.arch }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            artifact_name: lla-linux-amd64-musl
+          - arch: arm64
+            platform: linux/arm64
+            artifact_name: lla-linux-arm64-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - name: Download musl artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: musl-artifact
+
+      - name: Run Alpine smoke tests
+        run: |
+          chmod +x "musl-artifact/${{ matrix.artifact_name }}"
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "$PWD:/work" -w /work alpine:3.23 \
+            sh -c 'apk add --no-cache bash ripgrep >/dev/null && .github/scripts/smoke_test_musl.sh "musl-artifact/${{ matrix.artifact_name }}"'

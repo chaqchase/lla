@@ -44,7 +44,25 @@ detect_platform() {
             ;;
     esac
 
-    PLATFORM="lla-${OS}-${ARCH}"
+    LIBC=""
+    if [ "$OS" = "linux" ]; then
+        if { command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; } \
+            || compgen -G '/lib/ld-musl-*.so.1' >/dev/null; then
+            LIBC="musl"
+            if [ "$ARCH" = "i686" ]; then
+                print_error "Static musl binaries are available only for amd64 and arm64"
+                exit 1
+            fi
+        else
+            LIBC="gnu"
+        fi
+    fi
+
+    if [ "$LIBC" = "musl" ]; then
+        PLATFORM="lla-${OS}-${ARCH}-musl"
+    else
+        PLATFORM="lla-${OS}-${ARCH}"
+    fi
 }
 
 get_latest_version() {
@@ -139,4 +157,6 @@ main() {
     install_binary
 }
 
-main
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
