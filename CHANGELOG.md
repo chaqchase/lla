@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-08-15
+
+### Changed
+
+- Plugin libraries are now loaded on demand, plugin format capabilities are cached, custom long-date formats are compiled once, and listing caches use compact serialization to reduce startup, formatting, and cache overhead.
+
+### Fixed
+
+- Recursive directory-size calculation no longer creates nested parallel task graphs that could make ordinary listings extremely slow and memory-heavy; sizing now uses a bounded flat traversal, skips filtered entries, and is avoided when the active view does not consume directory sizes.
+- Repeated visits to the current directory no longer rewrite unchanged jump history.
+- Config date-format tests now write only to isolated temporary paths instead of touching the user's global configuration.
+
+
 ## [0.5.9] - 2026-07-04
 
 ### Fixed
