@@ -2,6 +2,7 @@ pub mod actions;
 pub mod config;
 pub mod format;
 pub mod syntax;
+pub mod trash;
 pub mod ui;
 
 pub use actions::{Action, ActionHelp, ActionRegistry};

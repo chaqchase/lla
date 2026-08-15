@@ -115,6 +115,11 @@ metadata, action, formatter, single-decoration, and batch-decoration checks:
 
 ## Available Plugins
 
+- [security_audit](https://github.com/chaqchase/lla/tree/main/plugins/security_audit): Audits unsafe permissions, privileged bits, suspicious symlinks, and exposed secret-like files
+- [media_inspector](https://github.com/chaqchase/lla/tree/main/plugins/media_inspector): Reports MIME, image dimensions and EXIF, plus audio/video duration, codecs, and bitrate
+- [project_context](https://github.com/chaqchase/lla/tree/main/plugins/project_context): Detects Rust, Node, Python, and Go projects with lockfile, build, toolchain, and Git health
+- [trash](https://github.com/chaqchase/lla/tree/main/plugins/trash): Provides cross-platform recoverable deletion with listing and conflict-safe restoration
+- [preview](https://github.com/chaqchase/lla/tree/main/plugins/preview): Previews highlighted text and Markdown, terminal images, and archive contents
 - [categorizer](https://github.com/chaqchase/lla/tree/main/plugins/categorizer): Categorizes files based on their extensions and metadata
 - [code_complexity](https://github.com/chaqchase/lla/tree/main/plugins/code_complexity): Analyzes code complexity using various metrics
 - [code_snippet_extractor](https://github.com/chaqchase/lla/tree/main/plugins/code_snippet_extractor): A plugin for extracting and managing code snippets
@@ -136,6 +141,6 @@ metadata, action, formatter, single-decoration, and batch-decoration checks:
 - [youtube](https://github.com/chaqchase/lla/tree/main/plugins/youtube): YouTube search with autosuggestions and history management
 - [file_mover](https://github.com/chaqchase/lla/tree/main/plugins/file_mover): A plugin that provides an intuitive clipboard-based interface for moving files and directories.
 - [file_copier](https://github.com/chaqchase/lla/tree/main/plugins/file_copier): A plugin that provides an intuitive clipboard-based interface for copying files and directories.
-- [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): A plugin that provides an interactive interface for safely removing files and directories.
+- [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): Interactively moves files to recoverable trash by default, with explicit permanent deletion.
 - [file_organizer](https://github.com/chaqchase/lla/tree/main/plugins/file_organizer): A plugin for organizing files using various strategies
 - [kill_process](https://github.com/chaqchase/lla/tree/main/plugins/kill_process): Interactive process management plugin for listing and terminating system processes with cross-platform support

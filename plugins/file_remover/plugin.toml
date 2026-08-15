@@ -6,12 +6,12 @@ api_min = 2
 api_max = 2
 runtime = "native"
 entrypoint = "file_remover"
-description = "Interactively remove files and directories"
+description = "Interactively trash files by default with explicit permanent deletion"
 license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["remove", "help"]
+actions = ["remove", "purge", "help"]
 
 [permissions]
-filesystem = ["read:tree", "delete:selection"]
+filesystem = ["read:tree", "write:user-path", "delete:selection", "delete:quarantine"]

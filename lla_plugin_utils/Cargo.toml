@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.5.12" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 colored = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
@@ -29,3 +30,6 @@ ui = []
 format = []
 syntax = ["syntect", "lazy_static"]
 interactive = []
+
+[dev-dependencies]
+tempfile = { workspace = true }

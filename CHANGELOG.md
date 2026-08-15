@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `security_audit` plugin for unsafe permissions, SUID/SGID bits, suspicious symlinks, and exposed secret-like files.
+- `media_inspector` plugin for MIME detection, built-in image dimensions, optional EXIF, and ffprobe-backed audio/video metadata.
+- `project_context` plugin for Rust, Node, Python, and Go detection with lockfile, artifact, toolchain, and Git health fields.
+- `trash` plugin for cross-platform recoverable deletion, listing, conflict-safe restoration, and age-gated permanent emptying.
+- `preview` plugin with bat text/Markdown highlighting, chafa image rendering, safe archive listings, and built-in fallbacks.
+
+### Changed
+
+- `file_remover remove` now moves selected entries to recoverable trash; irreversible deletion is available only through the explicit `purge` action and confirmation.
+
 ## [0.5.12] - 2026-08-15
 
 ### Added
