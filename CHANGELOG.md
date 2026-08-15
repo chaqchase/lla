@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Static core-only musl binaries are now published for Linux amd64 and arm64, with automatic musl selection in the shell installer and in-app upgrades.
+
 ### Fixed
 
 - GNU/Linux release binaries and plugins now target glibc 2.28 explicitly, preventing build-runner updates from breaking Raspberry Pi OS and other supported older distributions.
+- amd64 and arm64 Alpine packages now contain native static musl binaries instead of GNU binaries.
 
 ## [0.5.10] - 2026-08-15
 

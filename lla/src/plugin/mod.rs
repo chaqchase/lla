@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 type DecorationCache = DashMap<(String, String), HashMap<String, String>>;
 static DECORATION_CACHE: Lazy<DecorationCache> = Lazy::new(DashMap::new);
 
+pub const DYNAMIC_PLUGINS_AVAILABLE: bool = true;
+pub const DYNAMIC_PLUGINS_UNAVAILABLE: &str =
+    "Dynamic plugins are unavailable in the static musl build; use a GNU build for plugin support.";
+
 fn normalize_plugin_format(format: &str) -> Option<&'static str> {
     match format {
         "default" => Some("default"),

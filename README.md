@@ -76,6 +76,13 @@ sudo chown root:root lla
 sudo mv lla /usr/local/bin/lla
 ```
 
+Linux releases provide full-featured GNU binaries for amd64, arm64, and i686.
+Static musl binaries are also available as `lla-linux-amd64-musl` and
+`lla-linux-arm64-musl`; the install script selects them automatically on musl systems.
+Static musl builds include all core listing, formatting, search, archive, theme,
+configuration, and upgrade features, but do not support dynamically loaded plugins.
+The 32-bit x86 `.apk` remains a legacy GNU-based package.
+
 ### Upgrading
 
 Upgrade to the latest (or a specific) release without leaving the terminal:
@@ -681,6 +688,9 @@ respect_gitignore = true
 | Show only regular files, excluding dot files | `lla --files-only --no-dotfiles`  |
 
 ### Plugin Management
+
+> Dynamic plugins require a GNU/Linux or macOS build. Static musl builds return a
+> clear unsupported-build error for plugin installation, management, and actions.
 
 #### Installation
 

@@ -152,7 +152,9 @@ write_expected_assets() {
 
   cat > "$output_file" <<EOF
 lla-linux-amd64
+lla-linux-amd64-musl
 lla-linux-arm64
+lla-linux-arm64-musl
 lla-linux-i686
 lla-macos-amd64
 lla-macos-arm64
