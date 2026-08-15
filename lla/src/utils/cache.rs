@@ -108,6 +108,7 @@ impl From<SerializableEntry> for DecoratedEntry {
             path: entry.path,
             metadata: entry.metadata.map(EntryMetadata::from),
             custom_fields: entry.custom_fields,
+            typed_fields: Default::default(),
         }
     }
 }

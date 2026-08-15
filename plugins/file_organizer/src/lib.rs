@@ -24,14 +24,12 @@ lazy_static! {
             "organize",
             "organize <directory> [strategy]",
             "Organize files in the specified directory using the given strategy (defaults to extension)",
-            vec![
-                "lla plugin --name file_organizer --action organize --args /path/to/dir",
+            ["lla plugin --name file_organizer --action organize --args /path/to/dir",
                 "lla plugin --name file_organizer --action organize --args /path/to/dir extension",
                 "lla plugin --name file_organizer --action organize --args /path/to/dir date",
                 "lla plugin --name file_organizer --action organize --args /path/to/dir type",
-                "lla plugin --name file_organizer --action organize --args /path/to/dir size",
-            ],
-            |args| FileOrganizerPlugin::organize_action(args)
+                "lla plugin --name file_organizer --action organize --args /path/to/dir size"],
+            FileOrganizerPlugin::organize_action
         );
 
         lla_plugin_utils::define_action!(
@@ -39,14 +37,14 @@ lazy_static! {
             "preview",
             "preview <directory> [strategy]",
             "Preview organization changes without applying them",
-            vec![
+            [
                 "lla plugin --name file_organizer --action preview --args /path/to/dir",
                 "lla plugin --name file_organizer --action preview --args /path/to/dir extension",
                 "lla plugin --name file_organizer --action preview --args /path/to/dir date",
                 "lla plugin --name file_organizer --action preview --args /path/to/dir type",
-                "lla plugin --name file_organizer --action preview --args /path/to/dir size",
+                "lla plugin --name file_organizer --action preview --args /path/to/dir size"
             ],
-            |args| FileOrganizerPlugin::preview_action(args)
+            FileOrganizerPlugin::preview_action
         );
 
         lla_plugin_utils::define_action!(
@@ -54,7 +52,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_organizer --action help"],
+            ["lla plugin --name file_organizer --action help"],
             |_| FileOrganizerPlugin::help_action()
         );
 
@@ -159,7 +157,7 @@ impl FileOrganizerPlugin {
         println!("{}", "═".bright_black().repeat(50));
 
         for (target_dir, moves) in &moves_by_dir {
-            let relative_dir = target_dir.strip_prefix(&dir).unwrap_or(&target_dir);
+            let relative_dir = target_dir.strip_prefix(&dir).unwrap_or(target_dir);
             println!(
                 "\n{} {}",
                 "📁".bright_blue(),

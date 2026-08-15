@@ -1,0 +1,24 @@
+[plugin]
+id = "dev.lla.code-complexity"
+name = "code_complexity"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "code_complexity"
+description = "Analyze source-code complexity"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["set-thresholds", "show-report", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection"]
+
+[[fields]]
+name = "complexity_metrics"
+type = "string"
+filterable = true

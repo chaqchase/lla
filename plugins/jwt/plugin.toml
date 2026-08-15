@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.jwt"
+name = "jwt"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "jwt"
+description = "Decode and inspect JSON Web Tokens"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["decode", "search", "history", "preferences", "help"]
+
+[permissions]
+clipboard = true

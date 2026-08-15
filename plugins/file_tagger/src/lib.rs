@@ -27,9 +27,7 @@ lazy_static! {
             "add-tag",
             "add-tag <file_path> <tag>",
             "Add a tag to a file",
-            vec![
-                "lla plugin --name file_tagger --action add-tag --args \"/path/to/file\" \"mytag\""
-            ],
+            ["lla plugin --name file_tagger --action add-tag --args \"/path/to/file\" \"mytag\""],
             |args| {
                 if args.len() != 2 {
                     return Err("Usage: add-tag <file_path> <tag>".to_string());
@@ -56,7 +54,7 @@ lazy_static! {
             "remove-tag",
             "remove-tag <file_path> <tag>",
             "Remove a tag from a file",
-            vec!["lla plugin --name file_tagger --action remove-tag --args \"/path/to/file\" \"mytag\""],
+            ["lla plugin --name file_tagger --action remove-tag --args \"/path/to/file\" \"mytag\""],
             |args| {
                 if args.len() != 2 {
                     return Err("Usage: remove-tag <file_path> <tag>".to_string());
@@ -83,7 +81,7 @@ lazy_static! {
             "list-tags",
             "list-tags <file_path>",
             "List all tags for a file",
-            vec!["lla plugin --name file_tagger --action list-tags --args \"/path/to/file\""],
+            ["lla plugin --name file_tagger --action list-tags --args \"/path/to/file\""],
             |args| {
                 if args.len() != 1 {
                     return Err("Usage: list-tags <file_path>".to_string());
@@ -120,7 +118,7 @@ lazy_static! {
             "all-tags",
             "all-tags",
             "List all registered tags",
-            vec!["lla plugin --name file_tagger --action all-tags"],
+            ["lla plugin --name file_tagger --action all-tags"],
             |_| {
                 let plugin = FileTaggerPlugin::new();
                 let tags = plugin.get_all_tags();
@@ -154,7 +152,7 @@ lazy_static! {
             "files-by-tag",
             "files-by-tag <tag-to-query>",
             "List all files tagged with the given tag",
-            vec!["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-query\""],
+            ["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-query\""],
             |args| {
                 if args.len() != 1 {
                     return Err("Usage: files-by-tag <tag-to-query>".to_string());
@@ -165,7 +163,7 @@ lazy_static! {
 
                 if files.is_empty() {
                     list.add_item(
-                        KeyValue::new("Info", format!("No files found for tag [{}].", &args[0]))
+                        KeyValue::new("Info", format!("No files found for tag [{}].", args[0]))
                             .key_color("bright_blue")
                             .value_color("bright_yellow")
                             .key_width(12)
@@ -173,7 +171,7 @@ lazy_static! {
                     );
                 } else {
                     list.add_item(
-                        KeyValue::new(format!("All Files for [{}]", &args[0]), files.join(", "))
+                        KeyValue::new(format!("All Files for [{}]", args[0]), files.join(", "))
                             .key_color("bright_green")
                             .value_color("bright_cyan")
                             .key_width(12)
@@ -190,7 +188,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_tagger --action help"],
+            ["lla plugin --name file_tagger --action help"],
             |_| {
                 let mut help = HelpFormatter::new("File Tagger Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(

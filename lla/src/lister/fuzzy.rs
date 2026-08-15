@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use super::FileLister;
 use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
@@ -83,7 +85,7 @@ fn stream_gitignore_filtered_entries(
             continue;
         }
 
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
@@ -325,14 +327,14 @@ impl SearchIndex {
             .ignore_patterns
             .iter()
             .any(|pattern| {
-                if pattern.starts_with("regex:") {
-                    if let Ok(re) = regex::Regex::new(&pattern[6..]) {
+                if let Some(pattern) = pattern.strip_prefix("regex:") {
+                    if let Ok(re) = regex::Regex::new(pattern) {
                         re.is_match(&path_str)
                     } else {
                         false
                     }
-                } else if pattern.starts_with("glob:") {
-                    if let Ok(glob) = glob::Pattern::new(&pattern[5..]) {
+                } else if let Some(pattern) = pattern.strip_prefix("glob:") {
+                    if let Ok(glob) = glob::Pattern::new(pattern) {
                         glob.matches(&path_str)
                     } else {
                         false
@@ -544,7 +546,7 @@ impl FuzzyLister {
                 let total_indexed = Arc::clone(&total_indexed_clone);
                 Box::new(move |entry| {
                     if let Ok(entry) = entry {
-                        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                        if entry.file_type().is_some_and(|ft| ft.is_file()) {
                             let _ = tx.send(FileEntry::new(entry.into_path()));
                             total_indexed.fetch_add(1, AtomicOrdering::SeqCst);
                         }
@@ -1231,13 +1233,9 @@ impl SearchBar {
                     false
                 }
             }
-            (KeyCode::End, KeyModifiers::NONE) => {
-                if self.cursor_pos < self.query.len() {
-                    self.cursor_pos = self.query.len();
-                    true
-                } else {
-                    false
-                }
+            (KeyCode::End, KeyModifiers::NONE) if self.cursor_pos < self.query.len() => {
+                self.cursor_pos = self.query.len();
+                true
             }
             _ => false,
         }

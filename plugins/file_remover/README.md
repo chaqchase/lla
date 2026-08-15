@@ -1,13 +1,16 @@
 # lla File Remover Plugin
 
-A plugin for `lla` that provides an interactive interface for safely removing files and directories.
+A plugin for `lla` that provides an interactive interface for recoverable deletion. The
+default `remove` action moves entries into the shared `trash` store. Permanent deletion
+is available only through the explicit `purge` action and a second confirmation.
 
 ## Features
 
 - **Interactive Selection**: Multi-select interface for choosing files to remove
 - **Path Flexibility**: Support for both current and specified directories
-- **Safe Operations**: Confirmation prompts and error handling for safe removal
-- **Directory Support**: Recursive removal of directories
+- **Recoverable by Default**: `remove` records original paths and moves entries to trash
+- **Explicit Permanent Deletion**: `purge` is deliberately separate and irreversible
+- **Directory Support**: Files, symlinks, and complete directory trees are supported
 - **User Interface**: Colored output and interactive menus
 
 ## Configuration
@@ -25,11 +28,14 @@ path = "bright_yellow"
 ### Basic Operations
 
 ```bash
-# Remove files/directories from current directory
+# Move files/directories from the current directory to recoverable trash
 lla plugin --name file_remover --action remove
 
-# Remove files/directories from specified directory
+# Move files/directories from a specified directory to recoverable trash
 lla plugin --name file_remover --action remove --args /path/to/directory
+
+# Permanently delete selected entries (cannot be restored)
+lla plugin --name file_remover --action purge --args /path/to/directory
 
 # Show help information
 lla plugin --name file_remover --action help
@@ -37,21 +43,21 @@ lla plugin --name file_remover --action help
 
 ## Common Workflows
 
-### 1. Removing Files from Current Directory
+### 1. Trashing Files from Current Directory
 
 ```bash
 # In target directory
 cd /path/to/directory
 lla plugin --name file_remover --action remove
-# Select files to remove using space, confirm with enter
+# Select files to trash using space, confirm with enter
 ```
 
-### 2. Removing Files from Specific Directory
+### 2. Trashing Files from Specific Directory
 
 ```bash
-# Remove files from a specific directory without changing location
+# Trash files from a specific directory without changing location
 lla plugin --name file_remover --action remove --args /path/to/directory
-# Select files to remove using space, confirm with enter
+# Select files to trash using space, confirm with enter
 ```
 
 ## Display Format

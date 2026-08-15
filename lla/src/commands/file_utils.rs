@@ -83,7 +83,7 @@ pub fn list_directory(
             OutputMode::Json { pretty } => {
                 let include_git_status = args.git_format;
                 json_writer::write_json_array_stream(
-                    decorated_files.into_iter(),
+                    decorated_files,
                     plugin_manager,
                     pretty,
                     include_git_status,
@@ -92,18 +92,14 @@ pub fn list_directory(
             OutputMode::Ndjson => {
                 let include_git_status = args.git_format;
                 json_writer::write_ndjson_stream(
-                    decorated_files.into_iter(),
+                    decorated_files,
                     plugin_manager,
                     include_git_status,
                 )
             }
             OutputMode::Csv => {
                 let include_git_status = args.git_format;
-                csv_writer::write_csv_stream(
-                    decorated_files.into_iter(),
-                    plugin_manager,
-                    include_git_status,
-                )
+                csv_writer::write_csv_stream(decorated_files, plugin_manager, include_git_status)
             }
         };
     }
@@ -130,7 +126,7 @@ pub fn list_directory(
             OutputMode::Json { pretty } => {
                 let include_git_status = args.git_format;
                 json_writer::write_json_array_stream(
-                    decorated_files.into_iter(),
+                    decorated_files,
                     plugin_manager,
                     pretty,
                     include_git_status,
@@ -139,18 +135,14 @@ pub fn list_directory(
             OutputMode::Ndjson => {
                 let include_git_status = args.git_format;
                 json_writer::write_ndjson_stream(
-                    decorated_files.into_iter(),
+                    decorated_files,
                     plugin_manager,
                     include_git_status,
                 )
             }
             OutputMode::Csv => {
                 let include_git_status = args.git_format;
-                csv_writer::write_csv_stream(
-                    decorated_files.into_iter(),
-                    plugin_manager,
-                    include_git_status,
-                )
+                csv_writer::write_csv_stream(decorated_files, plugin_manager, include_git_status)
             }
         };
     }
@@ -211,7 +203,7 @@ pub fn list_directory(
             // Only include git status if git format was requested
             let include_git_status = args.git_format;
             json_writer::write_json_array_stream(
-                decorated_files.into_iter(),
+                decorated_files,
                 plugin_manager,
                 pretty,
                 include_git_status,
@@ -219,19 +211,11 @@ pub fn list_directory(
         }
         OutputMode::Ndjson => {
             let include_git_status = args.git_format;
-            json_writer::write_ndjson_stream(
-                decorated_files.into_iter(),
-                plugin_manager,
-                include_git_status,
-            )
+            json_writer::write_ndjson_stream(decorated_files, plugin_manager, include_git_status)
         }
         OutputMode::Csv => {
             let include_git_status = args.git_format;
-            csv_writer::write_csv_stream(
-                decorated_files.into_iter(),
-                plugin_manager,
-                include_git_status,
-            )
+            csv_writer::write_csv_stream(decorated_files, plugin_manager, include_git_status)
         }
     }
 }
@@ -417,6 +401,7 @@ pub fn list_and_decorate_files(
                                 gid: 0,
                             }),
                             custom_fields,
+                            typed_fields: Default::default(),
                         });
                     }
                     return None;
@@ -437,11 +422,10 @@ pub fn list_and_decorate_files(
                 .map(|n| n == "." || n == "..")
                 .unwrap_or(false);
 
-            if args.dotfiles_only && !is_dotfile {
-                return None;
-            } else if args.no_dotfiles && is_dotfile {
-                return None;
-            } else if args.almost_all && is_current_or_parent_dir {
+            if (args.dotfiles_only && !is_dotfile)
+                || (args.no_dotfiles && is_dotfile)
+                || (args.almost_all && is_current_or_parent_dir)
+            {
                 return None;
             }
 
@@ -497,14 +481,13 @@ pub fn list_and_decorate_files(
                 path: path.to_string_lossy().into_owned(),
                 metadata: Some(metadata),
                 custom_fields,
+                typed_fields: Default::default(),
             })
         })
         .collect();
 
     let mut decorated_entries = entries;
-    for entry in &mut decorated_entries {
-        plugin_manager.decorate_entry(entry, format);
-    }
+    plugin_manager.decorate_entries(&mut decorated_entries, format);
 
     Ok(decorated_entries)
 }
@@ -542,7 +525,7 @@ fn list_files_with_gitignore(args: &Args, config: &Config) -> Result<Vec<PathBuf
         let entry = dent.map_err(|err| LlaError::Other(err.to_string()))?;
 
         if args.respect_gitignore && path_contains_git_dir(entry.path()) {
-            if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+            if entry.file_type().is_some_and(|ft| ft.is_dir()) {
                 continue;
             }
             continue;
@@ -607,7 +590,7 @@ pub fn list_and_decorate_archive_entries(
         let pb = PathBuf::from(&entry.path);
 
         // Exclude synthetic root from all views
-        if pb == PathBuf::from(&root_name) {
+        if pb == root_name {
             continue;
         }
 
@@ -647,11 +630,10 @@ pub fn list_and_decorate_archive_entries(
             .map(|n| n == "." || n == "..")
             .unwrap_or(false);
 
-        if args.dotfiles_only && !is_dotfile {
-            continue;
-        } else if args.no_dotfiles && is_dotfile {
-            continue;
-        } else if args.almost_all && is_current_or_parent_dir {
+        if (args.dotfiles_only && !is_dotfile)
+            || (args.no_dotfiles && is_dotfile)
+            || (args.almost_all && is_current_or_parent_dir)
+        {
             continue;
         }
 
@@ -744,6 +726,7 @@ pub fn list_and_decorate_single_file(
         path: path.to_string_lossy().into_owned(),
         metadata: Some(metadata),
         custom_fields,
+        typed_fields: Default::default(),
     };
 
     plugin_manager.decorate_entry(&mut entry, format);
@@ -815,13 +798,13 @@ pub fn create_filter(args: &Args) -> Arc<dyn FileFilter + Send + Sync> {
                     composite.add_filter(create_base_filter(part.trim(), !args.case_sensitive));
                 }
                 Arc::new(composite)
-            } else if filter_str.starts_with("NOT ") {
+            } else if let Some(pattern) = filter_str.strip_prefix("NOT ") {
                 let mut composite = CompositeFilter::new(FilterOperation::Not);
-                composite.add_filter(create_base_filter(&filter_str[4..], !args.case_sensitive));
+                composite.add_filter(create_base_filter(pattern, !args.case_sensitive));
                 Arc::new(composite)
-            } else if filter_str.starts_with("XOR ") {
+            } else if let Some(pattern) = filter_str.strip_prefix("XOR ") {
                 let mut composite = CompositeFilter::new(FilterOperation::Xor);
-                composite.add_filter(create_base_filter(&filter_str[4..], !args.case_sensitive));
+                composite.add_filter(create_base_filter(pattern, !args.case_sensitive));
                 Arc::new(composite)
             } else {
                 Arc::from(create_base_filter(filter_str, !args.case_sensitive))
@@ -832,15 +815,16 @@ pub fn create_filter(args: &Args) -> Arc<dyn FileFilter + Send + Sync> {
 }
 
 fn create_base_filter(pattern: &str, case_insensitive: bool) -> Box<dyn FileFilter + Send + Sync> {
-    let base_filter: Box<dyn FileFilter + Send + Sync> = if pattern.starts_with("regex:") {
-        Box::new(RegexFilter::new(pattern[6..].to_string()))
-    } else if pattern.starts_with("glob:") {
-        Box::new(GlobFilter::new(pattern[5..].to_string()))
-    } else if pattern.starts_with('.') {
-        Box::new(ExtensionFilter::new(pattern[1..].to_string()))
-    } else {
-        Box::new(PatternFilter::new(pattern.to_string()))
-    };
+    let base_filter: Box<dyn FileFilter + Send + Sync> =
+        if let Some(pattern) = pattern.strip_prefix("regex:") {
+            Box::new(RegexFilter::new(pattern.to_string()))
+        } else if let Some(pattern) = pattern.strip_prefix("glob:") {
+            Box::new(GlobFilter::new(pattern.to_string()))
+        } else if let Some(pattern) = pattern.strip_prefix('.') {
+            Box::new(ExtensionFilter::new(pattern.to_string()))
+        } else {
+            Box::new(PatternFilter::new(pattern.to_string()))
+        };
 
     if case_insensitive {
         Box::new(CaseInsensitiveFilter::new(base_filter))

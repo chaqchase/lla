@@ -12,9 +12,11 @@ categories = ["command-line-utilities"]
 [dependencies]
 serde.workspace = true
 prost.workspace = true
+toml.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true
+protoc-bin-vendored = "3"
 
 [features]
 regenerate-protobuf = []

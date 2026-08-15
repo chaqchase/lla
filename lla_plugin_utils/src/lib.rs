@@ -2,6 +2,7 @@ pub mod actions;
 pub mod config;
 pub mod format;
 pub mod syntax;
+pub mod trash;
 pub mod ui;
 
 pub use actions::{Action, ActionHelp, ActionRegistry};
@@ -12,7 +13,18 @@ pub use ui::{
     TextBlock, TextStyle,
 };
 
-use lla_plugin_interface::{proto, PluginRequest, PluginResponse};
+use lla_plugin_interface::{proto, DecoratedEntry, PluginRequest, PluginResponse};
+
+fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry, String> {
+    let metadata = entry
+        .metadata
+        .ok_or_else(|| "Missing metadata in decorated entry".to_string())?;
+    Ok(DecoratedEntry {
+        path: std::path::PathBuf::from(entry.path),
+        metadata: metadata.into(),
+        custom_fields: entry.custom_fields,
+    })
+}
 
 pub struct BasePlugin<C: PluginConfig> {
     config_manager: ConfigManager<C>,
@@ -74,53 +86,14 @@ pub trait ProtobufHandler {
                 Ok(PluginRequest::GetSupportedFormats)
             }
             Some(proto::plugin_message::Message::Decorate(entry)) => {
-                let metadata = entry
-                    .metadata
-                    .map(|m| lla_plugin_interface::EntryMetadata {
-                        size: m.size,
-                        modified: m.modified,
-                        accessed: m.accessed,
-                        created: m.created,
-                        is_dir: m.is_dir,
-                        is_file: m.is_file,
-                        is_symlink: m.is_symlink,
-                        permissions: m.permissions,
-                        uid: m.uid,
-                        gid: m.gid,
-                    })
-                    .ok_or("Missing metadata in decorated entry")?;
-
-                let decorated = lla_plugin_interface::DecoratedEntry {
-                    path: std::path::PathBuf::from(entry.path),
-                    metadata,
-                    custom_fields: entry.custom_fields,
-                };
-                Ok(PluginRequest::Decorate(decorated))
+                Ok(PluginRequest::Decorate(decode_decorated_entry(entry)?))
             }
             Some(proto::plugin_message::Message::FormatField(req)) => {
                 let entry = req.entry.ok_or("Missing entry in format field request")?;
-                let metadata = entry
-                    .metadata
-                    .map(|m| lla_plugin_interface::EntryMetadata {
-                        size: m.size,
-                        modified: m.modified,
-                        accessed: m.accessed,
-                        created: m.created,
-                        is_dir: m.is_dir,
-                        is_file: m.is_file,
-                        is_symlink: m.is_symlink,
-                        permissions: m.permissions,
-                        uid: m.uid,
-                        gid: m.gid,
-                    })
-                    .ok_or("Missing metadata in decorated entry")?;
-
-                let decorated = lla_plugin_interface::DecoratedEntry {
-                    path: std::path::PathBuf::from(entry.path),
-                    metadata,
-                    custom_fields: entry.custom_fields,
-                };
-                Ok(PluginRequest::FormatField(decorated, req.format))
+                Ok(PluginRequest::FormatField(
+                    decode_decorated_entry(entry)?,
+                    req.format,
+                ))
             }
             Some(proto::plugin_message::Message::Action(req)) => {
                 Ok(PluginRequest::PerformAction(req.action, req.args))
@@ -148,25 +121,7 @@ pub trait ProtobufHandler {
                 })
             }
             PluginResponse::Decorated(entry) => {
-                let proto_metadata = proto::EntryMetadata {
-                    size: entry.metadata.size,
-                    modified: entry.metadata.modified,
-                    accessed: entry.metadata.accessed,
-                    created: entry.metadata.created,
-                    is_dir: entry.metadata.is_dir,
-                    is_file: entry.metadata.is_file,
-                    is_symlink: entry.metadata.is_symlink,
-                    permissions: entry.metadata.permissions,
-                    uid: entry.metadata.uid,
-                    gid: entry.metadata.gid,
-                };
-
-                let proto_entry = proto::DecoratedEntry {
-                    path: entry.path.to_string_lossy().to_string(),
-                    metadata: Some(proto_metadata),
-                    custom_fields: entry.custom_fields,
-                };
-                proto::plugin_message::Message::DecoratedResponse(proto_entry)
+                proto::plugin_message::Message::DecoratedResponse(entry.into())
             }
             PluginResponse::FormattedField(field) => {
                 proto::plugin_message::Message::FieldResponse(proto::FormattedFieldResponse {

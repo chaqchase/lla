@@ -36,7 +36,7 @@ lazy_static! {
             "clear-cache",
             "clear-cache",
             "Clear the duplicate file detection cache",
-            vec!["lla plugin --name duplicate_file_detector --action clear-cache"],
+            ["lla plugin --name duplicate_file_detector --action clear-cache"],
             |_| {
                 let spinner = SPINNER.write();
                 spinner.set_status("Clearing cache...".to_string());
@@ -62,7 +62,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name duplicate_file_detector --action help"],
+            ["lla plugin --name duplicate_file_detector --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Duplicate File Detector Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -235,7 +235,7 @@ impl DuplicateFileDetectorPlugin {
         let colors = &self.base.config().colors;
         let mut list = List::new().style(BoxStyle::Minimal).key_width(15);
 
-        if entry.custom_fields.get("has_duplicates").is_some() {
+        if entry.custom_fields.contains_key("has_duplicates") {
             match format {
                 "long" => {
                     list.add_item(
@@ -283,7 +283,7 @@ impl DuplicateFileDetectorPlugin {
                 }
                 _ => return None,
             }
-        } else if entry.custom_fields.get("is_duplicate").is_some() {
+        } else if entry.custom_fields.contains_key("is_duplicate") {
             match format {
                 "long" => {
                     list.add_item(

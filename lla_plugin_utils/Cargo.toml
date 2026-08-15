@@ -2,13 +2,17 @@
 name = "lla_plugin_utils"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Shared utilities for building lla plugins"
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+keywords = ["cli", "plugins", "file-management"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.5.11" }
+lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.5.12" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 colored = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
@@ -29,3 +33,6 @@ ui = []
 format = []
 syntax = ["syntect", "lazy_static"]
 interactive = []
+
+[dev-dependencies]
+tempfile = { workspace = true }

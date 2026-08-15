@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::theme;
 use colored::*;
 use dialoguer::{Confirm, Input, MultiSelect, Select};
+use lla_plugin_interface::manifest::PluginManifest;
 use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use std::fmt::Display;
 use std::fs;
@@ -330,7 +331,7 @@ pub fn run_wizard() -> Result<()> {
         Some(depth_guard_input.trim().parse::<usize>().unwrap())
     };
 
-    let installed_plugins = discover_plugins(&config.plugins_dir).unwrap_or_default();
+    let installed_plugins = discover_plugins(&config.plugin_search_paths(None)).unwrap_or_default();
     let selected_plugins = if installed_plugins.is_empty() {
         config.enabled_plugins.clone()
     } else {
@@ -453,21 +454,28 @@ fn seed_default_theme(themes_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn discover_plugins(plugins_dir: &Path) -> std::io::Result<Vec<String>> {
+fn discover_plugins(plugin_dirs: &[PathBuf]) -> std::io::Result<Vec<String>> {
     let mut names = Vec::new();
-    if !plugins_dir.exists() {
-        return Ok(names);
-    }
-    for entry in fs::read_dir(plugins_dir)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            if let Some(name) = entry.path().file_name().and_then(|s| s.to_str()) {
+    for plugins_dir in plugin_dirs {
+        if !plugins_dir.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(plugins_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let manifest_path = entry.path().join("plugin.toml");
+                if let Ok(manifest) = PluginManifest::from_path(&manifest_path) {
+                    names.push(manifest.plugin.name);
+                }
+            } else if let Some(name) = entry.path().file_name().and_then(|s| s.to_str()) {
                 if let Some(canonical) = canonical_plugin_name(name) {
                     names.push(canonical);
                 }
             }
         }
     }
+    names.sort();
+    names.dedup();
     Ok(names)
 }
 

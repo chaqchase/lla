@@ -1,0 +1,31 @@
+[plugin]
+id = "dev.lla.categorizer"
+name = "categorizer"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "categorizer"
+description = "Categorize files from extensions and metadata"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["add-category", "add-subcategory", "list-categories", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:selection"]
+
+[[fields]]
+name = "category"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "subcategory"
+type = "string"
+sortable = true
+filterable = true

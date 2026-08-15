@@ -1,0 +1,14 @@
+[package]
+name = "trash"
+version = "0.5.12"
+edition = "2021"
+description = "Cross-platform recoverable deletion with listing, restoration, and explicit emptying"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lazy_static = "1.4"
+parking_lot = "0.12"

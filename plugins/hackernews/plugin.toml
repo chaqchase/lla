@@ -1,0 +1,19 @@
+[plugin]
+id = "dev.lla.hackernews"
+name = "hackernews"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "hackernews"
+description = "Browse Hacker News stories and discussions"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["top", "best", "new", "ask", "show", "jobs", "open", "comments", "copy", "browse", "menu", "help"]
+
+[permissions]
+network = ["hacker-news.firebaseio.com", "news.ycombinator.com"]
+clipboard = true
+open_url = true

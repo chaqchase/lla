@@ -255,7 +255,7 @@ fn normalize_numeric_range(range: &mut NumericRange) {
 }
 
 fn normalize_time_range(range: &mut TimeRange) {
-    if let (Some(start), Some(end)) = (range.earliest.clone(), range.latest.clone()) {
+    if let (Some(start), Some(end)) = (range.earliest, range.latest) {
         if start > end {
             range.earliest = Some(end);
             range.latest = Some(start);

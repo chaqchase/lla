@@ -1,0 +1,19 @@
+[plugin]
+id = "dev.lla.youtube"
+name = "youtube"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "youtube"
+description = "Search and open YouTube videos"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["search", "search-selected", "history", "preferences", "help"]
+
+[permissions]
+network = ["youtube.com", "suggestqueries.google.com"]
+clipboard = true
+open_url = true

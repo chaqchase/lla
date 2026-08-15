@@ -21,7 +21,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_meta --action help"],
+            ["lla plugin --name file_meta --action help"],
             |_| {
                 let mut help = HelpFormatter::new("File Metadata Plugin".to_string());
                 help.add_section("Description".to_string())
@@ -115,6 +115,18 @@ impl FileMetadataPlugin {
         datetime.format("%Y-%m-%d %H:%M:%S").to_string()
     }
 
+    fn format_timestamp_value(value: &str) -> String {
+        value
+            .parse::<u64>()
+            .ok()
+            .map(|seconds| {
+                Self::format_timestamp(
+                    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds),
+                )
+            })
+            .unwrap_or_else(|| value.to_string())
+    }
+
     fn format_file_info(&self, entry: &DecoratedEntry, format: &str) -> Option<String> {
         let colors = &self.base.config().colors;
 
@@ -138,10 +150,13 @@ impl FileMetadataPlugin {
                         Some(size),
                         Some(permissions),
                     ) => {
+                        let accessed_display = Self::format_timestamp_value(accessed);
+                        let modified_display = Self::format_timestamp_value(modified);
+                        let created_display = Self::format_timestamp_value(created);
                         let mut list = List::new().style(BoxStyle::Minimal).key_width(12);
 
                         list.add_item(
-                            KeyValue::new("Accessed", accessed)
+                            KeyValue::new("Accessed", &accessed_display)
                                 .key_color(colors.get("accessed").unwrap_or(&"white".to_string()))
                                 .value_color(colors.get("accessed").unwrap_or(&"white".to_string()))
                                 .key_width(12)
@@ -149,7 +164,7 @@ impl FileMetadataPlugin {
                         );
 
                         list.add_item(
-                            KeyValue::new("Modified", modified)
+                            KeyValue::new("Modified", &modified_display)
                                 .key_color(colors.get("modified").unwrap_or(&"white".to_string()))
                                 .value_color(colors.get("modified").unwrap_or(&"white".to_string()))
                                 .key_width(12)
@@ -157,7 +172,7 @@ impl FileMetadataPlugin {
                         );
 
                         list.add_item(
-                            KeyValue::new("Created", created)
+                            KeyValue::new("Created", &created_display)
                                 .key_color(colors.get("created").unwrap_or(&"white".to_string()))
                                 .value_color(colors.get("created").unwrap_or(&"white".to_string()))
                                 .key_width(12)
@@ -222,27 +237,15 @@ impl Plugin for FileMetadataPlugin {
                         "long".to_string(),
                     ]),
                     PluginRequest::Decorate(mut entry) => {
-                        entry.custom_fields.insert(
-                            "accessed".to_string(),
-                            Self::format_timestamp(
-                                SystemTime::UNIX_EPOCH
-                                    + std::time::Duration::from_secs(entry.metadata.accessed),
-                            ),
-                        );
-                        entry.custom_fields.insert(
-                            "modified".to_string(),
-                            Self::format_timestamp(
-                                SystemTime::UNIX_EPOCH
-                                    + std::time::Duration::from_secs(entry.metadata.modified),
-                            ),
-                        );
-                        entry.custom_fields.insert(
-                            "created".to_string(),
-                            Self::format_timestamp(
-                                SystemTime::UNIX_EPOCH
-                                    + std::time::Duration::from_secs(entry.metadata.created),
-                            ),
-                        );
+                        entry
+                            .custom_fields
+                            .insert("accessed".to_string(), entry.metadata.accessed.to_string());
+                        entry
+                            .custom_fields
+                            .insert("modified".to_string(), entry.metadata.modified.to_string());
+                        entry
+                            .custom_fields
+                            .insert("created".to_string(), entry.metadata.created.to_string());
                         entry
                             .custom_fields
                             .insert("uid".to_string(), entry.metadata.uid.to_string());
@@ -299,3 +302,20 @@ impl ConfigurablePlugin for FileMetadataPlugin {
 impl ProtobufHandler for FileMetadataPlugin {}
 
 lla_plugin_interface::declare_plugin!(FileMetadataPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_timestamps_keep_the_existing_human_display() {
+        assert_eq!(
+            FileMetadataPlugin::format_timestamp_value("0"),
+            FileMetadataPlugin::format_timestamp(SystemTime::UNIX_EPOCH)
+        );
+        assert_eq!(
+            FileMetadataPlugin::format_timestamp_value("legacy"),
+            "legacy"
+        );
+    }
+}

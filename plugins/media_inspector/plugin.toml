@@ -1,0 +1,66 @@
+[plugin]
+id = "dev.lla.media-inspector"
+name = "media_inspector"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "media_inspector"
+description = "Inspect MIME, dimensions, EXIF, duration, codecs, and bitrate"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["inspect", "tools", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection", "read:user-path"]
+process = true
+
+[[fields]]
+name = "mime_type"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "media_kind"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "media_width"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "media_height"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "duration_ms"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "codecs"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "bitrate_bps"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "exif"
+type = "string"
+filterable = true

@@ -21,18 +21,18 @@ lazy_static! {
             "add-category",
             "add-category <name> <color> <ext1,ext2,...> [description]",
             "Add a new category",
-            vec!["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\""],
+            ["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\""],
             |args| {
                 if args.len() < 3 {
                     return Err("Usage: add-category <name> <color> <ext1,ext2,...> [description]".to_string());
                 }
-                let mut rule = CategoryRule::default();
-                rule.name = args[0].clone();
-                rule.color = args[1].clone();
-                rule.extensions = args[2].split(',').map(String::from).collect();
-                if let Some(desc) = args.get(3) {
-                    rule.description = desc.clone();
-                }
+                let rule = CategoryRule {
+                    name: args[0].clone(),
+                    color: args[1].clone(),
+                    extensions: args[2].split(',').map(String::from).collect(),
+                    description: args.get(3).cloned().unwrap_or_default(),
+                    ..CategoryRule::default()
+                };
                 let mut plugin = FileCategoryPlugin::new();
                 plugin.config_mut().rules.push(rule);
                 plugin.base.save_config().map_err(|e| e.to_string())?;
@@ -45,7 +45,7 @@ lazy_static! {
             "add-subcategory",
             "add-subcategory <category> <subcategory> <ext1,ext2,...>",
             "Add a subcategory to an existing category",
-            vec!["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md"],
+            ["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md"],
             |args| {
                 if args.len() != 3 {
                     return Err(
@@ -75,7 +75,7 @@ lazy_static! {
             "list-categories",
             "list-categories",
             "List all categories and their details",
-            vec!["lla plugin --name categorizer --action list-categories"],
+            ["lla plugin --name categorizer --action list-categories"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut list = List::new();
@@ -118,7 +118,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name categorizer --action help"],
+            ["lla plugin --name categorizer --action help"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut help = HelpFormatter::new("File Categorizer Plugin".to_string());

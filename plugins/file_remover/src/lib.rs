@@ -4,16 +4,13 @@ use lazy_static::lazy_static;
 use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
 use lla_plugin_utils::{
     config::PluginConfig,
+    trash::{remove_path, TrashStore},
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    ops::Deref,
-    path::{Path, PathBuf},
-};
+use std::{fs, ops::Deref, path::PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoverConfig {
@@ -48,12 +45,24 @@ lazy_static! {
             registry,
             "remove",
             "remove [path]",
-            "Remove files/directories from current or specified directory",
-            vec![
+            "Move selected files/directories into recoverable trash",
+            [
                 "lla plugin --name file_remover --action remove",
                 "lla plugin --name file_remover --action remove --args /path/to/dir"
             ],
-            |args| FileRemoverPlugin::remove_action(args)
+            FileRemoverPlugin::remove_action
+        );
+
+        lla_plugin_utils::define_action!(
+            registry,
+            "purge",
+            "purge [path]",
+            "Permanently delete selected files/directories after confirmation",
+            [
+                "lla plugin --name file_remover --action purge",
+                "lla plugin --name file_remover --action purge --args /path/to/dir"
+            ],
+            FileRemoverPlugin::purge_action
         );
 
         lla_plugin_utils::define_action!(
@@ -61,7 +70,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_remover --action help"],
+            ["lla plugin --name file_remover --action help"],
             |_| FileRemoverPlugin::help_action()
         );
 
@@ -89,26 +98,16 @@ impl FileRemoverPlugin {
         }
     }
 
-    fn remove_directory_recursively(path: &Path) -> Result<(), String> {
-        if !path.is_dir() {
-            return Err(format!("{} is not a directory", path.display()));
-        }
-
-        fs::remove_dir_all(path)
-            .map_err(|e| format!("Failed to remove directory {}: {}", path.display(), e))
-    }
-
-    fn remove_item(path: &Path) -> Result<(), String> {
-        if path.is_dir() {
-            Self::remove_directory_recursively(path)
-        } else {
-            fs::remove_file(path)
-                .map_err(|e| format!("Failed to remove file {}: {}", path.display(), e))
-        }
-    }
-
     fn remove_action(args: &[String]) -> Result<(), String> {
-        let dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        Self::select_and_remove(args, false)
+    }
+
+    fn purge_action(args: &[String]) -> Result<(), String> {
+        Self::select_and_remove(args, true)
+    }
+
+    fn select_and_remove(args: &[String], permanent: bool) -> Result<(), String> {
+        let dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         let entries = fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?
@@ -143,7 +142,11 @@ impl FileRemoverPlugin {
 
         let theme = LlaDialoguerTheme::default();
         let selections = MultiSelect::with_theme(&theme)
-            .with_prompt("Select items to remove (Space to select, Enter to confirm)")
+            .with_prompt(if permanent {
+                "Select items to PERMANENTLY delete (Space to select, Enter to confirm)"
+            } else {
+                "Select items to move to recoverable trash (Space to select, Enter to confirm)"
+            })
             .items(&items)
             .interact()
             .map_err(|e| format!("Failed to show selector: {}", e))?;
@@ -154,15 +157,24 @@ impl FileRemoverPlugin {
         }
 
         println!(
-            "\n{} The following items will be removed:",
-            "Warning:".bright_yellow()
+            "\n{} The following items will be {}:",
+            "Warning:".bright_yellow(),
+            if permanent {
+                "permanently deleted"
+            } else {
+                "moved to trash"
+            }
         );
         for &idx in &selections {
             println!("  {} {}", "→".bright_red(), items[idx].bright_yellow());
         }
 
         let confirmed = Confirm::with_theme(&theme)
-            .with_prompt("Are you sure you want to remove these items?")
+            .with_prompt(if permanent {
+                "Permanently delete these items? This cannot be undone"
+            } else {
+                "Move these items to recoverable trash?"
+            })
             .default(false)
             .interact()
             .map_err(|e| format!("Failed to show confirmation: {}", e))?;
@@ -174,15 +186,29 @@ impl FileRemoverPlugin {
 
         let mut success_count = 0;
         let mut error_count = 0;
+        let trash = TrashStore::for_plugin_data();
 
         for &idx in &selections {
             let path = &entries[idx];
-            match Self::remove_item(path) {
-                Ok(()) => {
+            let result = if permanent {
+                remove_path(path).map(|_| None)
+            } else {
+                trash.put(path).map(Some)
+            };
+            match result {
+                Ok(record) => {
                     println!(
-                        "{} Removed: {}",
+                        "{} {}: {}{}",
                         "Success:".bright_green(),
-                        path.display().to_string().bright_yellow()
+                        if permanent {
+                            "Permanently deleted"
+                        } else {
+                            "Trashed"
+                        },
+                        path.display().to_string().bright_yellow(),
+                        record
+                            .map(|record| format!(" (id: {})", record.id))
+                            .unwrap_or_default()
                     );
                     success_count += 1;
                 }
@@ -199,9 +225,14 @@ impl FileRemoverPlugin {
         }
 
         println!(
-            "\n{} Operation completed: {} items removed, {} errors",
+            "\n{} Operation completed: {} items {}, {} errors",
             "Summary:".bright_blue(),
             success_count.to_string().bright_green(),
+            if permanent {
+                "permanently deleted"
+            } else {
+                "trashed"
+            },
             error_count.to_string().bright_red()
         );
 
@@ -212,18 +243,27 @@ impl FileRemoverPlugin {
         let mut help = HelpFormatter::new("File Remover".to_string());
         help.add_section("Description".to_string()).add_command(
             "".to_string(),
-            "Remove files and directories with interactive selection".to_string(),
+            "Move files and directories to recoverable trash by default".to_string(),
             vec![],
         );
 
-        help.add_section("Commands".to_string()).add_command(
-            "remove [path]".to_string(),
-            "Remove files/directories from current or specified directory".to_string(),
-            vec![
-                "lla plugin --name file_remover --action remove".to_string(),
-                "lla plugin --name file_remover --action remove --args /path/to/dir".to_string(),
-            ],
-        );
+        help.add_section("Commands".to_string())
+            .add_command(
+                "remove [path]".to_string(),
+                "Move selected files/directories into recoverable trash".to_string(),
+                vec![
+                    "lla plugin --name file_remover --action remove".to_string(),
+                    "lla plugin --name file_remover --action remove --args /path/to/dir"
+                        .to_string(),
+                ],
+            )
+            .add_command(
+                "purge [path]".to_string(),
+                "Permanently delete selected items after an explicit confirmation".to_string(),
+                vec![
+                    "lla plugin --name file_remover --action purge --args /path/to/dir".to_string(),
+                ],
+            );
 
         println!(
             "{}",
@@ -297,5 +337,23 @@ lla_plugin_interface::declare_plugin!(FileRemoverPlugin);
 impl Default for FileRemoverPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recoverable_and_permanent_actions_are_both_explicit() {
+        let actions = ACTION_REGISTRY
+            .read()
+            .list_actions()
+            .into_iter()
+            .map(|action| action.name)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(actions.contains("remove"));
+        assert!(actions.contains("purge"));
+        assert!(actions.contains("help"));
     }
 }

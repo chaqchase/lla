@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
 use once_cell::sync::Lazy;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::sync::Mutex;
 use users::{get_group_by_gid, get_user_by_uid};
@@ -112,10 +113,13 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     .to_string();
 
     // Extra FS data
+    #[cfg(unix)]
     let (inode, hard_links) = match fs::symlink_metadata(&entry.path) {
-        Ok(m) => (Some(m.ino()), Some(m.nlink() as u64)),
+        Ok(m) => (Some(m.ino()), Some(m.nlink())),
         Err(_) => (None, None),
     };
+    #[cfg(not(unix))]
+    let (inode, hard_links) = (None, None);
 
     let symlink_target = if md.is_symlink {
         if let Some(t) = entry.custom_fields.get("symlink_target") {
@@ -137,6 +141,33 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     let mut plugin: HashMap<String, serde_json::Value> = HashMap::new();
     for (k, v) in &entry.custom_fields {
         plugin.insert(k.clone(), serde_json::Value::String(v.clone()));
+    }
+    for (key, value) in &entry.typed_fields {
+        let Some(value) = &value.value else {
+            continue;
+        };
+        let json = match value {
+            lla_plugin_interface::proto::typed_value::Value::StringValue(value)
+            | lla_plugin_interface::proto::typed_value::Value::PathValue(value) => {
+                serde_json::Value::String(value.clone())
+            }
+            lla_plugin_interface::proto::typed_value::Value::IntegerValue(value) => {
+                serde_json::Value::Number((*value).into())
+            }
+            lla_plugin_interface::proto::typed_value::Value::FloatValue(value) => {
+                serde_json::Number::from_f64(*value)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null)
+            }
+            lla_plugin_interface::proto::typed_value::Value::BooleanValue(value) => {
+                serde_json::Value::Bool(*value)
+            }
+            lla_plugin_interface::proto::typed_value::Value::BytesValue(value)
+            | lla_plugin_interface::proto::typed_value::Value::TimestampValue(value) => {
+                serde_json::Value::Number((*value).into())
+            }
+        };
+        plugin.insert(key.clone(), json);
     }
 
     SerializableEntry {
@@ -166,10 +197,7 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
         if dir.join(".git").exists() {
             return Some(dir.to_path_buf());
         }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => return None,
-        }
+        dir = dir.parent()?;
     }
 }
 

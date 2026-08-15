@@ -1,0 +1,25 @@
+[plugin]
+id = "dev.lla.sizeviz"
+name = "sizeviz"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "sizeviz"
+description = "Visualize file sizes"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:selection"]
+
+[[fields]]
+name = "size"
+type = "bytes"
+sortable = true
+filterable = true

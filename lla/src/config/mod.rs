@@ -75,7 +75,7 @@ fn default_table_columns() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FormatterConfig {
     #[serde(default)]
     pub tree: TreeFormatterConfig,
@@ -87,18 +87,6 @@ pub struct FormatterConfig {
     pub table: TableFormatterConfig,
     #[serde(default)]
     pub sizemap: SizeMapConfig,
-}
-
-impl Default for FormatterConfig {
-    fn default() -> Self {
-        Self {
-            tree: TreeFormatterConfig::default(),
-            grid: GridFormatterConfig::default(),
-            long: LongFormatterConfig::default(),
-            table: TableFormatterConfig::default(),
-            sizemap: SizeMapConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -258,6 +246,10 @@ pub struct Config {
     pub enabled_plugins: Vec<String>,
     #[serde(deserialize_with = "deserialize_path_with_tilde")]
     pub plugins_dir: PathBuf,
+    /// Additional read-only or package-manager-owned plugin locations.
+    /// Earlier entries take precedence over later entries.
+    #[serde(default, deserialize_with = "deserialize_paths_with_tilde")]
+    pub plugin_dirs: Vec<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_paths_with_tilde")]
     pub exclude_paths: Vec<PathBuf>,
     pub default_depth: Option<usize>,
@@ -351,9 +343,7 @@ pub fn load_config_layers(start_dir: Option<&Path>) -> Result<(ConfigLayers, Opt
     let mut effective_config = global_config.clone();
     let profile_path = match find_profile_file(start_dir)? {
         Some(path) => {
-            if let Err(profile_err) = effective_config.apply_profile_file(&path) {
-                return Err(profile_err);
-            }
+            effective_config.apply_profile_file(&path)?;
             Some(path)
         }
         None => None,
@@ -507,6 +497,10 @@ enabled_plugins = {}
 # Directory where plugins are stored
 # Default: ~/.config/lla/plugins
 plugins_dir = "{}"
+
+# Additional plugin locations searched after plugins_dir.
+# Package managers can install plugins into system directories without touching $HOME.
+plugin_dirs = []
 
 # Paths to exclude from listings (tilde is supported)
 # Examples:
@@ -787,6 +781,32 @@ editor = {}"#,
         })
     }
 
+    pub fn plugin_search_paths(&self, primary_override: Option<&Path>) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        let primary = primary_override.unwrap_or(&self.plugins_dir).to_path_buf();
+        paths.push(primary);
+        paths.extend(self.plugin_dirs.iter().cloned());
+
+        #[cfg(target_os = "linux")]
+        paths.extend([
+            PathBuf::from("/usr/local/lib/lla/plugins"),
+            PathBuf::from("/usr/lib/lla/plugins"),
+        ]);
+        #[cfg(target_os = "macos")]
+        paths.extend([
+            PathBuf::from("/opt/homebrew/lib/lla/plugins"),
+            PathBuf::from("/usr/local/lib/lla/plugins"),
+        ]);
+        #[cfg(target_os = "windows")]
+        if let Some(program_data) = std::env::var_os("PROGRAMDATA") {
+            paths.push(PathBuf::from(program_data).join("lla").join("plugins"));
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        paths.retain(|path| seen.insert(path.clone()));
+        paths
+    }
+
     #[cfg(feature = "dynamic-plugins")]
     pub fn enable_plugin(&mut self, plugin_name: &str) -> Result<()> {
         self.ensure_plugins_dir().map_err(|e| {
@@ -933,9 +953,12 @@ editor = {}"#,
                 plugin.clone(),
             ];
 
-            let exists = possible_names
-                .iter()
-                .any(|name| self.plugins_dir.join(name).exists());
+            let exists = self.plugin_search_paths(None).iter().any(|plugin_dir| {
+                possible_names
+                    .iter()
+                    .any(|name| plugin_dir.join(name).exists())
+                    || plugin_dir.join(plugin).join("plugin.toml").is_file()
+            });
 
             if !exists {
                 return Err(LlaError::Config(ConfigErrorKind::ValidationError(format!(
@@ -983,6 +1006,26 @@ editor = {}"#,
                     )))
                 })?;
                 self.plugins_dir = new_dir;
+            }
+            ["plugin_dirs"] => {
+                let paths: Vec<String> = serde_json::from_str(value).map_err(|_| {
+                    LlaError::Config(ConfigErrorKind::InvalidValue(
+                        key.to_string(),
+                        "must be a JSON array of plugin directories".to_string(),
+                    ))
+                })?;
+                self.plugin_dirs = paths
+                    .into_iter()
+                    .map(|path| {
+                        if let Some(suffix) = path.strip_prefix("~/") {
+                            dirs::home_dir()
+                                .unwrap_or_else(|| PathBuf::from("."))
+                                .join(suffix)
+                        } else {
+                            PathBuf::from(path)
+                        }
+                    })
+                    .collect();
             }
             ["exclude_paths"] => {
                 // Accept JSON array (e.g., ["~/foo","/bar"]) or a single path string
@@ -1232,6 +1275,7 @@ impl Default for Config {
             default_format: String::from("default"),
             enabled_plugins: vec![],
             plugins_dir: default_plugins_dir,
+            plugin_dirs: Vec::new(),
             exclude_paths: Vec::new(),
             default_depth: Some(3),
             show_icons: false,
@@ -1738,8 +1782,10 @@ mod tests {
         let plugins_dir = config_dir.path().join("plugins");
         let config_path = config_dir.path().join("config.toml");
         fs::create_dir(&plugins_dir).unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = plugins_dir;
+        let mut config = Config {
+            plugins_dir,
+            ..Default::default()
+        };
 
         config
             .set_value_at_path(
@@ -1758,8 +1804,10 @@ mod tests {
         let config_dir = tempfile::tempdir().unwrap();
         let plugins_dir = config_dir.path().join("missing-plugins");
         let config_path = config_dir.path().join("config.toml");
-        let mut config = Config::default();
-        config.plugins_dir = plugins_dir.clone();
+        let config = Config {
+            plugins_dir: plugins_dir.clone(),
+            ..Default::default()
+        };
         fs::write(&config_path, config.generate_config_content()).unwrap();
 
         let loaded = Config::load(&config_path).unwrap();
@@ -1778,8 +1826,10 @@ mod tests {
     #[test]
     fn dynamic_build_rejects_missing_enabled_plugins() {
         let config_dir = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = config_dir.path().join("plugins");
+        let mut config = Config {
+            plugins_dir: config_dir.path().join("plugins"),
+            ..Default::default()
+        };
         fs::create_dir(&config.plugins_dir).unwrap();
         config.enabled_plugins = vec!["missing_plugin".to_string()];
 
@@ -1790,8 +1840,10 @@ mod tests {
     #[test]
     fn static_build_ignores_enabled_plugins_during_validation() {
         let config_dir = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.plugins_dir = config_dir.path().join("plugins");
+        let mut config = Config {
+            plugins_dir: config_dir.path().join("plugins"),
+            ..Default::default()
+        };
         fs::create_dir(&config.plugins_dir).unwrap();
         config.enabled_plugins = vec!["missing_plugin".to_string()];
 

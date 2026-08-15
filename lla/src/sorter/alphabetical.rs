@@ -14,8 +14,8 @@ impl FileSorter for AlphabeticalSorter {
     ) -> Result<()> {
         entries.par_sort_unstable_by(|(path_a, entry_a), (path_b, entry_b)| {
             if options.dirs_first {
-                let a_is_dir = entry_a.metadata.as_ref().map_or(false, |m| m.is_dir);
-                let b_is_dir = entry_b.metadata.as_ref().map_or(false, |m| m.is_dir);
+                let a_is_dir = entry_a.metadata.as_ref().is_some_and(|m| m.is_dir);
+                let b_is_dir = entry_b.metadata.as_ref().is_some_and(|m| m.is_dir);
 
                 match (a_is_dir, b_is_dir) {
                     (true, false) => {

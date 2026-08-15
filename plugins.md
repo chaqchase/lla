@@ -27,10 +27,99 @@ cd lla/plugins/
 cargo build --release
 ```
 
-then copy the generated `.so`, `.dll`, or `.dylib` file from the `target/release` directory to your lla plugins directory.
+then create a directory for the plugin under the lla plugins directory and copy
+both its `plugin.toml` and generated `.so`, `.dll`, or `.dylib` into that
+directory. Keeping the manifest beside the entrypoint enables v2 compatibility,
+permissions, and typed-field validation.
+
+## Plugin Platform v2
+
+Bundled plugins use the v2 package layout:
+
+```text
+plugin-name/
+├── plugin.toml
+├── libplugin_name.so   # .dylib on macOS, .dll on Windows
+├── checksums.toml
+└── README.md            # optional
+```
+
+The manifest supplies a stable plugin ID, supported host API range, runtime,
+entrypoint, capabilities, permissions, and typed listing fields. The v2 ABI
+keeps allocation and deallocation inside the plugin and supports batch entry
+decoration. Legacy flat v1 libraries remain loadable during migration.
+Release packages include SHA-256 coverage for both the manifest and native
+entrypoint; installation and `plugin doctor` reject a mismatched package before
+executing it.
+
+A minimal manifest looks like this:
+
+```toml
+[plugin]
+id = "dev.example.my-plugin"
+name = "my_plugin"
+version = "1.0.0"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "my_plugin"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection"]
+
+[[fields]]
+name = "score"
+type = "integer"
+sortable = true
+filterable = true
+```
+
+`entrypoint` is a package-local logical name. lla adds the current platform's
+library prefix and suffix. Manifest IDs, field names, duplicate declarations,
+and entrypoint confinement are validated before loading.
+
+Filesystem permissions use validated scopes such as `metadata:selection`,
+`read:tree`, `write:user-path`, or `delete:quarantine`. Network entries are
+domain names (or `"*"` when the endpoint is inherently dynamic). Each plugin's
+private configuration/data directory is host-managed and implicit; filesystem
+permissions describe access outside that private namespace. Native permissions
+remain declarations because native libraries are trusted code.
+Set `LLA_PLUGIN_DATA_DIR` to relocate the host-managed plugin data root; the
+diagnostic command uses an isolated temporary root automatically.
+
+Useful diagnostics:
+
+```bash
+lla plugin doctor
+lla plugin info file_hash
+lla plugin permissions folder_cleaner
+```
+
+lla searches the writable `plugins_dir` first, followed by configured
+`plugin_dirs` and platform system locations. This allows package managers to
+upgrade system plugins without modifying a user's home directory.
+
+Repository and release verification can run the same manifest, checksum,
+metadata, action, formatter, single-decoration, and batch-decoration checks:
+
+```bash
+./scripts/build_plugins.sh --target "$(rustc -vV | sed -n 's/^host: //p')"
+./scripts/verify_plugins_v2.sh dist/plugins-<os>-<arch>
+```
 
 ## Available Plugins
 
+- [security_audit](https://github.com/chaqchase/lla/tree/main/plugins/security_audit): Audits unsafe permissions, privileged bits, suspicious symlinks, and exposed secret-like files
+- [media_inspector](https://github.com/chaqchase/lla/tree/main/plugins/media_inspector): Reports MIME, image dimensions and EXIF, plus audio/video duration, codecs, and bitrate
+- [project_context](https://github.com/chaqchase/lla/tree/main/plugins/project_context): Detects Rust, Node, Python, and Go projects with lockfile, build, toolchain, and Git health
+- [trash](https://github.com/chaqchase/lla/tree/main/plugins/trash): Provides cross-platform recoverable deletion with listing and conflict-safe restoration
+- [preview](https://github.com/chaqchase/lla/tree/main/plugins/preview): Previews highlighted text and Markdown, terminal images, and archive contents
 - [categorizer](https://github.com/chaqchase/lla/tree/main/plugins/categorizer): Categorizes files based on their extensions and metadata
 - [code_complexity](https://github.com/chaqchase/lla/tree/main/plugins/code_complexity): Analyzes code complexity using various metrics
 - [code_snippet_extractor](https://github.com/chaqchase/lla/tree/main/plugins/code_snippet_extractor): A plugin for extracting and managing code snippets
@@ -52,6 +141,6 @@ then copy the generated `.so`, `.dll`, or `.dylib` file from the `target/release
 - [youtube](https://github.com/chaqchase/lla/tree/main/plugins/youtube): YouTube search with autosuggestions and history management
 - [file_mover](https://github.com/chaqchase/lla/tree/main/plugins/file_mover): A plugin that provides an intuitive clipboard-based interface for moving files and directories.
 - [file_copier](https://github.com/chaqchase/lla/tree/main/plugins/file_copier): A plugin that provides an intuitive clipboard-based interface for copying files and directories.
-- [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): A plugin that provides an interactive interface for safely removing files and directories.
+- [file_remover](https://github.com/chaqchase/lla/tree/main/plugins/file_remover): Interactively moves files to recoverable trash by default, with explicit permanent deletion.
 - [file_organizer](https://github.com/chaqchase/lla/tree/main/plugins/file_organizer): A plugin for organizing files using various strategies
 - [kill_process](https://github.com/chaqchase/lla/tree/main/plugins/kill_process): Interactive process management plugin for listing and terminating system processes with cross-platform support

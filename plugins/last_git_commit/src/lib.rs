@@ -7,8 +7,12 @@ use lla_plugin_utils::{
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use std::{collections::HashMap, path::Path, process::Command};
+use std::{
+    collections::HashMap,
+    path::Path,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 lazy_static! {
     static ref SPINNER: RwLock<Spinner> = RwLock::new(Spinner::new());
@@ -20,7 +24,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name last_git_commit --action help"],
+            ["lla plugin --name last_git_commit --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Last Git Commit Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -109,7 +113,7 @@ impl LastGitCommitPlugin {
             .args([
                 "log",
                 "-1",
-                "--format=format:{ \"hash\": \"%h\", \"author\": \"%an\", \"time\": \"%ar\" }",
+                "--format=format:{ \"hash\": \"%h\", \"author\": \"%an\", \"time\": \"%at\" }",
                 "--",
                 path.to_str()?,
             ])
@@ -125,24 +129,33 @@ impl LastGitCommitPlugin {
 
         match serde_json::from_str::<serde_json::Value>(trimmed) {
             Ok(json) => {
-                let hash = match json.get("hash").and_then(|v| v.as_str()) {
-                    Some(h) => h.to_string(),
-                    None => return None,
-                };
-
-                let author = match json.get("author").and_then(|v| v.as_str()) {
-                    Some(a) => a.to_string(),
-                    None => return None,
-                };
-
-                let time = match json.get("time").and_then(|v| v.as_str()) {
-                    Some(t) => t.to_string(),
-                    None => return None,
-                };
+                let hash = json.get("hash").and_then(|v| v.as_str())?.to_string();
+                let author = json.get("author").and_then(|v| v.as_str())?.to_string();
+                let time = json.get("time").and_then(|v| v.as_str())?.to_string();
 
                 Some((hash, author, time))
             }
             Err(_) => None,
+        }
+    }
+
+    fn format_relative_time(value: &str) -> String {
+        let Some(timestamp) = value.parse::<u64>().ok() else {
+            return value.to_string();
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let elapsed = now.saturating_sub(timestamp);
+        if elapsed < 60 {
+            format!("{} seconds ago", elapsed)
+        } else if elapsed < 3_600 {
+            format!("{} minutes ago", elapsed / 60)
+        } else if elapsed < 86_400 {
+            format!("{} hours ago", elapsed / 3_600)
+        } else {
+            format!("{} days ago", elapsed / 86_400)
         }
     }
 
@@ -159,6 +172,7 @@ impl LastGitCommitPlugin {
             entry.custom_fields.get("commit_author"),
             entry.custom_fields.get("commit_time"),
         ) {
+            let time_display = Self::format_relative_time(time);
             match format {
                 "long" => {
                     let key_color = colors
@@ -189,7 +203,7 @@ impl LastGitCommitPlugin {
                         .get("time")
                         .unwrap_or(&"white".to_string())
                         .to_string();
-                    let kv = KeyValue::new("Time", time)
+                    let kv = KeyValue::new("Time", &time_display)
                         .key_color(&key_color)
                         .value_color(&time_color)
                         .key_width(12);
@@ -204,7 +218,7 @@ impl LastGitCommitPlugin {
                         .get("hash")
                         .unwrap_or(&"white".to_string())
                         .to_string();
-                    let kv = KeyValue::new("Commit", format!("{} {}", hash, time))
+                    let kv = KeyValue::new("Commit", format!("{} {}", hash, time_display))
                         .key_color(&key_color)
                         .value_color(&hash_color)
                         .key_width(12);
@@ -297,3 +311,25 @@ impl ConfigurablePlugin for LastGitCommitPlugin {
 impl ProtobufHandler for LastGitCommitPlugin {}
 
 lla_plugin_interface::declare_plugin!(LastGitCommitPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_commit_timestamps_keep_a_relative_human_display() {
+        let two_minutes_ago = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_sub(120);
+        assert_eq!(
+            LastGitCommitPlugin::format_relative_time(&two_minutes_ago.to_string()),
+            "2 minutes ago"
+        );
+        assert_eq!(
+            LastGitCommitPlugin::format_relative_time("legacy"),
+            "legacy"
+        );
+    }
+}

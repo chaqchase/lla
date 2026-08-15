@@ -101,11 +101,11 @@ lazy_static! {
             "add",
             "add [path]",
             "Add files/directories to clipboard from current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_copier --action add",
                 "lla plugin --name file_copier --action add --args /path/to/dir"
             ],
-            |args| FileCopierPlugin::add_action(args)
+            FileCopierPlugin::add_action
         );
 
         lla_plugin_utils::define_action!(
@@ -113,11 +113,11 @@ lazy_static! {
             "copy-all",
             "copy-all [target_path]",
             "Copy all items from clipboard to current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_copier --action copy-all",
                 "lla plugin --name file_copier --action copy-all --args /path/to/target"
             ],
-            |args| FileCopierPlugin::copy_all_action(args)
+            FileCopierPlugin::copy_all_action
         );
 
         lla_plugin_utils::define_action!(
@@ -125,11 +125,11 @@ lazy_static! {
             "copy-partial",
             "copy-partial [target_path]",
             "Copy selected items from clipboard to current or specified directory",
-            vec![
+            [
                 "lla plugin --name file_copier --action copy-partial",
                 "lla plugin --name file_copier --action copy-partial --args /path/to/target"
             ],
-            |args| FileCopierPlugin::copy_partial_action(args)
+            FileCopierPlugin::copy_partial_action
         );
 
         lla_plugin_utils::define_action!(
@@ -137,7 +137,7 @@ lazy_static! {
             "clear",
             "clear",
             "Clear the clipboard",
-            vec!["lla plugin --name file_copier --action clear"],
+            ["lla plugin --name file_copier --action clear"],
             |_| FileCopierPlugin::clear_action()
         );
 
@@ -146,7 +146,7 @@ lazy_static! {
             "show",
             "show",
             "Show clipboard contents",
-            vec!["lla plugin --name file_copier --action show"],
+            ["lla plugin --name file_copier --action show"],
             |_| FileCopierPlugin::show_action()
         );
 
@@ -155,7 +155,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name file_copier --action help"],
+            ["lla plugin --name file_copier --action help"],
             |_| FileCopierPlugin::help_action()
         );
 
@@ -235,7 +235,7 @@ impl FileCopierPlugin {
 
     fn add_action(args: &[String]) -> Result<(), String> {
         let mut plugin = Self::new();
-        let dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         let entries = fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?
@@ -290,7 +290,7 @@ impl FileCopierPlugin {
             return Ok(());
         }
 
-        let target_dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let target_dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         for path in items {
             let new_path = target_dir.join(path.file_name().ok_or("Invalid file name")?);
@@ -328,7 +328,7 @@ impl FileCopierPlugin {
             return Ok(());
         }
 
-        let target_dir = Self::get_directory(args.get(0).map(|s| s.as_str()))?;
+        let target_dir = Self::get_directory(args.first().map(|s| s.as_str()))?;
 
         for &idx in &selections {
             let path = &items[idx];

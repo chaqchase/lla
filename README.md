@@ -710,6 +710,17 @@ respect_gitignore = true
 | `--disable-plugin` | Disable specific plugins   | `lla --disable-plugin name`                                                   |
 | `update`           | Update plugins             | `lla update` <br> `lla update file_tagger`                                    |
 | `plugin`           | Run plugin actions         | `lla plugin --name file_tagger --action add-tag --args README.md "important"` |
+| `plugin info`      | Inspect a v2 manifest      | `lla plugin info file_tagger`                                                   |
+| `plugin permissions` | Inspect declared access  | `lla plugin permissions file_tagger`                                            |
+| `plugin doctor`    | Validate v2 packages        | `lla plugin doctor`                                                             |
+
+Plugin Platform v2 packages place `plugin.toml` beside their native entrypoint.
+The manifest declares API compatibility, typed fields, capabilities, and access
+requirements before the library is loaded. `plugins_dir` remains the writable
+user location; additional package-manager-owned locations can be configured with
+`plugin_dirs = ["/path/to/plugins"]`. lla also searches the standard system
+locations for the current platform. Native permissions are declarations because
+native libraries are trusted code; sandboxed runtimes can enforce them in future.
 
 #### Shortcut Management
 

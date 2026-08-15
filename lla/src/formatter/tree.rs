@@ -45,7 +45,7 @@ impl TreeFormatter {
             if let Some(parent) = path.parent() {
                 if path_set.contains(parent) {
                     tree.entry(parent.to_path_buf())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(path.clone());
                     child_paths.insert(path.clone());
                 }
@@ -63,6 +63,7 @@ impl TreeFormatter {
         (root_paths, tree)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_tree_recursive(
         &self,
         path: &Path,
@@ -83,9 +84,9 @@ impl TreeFormatter {
         let child_prefix = if is_last { "    " } else { "│   " };
 
         let formatted_name = self.format_entry(path);
-        write!(
+        writeln!(
             writer,
-            "{}{}{}\n",
+            "{}{}{}",
             prefix.bright_black(),
             node_prefix.bright_black(),
             formatted_name

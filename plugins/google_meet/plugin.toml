@@ -1,0 +1,19 @@
+[plugin]
+id = "dev.lla.google-meet"
+name = "google_meet"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "google_meet"
+description = "Create and manage Google Meet links"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["create", "create-with-profile", "history", "profiles", "preferences", "help"]
+
+[permissions]
+network = ["meet.google.com"]
+clipboard = true
+open_url = true

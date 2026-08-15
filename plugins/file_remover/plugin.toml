@@ -1,0 +1,17 @@
+[plugin]
+id = "dev.lla.file-remover"
+name = "file_remover"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "file_remover"
+description = "Interactively trash files by default with explicit permanent deletion"
+license = "MIT"
+
+[capabilities]
+formats = ["default"]
+actions = ["remove", "purge", "help"]
+
+[permissions]
+filesystem = ["read:tree", "write:user-path", "delete:selection", "delete:quarantine"]

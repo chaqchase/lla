@@ -12,7 +12,10 @@ use libloading::Library;
 #[cfg(feature = "dynamic-plugins")]
 use lla_plugin_interface::proto::{plugin_message::Message, PluginMessage};
 #[cfg(feature = "dynamic-plugins")]
-use lla_plugin_interface::{PluginApi, CURRENT_PLUGIN_API_VERSION};
+use lla_plugin_interface::{
+    manifest::{PluginManifest, PluginRuntime},
+    PluginApi, CURRENT_PLUGIN_API_VERSION, LEGACY_PLUGIN_API_VERSION,
+};
 use lla_plugin_utils::ui::components::{BoxComponent, BoxStyle, LlaDialoguerTheme};
 #[cfg(feature = "dynamic-plugins")]
 use prost::Message as _;
@@ -628,7 +631,7 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
 
     let install_path_display = install_path.display().to_string();
 
-    let env_lines = vec![
+    let env_lines = [
         format!(
             "  {}  {}  {}",
             ui.muted_text("Platform    "),
@@ -713,7 +716,7 @@ pub fn upgrade_cli(args: &Args, options: &UpgradeCommand) -> Result<()> {
     )?;
 
     let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let summary_lines = vec![
+    let summary_lines = [
         format!(
             "  {}  {}  {}  {}",
             ui.muted_text("Previous"),
@@ -1339,6 +1342,36 @@ impl PluginInstaller {
 
     #[cfg(feature = "dynamic-plugins")]
     fn load_prebuilt_plugin(path: &Path) -> Result<PrebuiltPlugin> {
+        Self::verify_plugin_package(path)?;
+        let manifest_path = path
+            .parent()
+            .map(|directory| directory.join("plugin.toml"))
+            .unwrap_or_default();
+        if manifest_path.is_file() {
+            let manifest = PluginManifest::from_path(&manifest_path).map_err(LlaError::Plugin)?;
+            if manifest.plugin.runtime != PluginRuntime::Native {
+                return Err(LlaError::Plugin(format!(
+                    "Plugin '{}' uses unsupported prebuilt runtime {:?}",
+                    manifest.plugin.name, manifest.plugin.runtime
+                )));
+            }
+            if !manifest.supports_host_api(CURRENT_PLUGIN_API_VERSION) {
+                return Err(LlaError::Plugin(format!(
+                    "Plugin '{}' supports API {}..={} but lla uses API {}",
+                    manifest.plugin.name,
+                    manifest.plugin.api_min,
+                    manifest.plugin.api_max,
+                    CURRENT_PLUGIN_API_VERSION
+                )));
+            }
+            return Ok(PrebuiltPlugin {
+                path: path.to_path_buf(),
+                name: manifest.plugin.name,
+                version: manifest.plugin.version,
+                description: manifest.plugin.description,
+            });
+        }
+
         unsafe {
             let library = Library::new(path).map_err(|err| {
                 LlaError::Plugin(format!("Failed to load plugin {:?}: {}", path, err))
@@ -1354,12 +1387,12 @@ impl PluginInstaller {
 
             let api = create_fn();
 
-            if (*api).version != CURRENT_PLUGIN_API_VERSION {
+            if (*api).version != LEGACY_PLUGIN_API_VERSION {
                 return Err(LlaError::Plugin(format!(
-                    "Plugin {:?} targets API v{} but lla expects v{}",
+                    "Legacy plugin {:?} targets API v{} but lla expects legacy API v{}",
                     path,
                     (*api).version,
-                    CURRENT_PLUGIN_API_VERSION
+                    LEGACY_PLUGIN_API_VERSION
                 )));
             }
 
@@ -1399,6 +1432,13 @@ impl PluginInstaller {
                 description,
             })
         }
+    }
+
+    #[cfg(feature = "dynamic-plugins")]
+    fn verify_plugin_package(entrypoint: &Path) -> Result<()> {
+        crate::plugin::package::verify_package_checksums(entrypoint)
+            .map(|_| ())
+            .map_err(LlaError::Plugin)
     }
 
     #[cfg(not(feature = "dynamic-plugins"))]
@@ -1481,13 +1521,34 @@ impl PluginInstaller {
             LlaError::Plugin(format!("Plugin {} has an invalid file name", plugin.name))
         })?;
 
-        let destination = self.plugins_dir.join(file_name);
+        let manifest_source = plugin.path.parent().map(|dir| dir.join("plugin.toml"));
+        let is_v2_package = manifest_source.as_ref().is_some_and(|path| path.is_file());
+        let package_dir = self.plugins_dir.join(&plugin.name);
+        let destination = if is_v2_package {
+            fs::create_dir_all(&package_dir)?;
+            package_dir.join(file_name)
+        } else {
+            self.plugins_dir.join(file_name)
+        };
         fs::copy(&plugin.path, &destination).map_err(|err| {
             LlaError::Plugin(format!(
                 "Failed to copy plugin {} to {:?}: {}",
                 plugin.name, destination, err
             ))
         })?;
+
+        if let Some(manifest_source) = manifest_source.filter(|path| path.is_file()) {
+            fs::copy(&manifest_source, package_dir.join("plugin.toml")).map_err(|err| {
+                LlaError::Plugin(format!(
+                    "Failed to install manifest for {}: {}",
+                    plugin.name, err
+                ))
+            })?;
+            let checksums_source = manifest_source.with_file_name("checksums.toml");
+            if checksums_source.is_file() {
+                fs::copy(checksums_source, package_dir.join("checksums.toml"))?;
+            }
+        }
 
         let metadata = PluginMetadata::new(
             plugin.name.clone(),
@@ -1717,10 +1778,7 @@ impl PluginInstaller {
 
         let mut plugins = Vec::new();
         for path in plugin_paths {
-            match Self::load_prebuilt_plugin(&path) {
-                Ok(plugin) => plugins.push(plugin),
-                Err(err) => return Err(err),
-            }
+            plugins.push(Self::load_prebuilt_plugin(&path)?);
         }
 
         let selected_plugins = self.select_prebuilt_plugins(&plugins)?;
@@ -1830,7 +1888,7 @@ impl PluginInstaller {
 
         let repo_name = url
             .split('/')
-            .last()
+            .next_back()
             .ok_or_else(|| LlaError::Plugin(format!("Invalid GitHub URL: {}", url)))?
             .trim_end_matches(".git");
 
@@ -2143,21 +2201,19 @@ impl PluginInstaller {
         if let Some(pb) = pb {
             if let Some(stderr) = child.stderr.take() {
                 let reader = std::io::BufReader::new(stderr);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        if line.trim().starts_with("Compiling") {
-                            let parts: Vec<&str> = line.split_whitespace().collect();
-                            if parts.len() >= 2 {
-                                let package_info = parts[1..].join(" ");
-                                pb.set_message(format!(
-                                    "{} {}",
-                                    ui.progress_message("Building", &plugin_name),
-                                    ui.muted_text(&format!("({})", package_info))
-                                ));
-                            }
-                        } else if line.trim().starts_with("Finished") {
-                            pb.set_message(ui.progress_message("Finalizing", &plugin_name));
+                for line in reader.lines().map_while(std::result::Result::ok) {
+                    if line.trim().starts_with("Compiling") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            let package_info = parts[1..].join(" ");
+                            pb.set_message(format!(
+                                "{} {}",
+                                ui.progress_message("Building", &plugin_name),
+                                ui.muted_text(&format!("({})", package_info))
+                            ));
                         }
+                    } else if line.trim().starts_with("Finished") {
+                        pb.set_message(ui.progress_message("Finalizing", &plugin_name));
                     }
                 }
             }
@@ -2198,9 +2254,18 @@ impl PluginInstaller {
         }
 
         fs::create_dir_all(&self.plugins_dir)?;
+        let manifest_source = plugin_dir.join("plugin.toml");
+        let destination_dir = if manifest_source.is_file() {
+            let destination = self.plugins_dir.join(&plugin_name);
+            fs::create_dir_all(&destination)?;
+            fs::copy(&manifest_source, destination.join("plugin.toml"))?;
+            destination
+        } else {
+            self.plugins_dir.clone()
+        };
 
         for plugin_file in plugin_files.iter() {
-            let dest_path = self.plugins_dir.join(plugin_file.file_name().unwrap());
+            let dest_path = destination_dir.join(plugin_file.file_name().unwrap());
             fs::copy(plugin_file, &dest_path)?;
         }
 
@@ -2460,7 +2525,7 @@ impl PluginInstaller {
 
                     let repo_name = url
                         .split('/')
-                        .last()
+                        .next_back()
                         .map(|n| n.trim_end_matches(".git"))
                         .unwrap_or(name);
 
@@ -2730,6 +2795,7 @@ impl PluginInstaller {
 #[cfg(test)]
 mod tests {
     use super::{CliBinaryTarget, PluginInstaller};
+    use std::fs;
     use std::io::Write;
 
     #[test]
@@ -2768,5 +2834,22 @@ mod tests {
             PluginInstaller::calculate_sha256(file.path()).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn v2_package_checksums_detect_tampering() {
+        let root = tempfile::tempdir().unwrap();
+        let entrypoint = root.path().join("libexample.so");
+        fs::write(&entrypoint, b"plugin").unwrap();
+        let checksum = PluginInstaller::calculate_sha256(&entrypoint).unwrap();
+        fs::write(
+            root.path().join("checksums.toml"),
+            format!("[files]\n\"libexample.so\" = \"{}\"\n", checksum),
+        )
+        .unwrap();
+
+        PluginInstaller::verify_plugin_package(&entrypoint).unwrap();
+        fs::write(&entrypoint, b"tampered").unwrap();
+        assert!(PluginInstaller::verify_plugin_package(&entrypoint).is_err());
     }
 }

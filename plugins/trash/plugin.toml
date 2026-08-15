@@ -1,0 +1,29 @@
+[plugin]
+id = "dev.lla.trash"
+name = "trash"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "trash"
+description = "Cross-platform recoverable deletion with restore support"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["put", "list", "restore", "empty", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:selection", "read:user-path", "write:user-path", "delete:selection", "delete:quarantine"]
+
+[[fields]]
+name = "trashable"
+type = "boolean"
+filterable = true
+
+[[fields]]
+name = "trash_state"
+type = "string"
+filterable = true

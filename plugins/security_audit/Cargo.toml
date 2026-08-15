@@ -1,0 +1,18 @@
+[package]
+name = "security_audit"
+version = "0.5.12"
+edition = "2021"
+description = "Audit filesystem entries for unsafe permissions, risky links, and exposed secrets"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lazy_static = "1.4"
+parking_lot = "0.12"
+walkdir = "2.5"
+
+[dev-dependencies]
+tempfile = "3.2"

@@ -1,0 +1,31 @@
+[plugin]
+id = "dev.lla.preview"
+name = "preview"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "preview"
+description = "Preview source text, Markdown, images, and archives in the terminal"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["show", "backends", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection", "read:user-path"]
+process = true
+
+[[fields]]
+name = "preview_kind"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "preview_backend"
+type = "string"
+filterable = true

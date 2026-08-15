@@ -35,13 +35,18 @@ pub struct DecoratedEntry {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    #[prost(map = "string, message", tag = "4")]
+    pub typed_fields: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        TypedValue,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PluginMessage {
     #[prost(
         oneof = "plugin_message::Message",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 101, 102, 103, 104, 105, 106, 107, 108, 109"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110"
     )]
     pub message: ::core::option::Option<plugin_message::Message>,
 }
@@ -66,6 +71,8 @@ pub mod plugin_message {
         Action(super::ActionRequest),
         #[prost(bool, tag = "8")]
         ListActions(bool),
+        #[prost(message, tag = "9")]
+        DecorateBatch(super::BatchDecorateRequest),
         #[prost(string, tag = "101")]
         NameResponse(::prost::alloc::string::String),
         #[prost(string, tag = "102")]
@@ -84,7 +91,50 @@ pub mod plugin_message {
         ErrorResponse(::prost::alloc::string::String),
         #[prost(message, tag = "109")]
         ListActionsResponse(super::ListActionsResponse),
+        #[prost(message, tag = "110")]
+        DecorateBatchResponse(super::BatchDecorateResponse),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TypedValue {
+    #[prost(oneof = "typed_value::Value", tags = "1, 2, 3, 4, 5, 6, 7")]
+    pub value: ::core::option::Option<typed_value::Value>,
+}
+/// Nested message and enum types in `TypedValue`.
+pub mod typed_value {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(string, tag = "1")]
+        StringValue(::prost::alloc::string::String),
+        #[prost(sint64, tag = "2")]
+        IntegerValue(i64),
+        #[prost(double, tag = "3")]
+        FloatValue(f64),
+        #[prost(bool, tag = "4")]
+        BooleanValue(bool),
+        #[prost(uint64, tag = "5")]
+        BytesValue(u64),
+        #[prost(uint64, tag = "6")]
+        TimestampValue(u64),
+        #[prost(string, tag = "7")]
+        PathValue(::prost::alloc::string::String),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchDecorateRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<DecoratedEntry>,
+    #[prost(string, tag = "2")]
+    pub format: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchDecorateResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<DecoratedEntry>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

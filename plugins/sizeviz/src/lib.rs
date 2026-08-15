@@ -20,7 +20,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name sizeviz --action help"],
+            ["lla plugin --name sizeviz --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Size Visualizer Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -207,7 +207,7 @@ impl FileSizeVisualizerPlugin {
             .custom_fields
             .get("size")
             .and_then(|size_str| size_str.parse::<u64>().ok())
-            .map(|size| {
+            .and_then(|size| {
                 let max_size = 1_073_741_824;
                 let result = match format {
                     "long" => {
@@ -215,31 +215,29 @@ impl FileSizeVisualizerPlugin {
                         let bar_color = self.get_size_color(size);
                         let percentage = Self::get_percentage(size, max_size);
 
-                        format!(
-                            "\n{}\n{}\n{}\n{}",
-                            format!(
-                                "┌─ {} ─{}",
-                                "Size".bright_blue(),
-                                "─".repeat(40).bright_black()
-                            ),
-                            format!(
-                                "│ {} {}",
-                                bar.color(match bar_color.as_str() {
-                                    "bright_green" => colored::Color::BrightGreen,
-                                    "bright_cyan" => colored::Color::BrightCyan,
-                                    "bright_yellow" => colored::Color::BrightYellow,
-                                    "bright_red" => colored::Color::BrightRed,
-                                    "bright_magenta" => colored::Color::BrightMagenta,
-                                    _ => colored::Color::White,
-                                }),
-                                Self::format_size(size).bright_yellow()
-                            ),
-                            format!(
-                                "│ {}% of reference (1GB)",
-                                format!("{:.1}", percentage).bright_magenta()
-                            ),
-                            format!("└{}", "─".repeat(50).bright_black())
-                        )
+                        let heading = format!(
+                            "┌─ {} ─{}",
+                            "Size".bright_blue(),
+                            "─".repeat(40).bright_black()
+                        );
+                        let bar_line = format!(
+                            "│ {} {}",
+                            bar.color(match bar_color.as_str() {
+                                "bright_green" => colored::Color::BrightGreen,
+                                "bright_cyan" => colored::Color::BrightCyan,
+                                "bright_yellow" => colored::Color::BrightYellow,
+                                "bright_red" => colored::Color::BrightRed,
+                                "bright_magenta" => colored::Color::BrightMagenta,
+                                _ => colored::Color::White,
+                            }),
+                            Self::format_size(size).bright_yellow()
+                        );
+                        let percentage_line = format!(
+                            "│ {}% of reference (1GB)",
+                            format!("{:.1}", percentage).bright_magenta()
+                        );
+                        let footer = format!("└{}", "─".repeat(50).bright_black());
+                        format!("\n{heading}\n{bar_line}\n{percentage_line}\n{footer}")
                     }
                     "default" => {
                         let bar = Self::size_to_bar(size, max_size, 10);
@@ -261,7 +259,6 @@ impl FileSizeVisualizerPlugin {
                 };
                 Some(result)
             })
-            .flatten()
     }
 }
 

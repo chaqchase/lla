@@ -1,6 +1,6 @@
 use super::FileFilter;
 use crate::error::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct PatternFilter {
     patterns: Vec<String>,
@@ -23,8 +23,8 @@ impl PatternFilter {
         let patterns = patterns
             .into_iter()
             .map(|p| {
-                if p.starts_with('+') {
-                    p[1..].to_string()
+                if let Some(pattern) = p.strip_prefix('+') {
+                    pattern.to_string()
                 } else {
                     p
                 }
@@ -37,7 +37,7 @@ impl PatternFilter {
         }
     }
 
-    fn matches_pattern(&self, path: &PathBuf) -> bool {
+    fn matches_pattern(&self, path: &Path) -> bool {
         if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
             if self.match_all {
                 return self.patterns.iter().all(|pattern| name.contains(pattern));

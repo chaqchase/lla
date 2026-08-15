@@ -53,7 +53,7 @@ jobs:
           validate_release_versions "$VERSION"
           validate_changelog_section "$VERSION"
           cargo fmt --all -- --check
-          cargo check --workspace
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v5

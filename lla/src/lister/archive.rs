@@ -52,6 +52,7 @@ fn synthesize_directory_entries(entries: &mut Vec<DecoratedEntry>, root_prefix: 
                 gid: 0,
             }),
             custom_fields: HashMap::new(),
+            typed_fields: HashMap::new(),
         });
     }
 }
@@ -98,6 +99,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
             gid: 0,
         }),
         custom_fields: root_fields,
+        typed_fields: HashMap::new(),
     });
 
     for i in 0..archive.len() {
@@ -124,7 +126,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
 
         let mode = file
             .unix_mode()
-            .unwrap_or_else(|| if is_dir { 0o755 } else { 0o644 });
+            .unwrap_or(if is_dir { 0o755 } else { 0o644 });
 
         let mut custom_fields = HashMap::new();
         custom_fields.insert(
@@ -132,9 +134,11 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
             abs_src.to_string_lossy().into_owned(),
         );
 
-        // Heuristic for symlink from mode bits (if present)
+        // Heuristic for symlink from POSIX mode bits (if present).
+        const FILE_TYPE_MASK: u32 = 0o170000;
+        const SYMLINK_TYPE: u32 = 0o120000;
         let is_symlink = match file.unix_mode() {
-            Some(m) => (m & (libc::S_IFMT as u32)) == (libc::S_IFLNK as u32),
+            Some(m) => (m & FILE_TYPE_MASK) == SYMLINK_TYPE,
             None => false,
         };
 
@@ -153,6 +157,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
                 gid: 0,
             }),
             custom_fields,
+            typed_fields: HashMap::new(),
         });
     }
 
@@ -192,6 +197,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
             gid: 0,
         }),
         custom_fields: root_fields,
+        typed_fields: HashMap::new(),
     });
 
     let entries_iter = match archive.entries() {
@@ -237,9 +243,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
             header.size().unwrap_or(0)
         };
         let modified = header.mtime().unwrap_or(0);
-        let mode = header
-            .mode()
-            .unwrap_or_else(|_| if is_dir { 0o755 } else { 0o644 });
+        let mode = header.mode().unwrap_or(if is_dir { 0o755 } else { 0o644 });
         let uid = header.uid().unwrap_or(0) as u32;
         let gid = header.gid().unwrap_or(0) as u32;
 
@@ -267,11 +271,12 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
                 is_dir,
                 is_file,
                 is_symlink,
-                permissions: mode as u32,
+                permissions: mode,
                 uid,
                 gid,
             }),
             custom_fields,
+            typed_fields: HashMap::new(),
         });
     }
 

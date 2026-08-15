@@ -16,7 +16,7 @@ where
     let handle = stdout.lock();
     let mut wtr = csv::Writer::from_writer(handle);
 
-    wtr.write_record(&[
+    wtr.write_record([
         "path",
         "name",
         "extension",

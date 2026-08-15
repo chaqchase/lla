@@ -320,6 +320,7 @@ mod tests {
                     gid: 0,
                 }),
                 custom_fields: Default::default(),
+                typed_fields: Default::default(),
             },
             DecoratedEntry {
                 path: "b".to_string(),
@@ -336,6 +337,7 @@ mod tests {
                     gid: 0,
                 }),
                 custom_fields: Default::default(),
+                typed_fields: Default::default(),
             },
         ];
 

@@ -103,8 +103,8 @@ impl FolderCleanerConfig {
         let mut changed = false;
 
         for (name, profile) in default_profiles() {
-            if !self.profiles.contains_key(&name) {
-                self.profiles.insert(name, profile);
+            if let std::collections::hash_map::Entry::Vacant(e) = self.profiles.entry(name) {
+                e.insert(profile);
                 changed = true;
             }
         }

@@ -1,0 +1,26 @@
+[plugin]
+id = "dev.lla.code-snippet-extractor"
+name = "code_snippet_extractor"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "code_snippet_extractor"
+description = "Extract and manage tagged code snippets"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["extract", "list", "get", "search", "add-tags", "remove-tags", "help", "list-categories", "list-by-category", "set-category", "export", "import"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection", "read:user-path", "write:user-path"]
+clipboard = true
+
+[[fields]]
+name = "snippet_count"
+type = "integer"
+sortable = true
+filterable = true

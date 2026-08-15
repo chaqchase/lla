@@ -1,0 +1,17 @@
+[package]
+name = "project_context"
+version = "0.5.12"
+edition = "2021"
+description = "Detect project ecosystems, toolchains, lockfiles, artifacts, and repository health"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lazy_static = "1.4"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3.2"

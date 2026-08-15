@@ -76,6 +76,9 @@ pub enum Command {
     InitConfig { defaults_only: bool },
     Config(Option<ConfigAction>),
     PluginAction(String, String, Vec<String>),
+    PluginDoctor,
+    PluginInfo(String),
+    PluginPermissions(String),
     Update(Option<String>),
     Clean,
     Shortcut(ShortcutAction),
@@ -221,7 +224,7 @@ impl Args {
                         Arg::with_name("shell")
                             .long("shell")
                             .takes_value(true)
-                            .possible_values(&["bash", "zsh", "fish"]) 
+                            .possible_values(["bash", "zsh", "fish"])
                             .help("Override shell detection for setup (bash|zsh|fish)"),
                     ),
             )
@@ -521,7 +524,7 @@ impl Args {
                     .long("permission-format")
                     .help("Format for displaying permissions (symbolic, octal, binary, verbose, compact)")
                     .takes_value(true)
-                    .possible_values(&["symbolic", "octal", "binary",  "verbose", "compact"])
+                    .possible_values(["symbolic", "octal", "binary",  "verbose", "compact"])
                     .default_value(&config.permission_format),
             )
             .arg(
@@ -568,10 +571,10 @@ impl Args {
             )
             .subcommand(
                 SubCommand::with_name("plugin")
-                    .about("Run a plugin action")
+                    .about("Run actions or inspect Plugin Platform v2 packages")
                     .arg(
                         Arg::with_name("plugin_name")
-                            .help("Name of the plugin")
+                            .help("Plugin name, or doctor/info/permissions")
                             .index(1),
                     )
                     .arg(
@@ -1037,6 +1040,10 @@ impl Args {
                 .or_else(|| plugin_matches.value_of("action"));
 
             match (plugin_name, action) {
+                (Some("info"), Some(name)) => Some(Command::PluginInfo(name.to_string())),
+                (Some("permissions"), Some(name)) => {
+                    Some(Command::PluginPermissions(name.to_string()))
+                }
                 (Some(name), Some(act)) => {
                     let args = plugin_matches
                         .values_of("plugin_args")
@@ -1050,12 +1057,16 @@ impl Args {
                     ))
                 }
                 (Some(name), None) => {
-                    // No action provided - defer to command handler (menu/help fallback)
-                    Some(Command::PluginAction(
-                        name.to_string(),
-                        "__default__".to_string(),
-                        vec![],
-                    ))
+                    if name == "doctor" {
+                        Some(Command::PluginDoctor)
+                    } else {
+                        // No action provided - defer to command handler (menu/help fallback)
+                        Some(Command::PluginAction(
+                            name.to_string(),
+                            "__default__".to_string(),
+                            vec![],
+                        ))
+                    }
                 }
                 (None, _) => {
                     return Err(LlaError::Plugin(

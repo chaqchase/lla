@@ -112,6 +112,14 @@ fi
 
 echo "Found plugins: ${PLUGIN_CRATES[*]}"
 
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
 # Ensure target toolchain installed (no-op if already present)
 rustup target add "$TARGET_TRIPLE" >/dev/null 2>&1 || true
 
@@ -125,12 +133,17 @@ if [[ -n "$GLIBC_VERSION" ]]; then
   BUILD_TARGET="${TARGET_TRIPLE}.${GLIBC_VERSION}"
   echo "Running: cargo zigbuild --release --target $BUILD_TARGET ${BUILD_PKGS[*]}"
   cargo zigbuild --release --target "$BUILD_TARGET" "${BUILD_PKGS[@]}"
+elif [[ "$OS_LABEL" == "macos" ]]; then
+  # rustc's Mach-O stripping can produce malformed LINKEDIT string pools for
+  # some cdylibs. Keep plugin symbols intact; the CLI binary remains stripped.
+  echo "Running: CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
+  CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 else
   echo "Running: cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
   cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 fi
 
-# Copy resulting dynamic libraries to staging
+# Package each plugin as a v2 directory containing its manifest and native entrypoint.
 for crate in "${PLUGIN_CRATES[@]}"; do
   # Cargo turns '-' into '_' in library filenames (e.g. my-plugin -> libmy_plugin.so)
   artifact_name="${crate//-/_}"
@@ -145,7 +158,23 @@ for crate in "${PLUGIN_CRATES[@]}"; do
     exit 1
   fi
 
-  cp "$SRC" "$STAGING_DIR/"
+  PACKAGE_DIR="$STAGING_DIR/$crate"
+  MANIFEST="plugins/$crate/plugin.toml"
+  if [[ ! -f "$MANIFEST" ]]; then
+    echo "Expected v2 plugin manifest not found: $MANIFEST" 1>&2
+    exit 1
+  fi
+  mkdir -p "$PACKAGE_DIR"
+  cp "$SRC" "$PACKAGE_DIR/"
+  cp "$MANIFEST" "$PACKAGE_DIR/plugin.toml"
+  if [[ -f "plugins/$crate/README.md" ]]; then
+    cp "plugins/$crate/README.md" "$PACKAGE_DIR/README.md"
+  fi
+  artifact_file=$(basename "$SRC")
+  artifact_hash=$(hash_file "$PACKAGE_DIR/$artifact_file")
+  manifest_hash=$(hash_file "$PACKAGE_DIR/plugin.toml")
+  printf '[files]\n"%s" = "%s"\n"plugin.toml" = "%s"\n' \
+    "$artifact_file" "$artifact_hash" "$manifest_hash" > "$PACKAGE_DIR/checksums.toml"
 done
 
 # Create archive per-OS format

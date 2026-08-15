@@ -26,7 +26,7 @@ lazy_static! {
             "set-thresholds",
             "set-thresholds <low> <medium> <high> <very-high>",
             "Set complexity thresholds",
-            vec!["lla plugin --name code_complexity --action set-thresholds --args 10 20 30 40"],
+            ["lla plugin --name code_complexity --action set-thresholds --args 10 20 30 40"],
             |args| {
                 if args.len() != 4 {
                     return Err(
@@ -65,7 +65,7 @@ lazy_static! {
             "show-report",
             "show-report",
             "Show detailed complexity report",
-            vec!["lla plugin --name code_complexity --action show-report"],
+            ["lla plugin --name code_complexity --action show-report"],
             |_| {
                 let state = PLUGIN_STATE.read();
                 println!("{}", state.generate_report());
@@ -78,7 +78,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name code_complexity --action help"],
+            ["lla plugin --name code_complexity --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Code Complexity Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -425,7 +425,7 @@ impl PluginState {
         list.add_item(
             KeyValue::new(
                 "Complexity",
-                &format!(
+                format!(
                     "{} (MI: {:.1})",
                     metrics.cyclomatic_complexity, metrics.maintainability_index
                 ),
@@ -519,13 +519,13 @@ impl PluginState {
             for (path, metrics) in files {
                 list.add_item(
                     KeyValue::new(
-                        &format!("  {}", path.display()),
-                        &format!(
+                        format!("  {}", path.display()),
+                        format!(
                             "{} (MI: {:.1})",
                             metrics.cyclomatic_complexity, metrics.maintainability_index
                         ),
                     )
-                    .key_color(self.get_complexity_color(&metrics))
+                    .key_color(self.get_complexity_color(metrics))
                     .render(),
                 );
 

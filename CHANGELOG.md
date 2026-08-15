@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-08-15
+
+### Added
+
+- Plugin Platform v2 with manifest-based packages, API-range negotiation, plugin-owned response buffers, batch decoration, typed machine-output fields, declared permissions, ordered user/system discovery, package diagnostics, and per-package checksums.
+- Plugin lifecycle destruction, panic isolation, bounded responses, functional contract probes, and CI/release conformance gates for every bundled plugin.
+- `lla plugin doctor`, `lla plugin info <name>`, and `lla plugin permissions <name>` for inspecting v2 installations.
+- `security_audit` plugin for unsafe permissions, SUID/SGID bits, suspicious symlinks, and exposed secret-like files.
+- `media_inspector` plugin for MIME detection, built-in image dimensions, optional EXIF, and ffprobe-backed audio/video metadata.
+- `project_context` plugin for Rust, Node, Python, and Go detection with lockfile, artifact, toolchain, and Git health fields.
+- `trash` plugin for cross-platform recoverable deletion, listing, conflict-safe restoration, and age-gated permanent emptying.
+- `preview` plugin with bat text/Markdown highlighting, chafa image rendering, safe archive listings, and built-in fallbacks.
+
+### Changed
+
+- All bundled plugins now ship with v2 manifests and are packaged as self-contained directories while legacy flat v1 libraries remain loadable during migration.
+- Invalid plugins are quarantined for recovery by `lla clean` instead of being permanently deleted.
+- `file_remover remove` now moves selected entries to recoverable trash; irreversible deletion is available only through the explicit `purge` action and confirmation.
+
+### Migration
+
+- Existing flat v1 plugins continue to load, but newly distributed plugins should use the v2 package directory layout.
+- Automations that require irreversible deletion must replace `file_remover remove` with `file_remover purge`; `remove` is now recoverable by design.
+
 ## [0.5.11] - 2026-08-15
 
 ### Added

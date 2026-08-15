@@ -1,0 +1,68 @@
+[plugin]
+id = "dev.lla.project-context"
+name = "project_context"
+version = "0.5.12"
+api_min = 2
+api_max = 2
+runtime = "native"
+entrypoint = "project_context"
+description = "Detect project type, toolchains, dependency locks, artifacts, and repository health"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["default", "long"]
+actions = ["inspect", "refresh", "help"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:tree", "read:tree", "read:user-path"]
+process = true
+
+[[fields]]
+name = "project_type"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "project_root"
+type = "path"
+filterable = true
+
+[[fields]]
+name = "project_health"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "project_issues"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "lockfile_state"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "build_artifacts"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "toolchains"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "repository_state"
+type = "string"
+filterable = true
+
+[[fields]]
+name = "git_branch"
+type = "string"
+filterable = true

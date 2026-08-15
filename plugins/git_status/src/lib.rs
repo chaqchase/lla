@@ -19,7 +19,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            vec!["lla plugin --name git_status --action help"],
+            ["lla plugin --name git_status --action help"],
             |_| {
                 let mut help = HelpFormatter::new("Git Status Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
