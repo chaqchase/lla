@@ -107,7 +107,7 @@ impl TrashStore {
             })?;
             records.push(record);
         }
-        records.sort_by(|left, right| right.deleted_at_epoch.cmp(&left.deleted_at_epoch));
+        records.sort_by_key(|record| std::cmp::Reverse(record.deleted_at_epoch));
         Ok(records)
     }
 
