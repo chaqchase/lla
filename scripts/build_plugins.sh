@@ -6,11 +6,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 usage() {
-  echo "Usage: $0 [--target <triple>]" 1>&2
-  echo "Example: $0 --target x86_64-unknown-linux-gnu" 1>&2
+  echo "Usage: $0 [--target <triple>] [--glibc-version <version>]" 1>&2
+  echo "Example: $0 --target x86_64-unknown-linux-gnu --glibc-version 2.28" 1>&2
 }
 
 TARGET_TRIPLE=""
+GLIBC_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,6 +19,12 @@ while [[ $# -gt 0 ]]; do
       shift
       TARGET_TRIPLE="${1:-}"
       [[ -z "$TARGET_TRIPLE" ]] && { echo "--target requires an argument" 1>&2; usage; exit 2; }
+      shift
+      ;;
+    --glibc-version)
+      shift
+      GLIBC_VERSION="${1:-}"
+      [[ -z "$GLIBC_VERSION" ]] && { echo "--glibc-version requires an argument" 1>&2; usage; exit 2; }
       shift
       ;;
     -h|--help)
@@ -35,6 +42,21 @@ done
 if [[ -z "$TARGET_TRIPLE" ]]; then
   # Detect host triple
   TARGET_TRIPLE=$(rustc -vV | sed -n 's/^host: \(.*\)$/\1/p')
+fi
+
+if [[ -n "$GLIBC_VERSION" ]]; then
+  if [[ ! "$GLIBC_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "Invalid glibc version: $GLIBC_VERSION" 1>&2
+    exit 2
+  fi
+  if [[ "$TARGET_TRIPLE" != *-unknown-linux-gnu ]]; then
+    echo "--glibc-version is only supported for unknown-linux-gnu targets" 1>&2
+    exit 2
+  fi
+  if ! command -v cargo-zigbuild >/dev/null 2>&1; then
+    echo "cargo-zigbuild is required when --glibc-version is set" 1>&2
+    exit 1
+  fi
 fi
 
 case "$TARGET_TRIPLE" in
@@ -99,8 +121,14 @@ for crate in "${PLUGIN_CRATES[@]}"; do
   BUILD_PKGS+=( -p "$crate" )
 done
 
-echo "Running: cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
-cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
+if [[ -n "$GLIBC_VERSION" ]]; then
+  BUILD_TARGET="${TARGET_TRIPLE}.${GLIBC_VERSION}"
+  echo "Running: cargo zigbuild --release --target $BUILD_TARGET ${BUILD_PKGS[*]}"
+  cargo zigbuild --release --target "$BUILD_TARGET" "${BUILD_PKGS[@]}"
+else
+  echo "Running: cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
+  cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
+fi
 
 # Copy resulting dynamic libraries to staging
 for crate in "${PLUGIN_CRATES[@]}"; do
@@ -140,4 +168,3 @@ fi
 echo "Created archive: $ARCHIVE_ZIP"
 
 echo "Done."
-
