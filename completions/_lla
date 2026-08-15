@@ -138,7 +138,7 @@ _arguments "${_arguments_options[@]}" \
 '*--args=[Arguments for the plugin action (alternative to positional)]: : ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
-'::plugin_name -- Name of the plugin:' \
+'::plugin_name -- Plugin name, or doctor/info/permissions:' \
 '::plugin_action -- Action to perform:' \
 '*::plugin_args -- Arguments for the plugin action:' \
 && ret=0
@@ -359,7 +359,7 @@ _lla_commands() {
 'diff:Compare two directories or a directory against a git reference' \
 'jump:Jump to a bookmarked or recent directory' \
 'install:Install a plugin' \
-'plugin:Run a plugin action' \
+'plugin:Run actions or inspect Plugin Platform v2 packages' \
 'list-plugins:List all available plugins' \
 'use:Interactive plugin manager' \
 'init:Initialize the configuration file' \

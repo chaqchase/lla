@@ -96,7 +96,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('diff', 'diff', [CompletionResultType]::ParameterValue, 'Compare two directories or a directory against a git reference')
             [CompletionResult]::new('jump', 'jump', [CompletionResultType]::ParameterValue, 'Jump to a bookmarked or recent directory')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a plugin')
-            [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run a plugin action')
+            [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run actions or inspect Plugin Platform v2 packages')
             [CompletionResult]::new('list-plugins', 'list-plugins', [CompletionResultType]::ParameterValue, 'List all available plugins')
             [CompletionResult]::new('use', 'use', [CompletionResultType]::ParameterValue, 'Interactive plugin manager')
             [CompletionResult]::new('init', 'init', [CompletionResultType]::ParameterValue, 'Initialize the configuration file')

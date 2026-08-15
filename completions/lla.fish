@@ -56,7 +56,7 @@ complete -c lla -n "__fish_use_subcommand" -l relative-dates -d 'Show relative d
 complete -c lla -n "__fish_use_subcommand" -f -a "diff" -d 'Compare two directories or a directory against a git reference'
 complete -c lla -n "__fish_use_subcommand" -f -a "jump" -d 'Jump to a bookmarked or recent directory'
 complete -c lla -n "__fish_use_subcommand" -f -a "install" -d 'Install a plugin'
-complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run a plugin action'
+complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run actions or inspect Plugin Platform v2 packages'
 complete -c lla -n "__fish_use_subcommand" -f -a "list-plugins" -d 'List all available plugins'
 complete -c lla -n "__fish_use_subcommand" -f -a "use" -d 'Interactive plugin manager'
 complete -c lla -n "__fish_use_subcommand" -f -a "init" -d 'Initialize the configuration file'

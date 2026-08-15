@@ -93,7 +93,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand diff 'Compare two directories or a directory against a git reference'
             cand jump 'Jump to a bookmarked or recent directory'
             cand install 'Install a plugin'
-            cand plugin 'Run a plugin action'
+            cand plugin 'Run actions or inspect Plugin Platform v2 packages'
             cand list-plugins 'List all available plugins'
             cand use 'Interactive plugin manager'
             cand init 'Initialize the configuration file'
