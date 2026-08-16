@@ -129,7 +129,13 @@ fn value_as_strings(value: proto::TypedValue) -> Vec<String> {
     }
 }
 
-fn action_arguments_as_strings(
+/// Converts a repeatable v3 argument into the argv shape used by existing
+/// interactive action implementations.
+///
+/// New actions should use `lla_plugin_sdk::ActionArgumentsExt` directly. This
+/// helper lets established UIs move to the v3 trait without changing their
+/// terminal behavior in the same patch.
+pub fn action_arguments_as_strings(
     arguments: std::collections::HashMap<String, proto::TypedValue>,
 ) -> Vec<String> {
     if let Some(arguments) = arguments.get("args").cloned() {
@@ -147,7 +153,7 @@ fn action_arguments_as_strings(
         .collect()
 }
 
-fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry, String> {
+pub fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry, String> {
     let metadata = entry
         .metadata
         .ok_or_else(|| "Missing metadata in decorated entry".to_string())?;
@@ -156,6 +162,49 @@ fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry
         metadata: metadata.into(),
         custom_fields: entry.custom_fields,
     })
+}
+
+/// Runs an existing entry decorator through the high-level v3 entry API while
+/// preserving fields introduced by v3 that the established decorator does not
+/// touch.
+pub fn map_decorated_entry(
+    entry: proto::DecoratedEntry,
+    decorate: impl FnOnce(DecoratedEntry) -> DecoratedEntry,
+) -> proto::DecoratedEntry {
+    let original = entry.clone();
+    let Ok(entry) = decode_decorated_entry(entry) else {
+        return original;
+    };
+    let mut decorated: proto::DecoratedEntry = decorate(entry).into();
+    decorated.typed_fields = original.typed_fields;
+    if let (Some(decorated), Some(original)) =
+        (decorated.metadata.as_mut(), original.metadata.as_ref())
+    {
+        decorated.inode = original.inode;
+        decorated.hard_links = original.hard_links;
+        decorated.allocated_size = original.allocated_size;
+        decorated.xattrs.clone_from(&original.xattrs);
+        decorated.has_acl = original.has_acl;
+        decorated
+            .security_context
+            .clone_from(&original.security_context);
+        decorated.mount_point.clone_from(&original.mount_point);
+        decorated.mount_source.clone_from(&original.mount_source);
+        decorated.filesystem.clone_from(&original.filesystem);
+    }
+    decorated
+}
+
+pub fn action_infos(actions: Vec<ActionInfo>) -> Vec<proto::ActionInfo> {
+    actions
+        .into_iter()
+        .map(|action| proto::ActionInfo {
+            name: action.name,
+            usage: action.usage,
+            description: action.description,
+            examples: action.examples,
+        })
+        .collect()
 }
 
 pub struct BasePlugin<C: PluginConfig> {

@@ -1,13 +1,12 @@
 use colored::Colorize;
 use dialoguer::{Input, Select};
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionInfo, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use reqwest::header;
 use serde::{Deserialize, Serialize};
@@ -748,36 +747,16 @@ impl SpeedTestPlugin {
 }
 
 impl Plugin for SpeedTestPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "test" => self.run_speed_test(),
-                            "quick" => self.quick_test(),
-                            "history" => self.show_history(),
-                            "clear-history" => self.clear_history(),
-                            "menu" => self.interactive_menu(),
-                            "help" => self.show_help(),
-                            _ => Err(format!(
-                                "Unknown action: '{}'\n\n\
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "test" => self.run_speed_test(),
+            "quick" => self.quick_test(),
+            "history" => self.show_history(),
+            "clear-history" => self.clear_history(),
+            "menu" => self.interactive_menu(),
+            "help" => self.show_help(),
+            _ => Err(format!(
+                "Unknown action: '{}'\n\n\
                                 Available actions:\n  \
                                 • test          - Run full speed test\n  \
                                 • quick         - Run quick speed test\n  \
@@ -786,57 +765,50 @@ impl Plugin for SpeedTestPlugin {
                                 • menu          - Interactive menu\n  \
                                 • help          - Show help\n\n\
                                 Example: lla plugin speed_test test",
-                                action
-                            )),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "test".to_string(),
-                                usage: "test".to_string(),
-                                description: "Run a full speed test".to_string(),
-                                examples: vec!["lla plugin speed_test test".to_string()],
-                            },
-                            ActionInfo {
-                                name: "quick".to_string(),
-                                usage: "quick".to_string(),
-                                description: "Run a quick speed test".to_string(),
-                                examples: vec!["lla plugin speed_test quick".to_string()],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "Show speed test history".to_string(),
-                                examples: vec!["lla plugin speed_test history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "clear-history".to_string(),
-                                usage: "clear-history".to_string(),
-                                description: "Clear speed test history".to_string(),
-                                examples: vec!["lla plugin speed_test clear-history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "menu".to_string(),
-                                usage: "menu".to_string(),
-                                description: "Interactive menu".to_string(),
-                                examples: vec!["lla plugin speed_test menu".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin speed_test help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+                action
+            )),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::action_infos(vec![
+            ActionInfo {
+                name: "test".to_string(),
+                usage: "test".to_string(),
+                description: "Run a full speed test".to_string(),
+                examples: vec!["lla plugin speed_test test".to_string()],
+            },
+            ActionInfo {
+                name: "quick".to_string(),
+                usage: "quick".to_string(),
+                description: "Run a quick speed test".to_string(),
+                examples: vec!["lla plugin speed_test quick".to_string()],
+            },
+            ActionInfo {
+                name: "history".to_string(),
+                usage: "history".to_string(),
+                description: "Show speed test history".to_string(),
+                examples: vec!["lla plugin speed_test history".to_string()],
+            },
+            ActionInfo {
+                name: "clear-history".to_string(),
+                usage: "clear-history".to_string(),
+                description: "Clear speed test history".to_string(),
+                examples: vec!["lla plugin speed_test clear-history".to_string()],
+            },
+            ActionInfo {
+                name: "menu".to_string(),
+                usage: "menu".to_string(),
+                description: "Interactive menu".to_string(),
+                examples: vec!["lla plugin speed_test menu".to_string()],
+            },
+            ActionInfo {
+                name: "help".to_string(),
+                usage: "help".to_string(),
+                description: "Show help information".to_string(),
+                examples: vec!["lla plugin speed_test help".to_string()],
+            },
+        ])
     }
 }
 
@@ -857,7 +829,5 @@ impl ConfigurablePlugin for SpeedTestPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for SpeedTestPlugin {}
 
 lla_plugin_sdk::export_plugin!(SpeedTestPlugin);

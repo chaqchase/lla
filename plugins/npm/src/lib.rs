@@ -1,13 +1,12 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionInfo, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -538,70 +537,43 @@ impl NpmPlugin {
 }
 
 impl Plugin for NpmPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "search" => self.search_packages(),
-                            "favorites" => self.view_favorites(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search".to_string(),
-                                description: "Search npm packages".to_string(),
-                                examples: vec!["lla plugin npm search".to_string()],
-                            },
-                            ActionInfo {
-                                name: "favorites".to_string(),
-                                usage: "favorites".to_string(),
-                                description: "View favorite packages".to_string(),
-                                examples: vec!["lla plugin npm favorites".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin npm preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin npm help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "search" => self.search_packages(),
+            "favorites" => self.view_favorites(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::action_infos(vec![
+            ActionInfo {
+                name: "search".to_string(),
+                usage: "search".to_string(),
+                description: "Search npm packages".to_string(),
+                examples: vec!["lla plugin npm search".to_string()],
+            },
+            ActionInfo {
+                name: "favorites".to_string(),
+                usage: "favorites".to_string(),
+                description: "View favorite packages".to_string(),
+                examples: vec!["lla plugin npm favorites".to_string()],
+            },
+            ActionInfo {
+                name: "preferences".to_string(),
+                usage: "preferences".to_string(),
+                description: "Configure preferences".to_string(),
+                examples: vec!["lla plugin npm preferences".to_string()],
+            },
+            ActionInfo {
+                name: "help".to_string(),
+                usage: "help".to_string(),
+                description: "Show help information".to_string(),
+                examples: vec!["lla plugin npm help".to_string()],
+            },
+        ])
     }
 }
 
@@ -622,7 +594,5 @@ impl ConfigurablePlugin for NpmPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for NpmPlugin {}
 
 lla_plugin_sdk::export_plugin!(NpmPlugin);

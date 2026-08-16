@@ -1,14 +1,18 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
+};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    decode_decorated_entry,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         format_size, TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -390,57 +394,53 @@ impl DirsPlugin {
 }
 
 impl Plugin for DirsPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if entry.metadata.is_dir {
-                            let result = Self::analyze_directory(&entry.path);
-
-                            if let Some((file_count, dir_count, total_size)) = result {
-                                entry
-                                    .custom_fields
-                                    .insert("dir_file_count".to_string(), file_count.to_string());
-                                entry
-                                    .custom_fields
-                                    .insert("dir_subdir_count".to_string(), dir_count.to_string());
-                                entry
-                                    .custom_fields
-                                    .insert("dir_total_size".to_string(), total_size.to_string());
-                            }
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_directory_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        if entry
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.is_dir)
+        {
+            if let Some((files, directories, size)) = Self::analyze_directory(entry.path.as_ref()) {
+                entry.insert_field(
+                    "dir_file_count",
+                    value::integer(files as i64),
+                    files.to_string(),
+                );
+                entry.insert_field(
+                    "dir_subdir_count",
+                    value::integer(directories as i64),
+                    directories.to_string(),
+                );
+                entry.insert_field("dir_total_size", value::bytes(size), size.to_string());
             }
-            Err(e) => self.encode_error(&e),
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| self.decorate_entry(entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_directory_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
     }
 }
 
@@ -461,8 +461,6 @@ impl ConfigurablePlugin for DirsPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for DirsPlugin {}
 
 lla_plugin_sdk::export_plugin!(DirsPlugin);
 

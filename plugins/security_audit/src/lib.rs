@@ -1,7 +1,9 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
-use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
-use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
+    ActionRegistry, DecoratedEntry,
+};
 use parking_lot::RwLock;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
@@ -284,35 +286,36 @@ fn is_secret_name(path: &Path) -> bool {
 }
 
 impl Plugin for SecurityAuditPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        let response = match self.decode_request(request) {
-            Ok(PluginRequest::GetName) => PluginResponse::Name(env!("CARGO_PKG_NAME").into()),
-            Ok(PluginRequest::GetVersion) => {
-                PluginResponse::Version(env!("CARGO_PKG_VERSION").into())
-            }
-            Ok(PluginRequest::GetDescription) => {
-                PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").into())
-            }
-            Ok(PluginRequest::GetSupportedFormats) => {
-                PluginResponse::SupportedFormats(vec!["default".into(), "long".into()])
-            }
-            Ok(PluginRequest::Decorate(entry)) => PluginResponse::Decorated(Self::decorate(entry)),
-            Ok(PluginRequest::FormatField(entry, format)) => {
-                PluginResponse::FormattedField(Self::format(&entry, &format))
-            }
-            Ok(PluginRequest::PerformAction(action, args)) => {
-                PluginResponse::ActionResult(ACTIONS.read().handle(&action, &args))
-            }
-            Ok(PluginRequest::GetAvailableActions) => {
-                PluginResponse::AvailableActions(ACTIONS.read().list_actions())
-            }
-            Err(error) => return self.encode_error(&error),
-        };
-        self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        map_decorated_entry(entry, Self::decorate)
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| Self::format(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTIONS.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTIONS.read().list_actions())
     }
 }
-
-impl ProtobufHandler for SecurityAuditPlugin {}
 
 lla_plugin_sdk::export_plugin!(SecurityAuditPlugin);
 

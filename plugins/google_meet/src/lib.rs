@@ -1,13 +1,12 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, Select};
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionInfo, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -718,90 +717,57 @@ impl GoogleMeetPlugin {
 }
 
 impl Plugin for GoogleMeetPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => {
-                        // This plugin doesn't decorate entries
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(_entry, _format) => {
-                        // This plugin doesn't format fields
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "create" => self.create_meet(None),
-                            "create-with-profile" => self.create_meet_with_profile(),
-                            "history" => self.manage_history(),
-                            "profiles" => self.manage_profiles(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "create".to_string(),
-                                usage: "create".to_string(),
-                                description: "Create a Google Meet".to_string(),
-                                examples: vec!["lla plugin google_meet create".to_string()],
-                            },
-                            ActionInfo {
-                                name: "create-with-profile".to_string(),
-                                usage: "create-with-profile".to_string(),
-                                description: "Create a Meet with profile selection".to_string(),
-                                examples: vec![
-                                    "lla plugin google_meet create-with-profile".to_string()
-                                ],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "Manage Meet history".to_string(),
-                                examples: vec!["lla plugin google_meet history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "profiles".to_string(),
-                                usage: "profiles".to_string(),
-                                description: "Manage profiles".to_string(),
-                                examples: vec!["lla plugin google_meet profiles".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin google_meet preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin google_meet help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "create" => self.create_meet(None),
+            "create-with-profile" => self.create_meet_with_profile(),
+            "history" => self.manage_history(),
+            "profiles" => self.manage_profiles(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::action_infos(vec![
+            ActionInfo {
+                name: "create".to_string(),
+                usage: "create".to_string(),
+                description: "Create a Google Meet".to_string(),
+                examples: vec!["lla plugin google_meet create".to_string()],
+            },
+            ActionInfo {
+                name: "create-with-profile".to_string(),
+                usage: "create-with-profile".to_string(),
+                description: "Create a Meet with profile selection".to_string(),
+                examples: vec!["lla plugin google_meet create-with-profile".to_string()],
+            },
+            ActionInfo {
+                name: "history".to_string(),
+                usage: "history".to_string(),
+                description: "Manage Meet history".to_string(),
+                examples: vec!["lla plugin google_meet history".to_string()],
+            },
+            ActionInfo {
+                name: "profiles".to_string(),
+                usage: "profiles".to_string(),
+                description: "Manage profiles".to_string(),
+                examples: vec!["lla plugin google_meet profiles".to_string()],
+            },
+            ActionInfo {
+                name: "preferences".to_string(),
+                usage: "preferences".to_string(),
+                description: "Configure preferences".to_string(),
+                examples: vec!["lla plugin google_meet preferences".to_string()],
+            },
+            ActionInfo {
+                name: "help".to_string(),
+                usage: "help".to_string(),
+                description: "Show help information".to_string(),
+                examples: vec!["lla plugin google_meet help".to_string()],
+            },
+        ])
     }
 }
 
@@ -822,7 +788,5 @@ impl ConfigurablePlugin for GoogleMeetPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for GoogleMeetPlugin {}
 
 lla_plugin_sdk::export_plugin!(GoogleMeetPlugin);

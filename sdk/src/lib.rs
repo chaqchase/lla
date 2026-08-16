@@ -17,6 +17,296 @@ pub use wit_bindgen::{resource, rt};
 
 pub type ActionArguments = HashMap<String, proto::TypedValue>;
 
+/// Adds a typed field for sorting/filtering while retaining the established
+/// string field used by human renderers and older themes.
+pub trait DecoratedEntryExt {
+    fn insert_field(
+        &mut self,
+        name: impl Into<String>,
+        value: proto::TypedValue,
+        display: impl Into<String>,
+    );
+}
+
+impl DecoratedEntryExt for proto::DecoratedEntry {
+    fn insert_field(
+        &mut self,
+        name: impl Into<String>,
+        value: proto::TypedValue,
+        display: impl Into<String>,
+    ) {
+        let name = name.into();
+        self.custom_fields.insert(name.clone(), display.into());
+        self.typed_fields.insert(name, value);
+    }
+}
+
+/// Ergonomic, type-checked access to arguments already validated by the host.
+pub trait ActionArgumentsExt {
+    fn string(&self, name: &str) -> Result<Option<String>, ActionError>;
+    fn strings(&self, name: &str) -> Result<Vec<String>, ActionError>;
+    fn integer(&self, name: &str) -> Result<Option<i64>, ActionError>;
+    fn float(&self, name: &str) -> Result<Option<f64>, ActionError>;
+    fn boolean(&self, name: &str) -> Result<Option<bool>, ActionError>;
+    fn path(&self, name: &str) -> Result<Option<std::path::PathBuf>, ActionError>;
+    fn paths(&self, name: &str) -> Result<Vec<std::path::PathBuf>, ActionError>;
+}
+
+impl ActionArgumentsExt for ActionArguments {
+    fn string(&self, name: &str) -> Result<Option<String>, ActionError> {
+        optional_scalar(self, name, |value| match value {
+            proto::typed_value::Value::StringValue(value) => Some(value.clone()),
+            _ => None,
+        })
+    }
+
+    fn strings(&self, name: &str) -> Result<Vec<String>, ActionError> {
+        repeated(self, name, |value| match value {
+            proto::typed_value::Value::StringValue(value) => Some(value.clone()),
+            _ => None,
+        })
+    }
+
+    fn integer(&self, name: &str) -> Result<Option<i64>, ActionError> {
+        optional_scalar(self, name, |value| match value {
+            proto::typed_value::Value::IntegerValue(value) => Some(*value),
+            _ => None,
+        })
+    }
+
+    fn float(&self, name: &str) -> Result<Option<f64>, ActionError> {
+        optional_scalar(self, name, |value| match value {
+            proto::typed_value::Value::FloatValue(value) => Some(*value),
+            _ => None,
+        })
+    }
+
+    fn boolean(&self, name: &str) -> Result<Option<bool>, ActionError> {
+        optional_scalar(self, name, |value| match value {
+            proto::typed_value::Value::BooleanValue(value) => Some(*value),
+            _ => None,
+        })
+    }
+
+    fn path(&self, name: &str) -> Result<Option<std::path::PathBuf>, ActionError> {
+        optional_scalar(self, name, |value| match value {
+            proto::typed_value::Value::PathValue(value) => Some(std::path::PathBuf::from(value)),
+            _ => None,
+        })
+    }
+
+    fn paths(&self, name: &str) -> Result<Vec<std::path::PathBuf>, ActionError> {
+        repeated(self, name, |value| match value {
+            proto::typed_value::Value::PathValue(value) => Some(std::path::PathBuf::from(value)),
+            _ => None,
+        })
+    }
+}
+
+fn optional_scalar<T>(
+    arguments: &ActionArguments,
+    name: &str,
+    convert: impl Fn(&proto::typed_value::Value) -> Option<T>,
+) -> Result<Option<T>, ActionError> {
+    let Some(value) = arguments.get(name) else {
+        return Ok(None);
+    };
+    let Some(value) = value.value.as_ref() else {
+        return Ok(None);
+    };
+    if matches!(value, proto::typed_value::Value::NullValue(_)) {
+        return Ok(None);
+    }
+    convert(value)
+        .map(Some)
+        .ok_or_else(|| ActionError::invalid_argument(name, "argument has the wrong type"))
+}
+
+fn repeated<T>(
+    arguments: &ActionArguments,
+    name: &str,
+    convert: impl Fn(&proto::typed_value::Value) -> Option<T>,
+) -> Result<Vec<T>, ActionError> {
+    let Some(value) = arguments.get(name) else {
+        return Ok(Vec::new());
+    };
+    let Some(value) = value.value.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let values = match value {
+        proto::typed_value::Value::ListValue(values) => values
+            .values
+            .iter()
+            .filter_map(|value| value.value.as_ref())
+            .collect::<Vec<_>>(),
+        proto::typed_value::Value::NullValue(_) => return Ok(Vec::new()),
+        value => vec![value],
+    };
+    values
+        .into_iter()
+        .map(|value| {
+            convert(value)
+                .ok_or_else(|| ActionError::invalid_argument(name, "argument has the wrong type"))
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActionError {
+    pub code: String,
+    pub message: String,
+    pub details: HashMap<String, proto::TypedValue>,
+}
+
+impl ActionError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            details: HashMap::new(),
+        }
+    }
+
+    pub fn invalid_argument(name: &str, message: impl Into<String>) -> Self {
+        Self::new("invalid-argument", message).with_detail("argument", value::string(name))
+    }
+
+    pub fn with_detail(mut self, name: impl Into<String>, value: proto::TypedValue) -> Self {
+        self.details.insert(name.into(), value);
+        self
+    }
+}
+
+impl From<String> for ActionError {
+    fn from(message: String) -> Self {
+        Self::new("action-failed", message)
+    }
+}
+
+impl From<&str> for ActionError {
+    fn from(message: &str) -> Self {
+        Self::new("action-failed", message)
+    }
+}
+
+pub mod value {
+    use super::proto;
+    use std::collections::HashMap;
+
+    fn typed(value: proto::typed_value::Value) -> proto::TypedValue {
+        proto::TypedValue { value: Some(value) }
+    }
+
+    pub fn null() -> proto::TypedValue {
+        typed(proto::typed_value::Value::NullValue(
+            proto::NullValue::NullValue as i32,
+        ))
+    }
+
+    pub fn string(value: impl Into<String>) -> proto::TypedValue {
+        typed(proto::typed_value::Value::StringValue(value.into()))
+    }
+
+    pub fn integer(value: i64) -> proto::TypedValue {
+        typed(proto::typed_value::Value::IntegerValue(value))
+    }
+
+    pub fn float(value: f64) -> proto::TypedValue {
+        typed(proto::typed_value::Value::FloatValue(value))
+    }
+
+    pub fn boolean(value: bool) -> proto::TypedValue {
+        typed(proto::typed_value::Value::BooleanValue(value))
+    }
+
+    pub fn bytes(value: u64) -> proto::TypedValue {
+        typed(proto::typed_value::Value::BytesValue(value))
+    }
+
+    pub fn timestamp(value: u64) -> proto::TypedValue {
+        typed(proto::typed_value::Value::TimestampValue(value))
+    }
+
+    pub fn path(value: impl Into<String>) -> proto::TypedValue {
+        typed(proto::typed_value::Value::PathValue(value.into()))
+    }
+
+    pub fn list(values: impl IntoIterator<Item = proto::TypedValue>) -> proto::TypedValue {
+        typed(proto::typed_value::Value::ListValue(proto::ListValue {
+            values: values.into_iter().collect(),
+        }))
+    }
+
+    pub fn object(
+        fields: impl IntoIterator<Item = (String, proto::TypedValue)>,
+    ) -> proto::TypedValue {
+        typed(proto::typed_value::Value::ObjectValue(proto::ObjectValue {
+            fields: fields.into_iter().collect::<HashMap<_, _>>(),
+        }))
+    }
+}
+
+pub mod response {
+    use super::{proto, ActionError};
+
+    fn success(output: proto::action_output::Output) -> proto::ActionResponse {
+        proto::ActionResponse {
+            success: true,
+            error: None,
+            output: Some(proto::ActionOutput {
+                output: Some(output),
+            }),
+            structured_error: None,
+        }
+    }
+
+    pub fn none() -> proto::ActionResponse {
+        success(proto::action_output::Output::None(true))
+    }
+
+    pub fn text(text: impl Into<String>) -> proto::ActionResponse {
+        success(proto::action_output::Output::Text(text.into()))
+    }
+
+    pub fn value(value: proto::TypedValue) -> proto::ActionResponse {
+        success(proto::action_output::Output::Value(value))
+    }
+
+    pub fn table(
+        columns: impl IntoIterator<Item = impl Into<String>>,
+        rows: impl IntoIterator<Item = Vec<proto::TypedValue>>,
+    ) -> proto::ActionResponse {
+        success(proto::action_output::Output::Table(proto::TableValue {
+            columns: columns.into_iter().map(Into::into).collect(),
+            rows: rows
+                .into_iter()
+                .map(|cells| proto::TableRow { cells })
+                .collect(),
+        }))
+    }
+
+    pub fn error(error: impl Into<ActionError>) -> proto::ActionResponse {
+        let error = error.into();
+        proto::ActionResponse {
+            success: false,
+            error: Some(error.message.clone()),
+            output: None,
+            structured_error: Some(proto::PluginError {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+            }),
+        }
+    }
+
+    pub fn from_result(result: Result<(), impl Into<ActionError>>) -> proto::ActionResponse {
+        match result {
+            Ok(()) => none(),
+            Err(error) => self::error(error),
+        }
+    }
+}
+
 /// High-level API implemented by native plugins.
 ///
 /// Existing protobuf-based plugins can implement `handle_message` while they
@@ -410,6 +700,64 @@ mod tests {
                 ..
             })) if returned == value
         ));
+    }
+
+    #[test]
+    fn typed_argument_accessors_cover_scalars_lists_and_paths() {
+        let arguments = [
+            ("name".to_string(), value::string("lla")),
+            (
+                "tags".to_string(),
+                value::list([value::string("fast"), value::string("typed")]),
+            ),
+            ("count".to_string(), value::integer(3)),
+            ("ratio".to_string(), value::float(0.5)),
+            ("enabled".to_string(), value::boolean(true)),
+            ("root".to_string(), value::path("/tmp/lla")),
+            (
+                "paths".to_string(),
+                value::list([value::path("a"), value::path("b")]),
+            ),
+        ]
+        .into_iter()
+        .collect::<ActionArguments>();
+
+        assert_eq!(arguments.string("name").unwrap().as_deref(), Some("lla"));
+        assert_eq!(arguments.strings("tags").unwrap(), ["fast", "typed"]);
+        assert_eq!(arguments.integer("count").unwrap(), Some(3));
+        assert_eq!(arguments.float("ratio").unwrap(), Some(0.5));
+        assert_eq!(arguments.boolean("enabled").unwrap(), Some(true));
+        assert_eq!(
+            arguments.path("root").unwrap().as_deref(),
+            Some(std::path::Path::new("/tmp/lla"))
+        );
+        assert_eq!(
+            arguments.paths("paths").unwrap(),
+            [std::path::PathBuf::from("a"), std::path::PathBuf::from("b")]
+        );
+        assert_eq!(arguments.string("missing").unwrap(), None);
+    }
+
+    #[test]
+    fn action_response_builders_emit_structured_success_and_errors() {
+        let table = response::table(
+            ["name", "size"],
+            [vec![value::string("README.md"), value::bytes(42)]],
+        );
+        assert!(matches!(
+            table.output,
+            Some(proto::ActionOutput {
+                output: Some(proto::action_output::Output::Table(proto::TableValue {
+                    columns,
+                    rows,
+                })),
+            }) if columns == ["name", "size"] && rows.len() == 1
+        ));
+
+        let error = response::error(ActionError::invalid_argument("count", "must be positive"));
+        let structured = error.structured_error.expect("structured error");
+        assert_eq!(structured.code, "invalid-argument");
+        assert_eq!(structured.details["argument"], value::string("count"));
     }
 
     #[test]

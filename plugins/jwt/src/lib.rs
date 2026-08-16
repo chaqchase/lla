@@ -1,13 +1,12 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionInfo, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -947,77 +946,50 @@ impl JwtPlugin {
 }
 
 impl Plugin for JwtPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "decode" => self.view_decoded_jwt(),
-                            "search" => self.search_decoded_jwt(),
-                            "history" => self.manage_history(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "decode".to_string(),
-                                usage: "decode".to_string(),
-                                description: "View decoded JWT tokens".to_string(),
-                                examples: vec!["lla plugin jwt decode".to_string()],
-                            },
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search".to_string(),
-                                description: "Search decoded JWT tokens".to_string(),
-                                examples: vec!["lla plugin jwt search".to_string()],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "Manage token history".to_string(),
-                                examples: vec!["lla plugin jwt history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin jwt preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin jwt help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "decode" => self.view_decoded_jwt(),
+            "search" => self.search_decoded_jwt(),
+            "history" => self.manage_history(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::action_infos(vec![
+            ActionInfo {
+                name: "decode".to_string(),
+                usage: "decode".to_string(),
+                description: "View decoded JWT tokens".to_string(),
+                examples: vec!["lla plugin jwt decode".to_string()],
+            },
+            ActionInfo {
+                name: "search".to_string(),
+                usage: "search".to_string(),
+                description: "Search decoded JWT tokens".to_string(),
+                examples: vec!["lla plugin jwt search".to_string()],
+            },
+            ActionInfo {
+                name: "history".to_string(),
+                usage: "history".to_string(),
+                description: "Manage token history".to_string(),
+                examples: vec!["lla plugin jwt history".to_string()],
+            },
+            ActionInfo {
+                name: "preferences".to_string(),
+                usage: "preferences".to_string(),
+                description: "Configure preferences".to_string(),
+                examples: vec!["lla plugin jwt preferences".to_string()],
+            },
+            ActionInfo {
+                name: "help".to_string(),
+                usage: "help".to_string(),
+                description: "Show help information".to_string(),
+                examples: vec!["lla plugin jwt help".to_string()],
+            },
+        ])
     }
 }
 
@@ -1038,7 +1010,5 @@ impl ConfigurablePlugin for JwtPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for JwtPlugin {}
 
 lla_plugin_sdk::export_plugin!(JwtPlugin);

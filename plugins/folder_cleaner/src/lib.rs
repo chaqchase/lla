@@ -13,12 +13,12 @@ use executor::{
     orphaned_quarantine_items, quarantine_items, restore_run, save_plan,
 };
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use model::{CleanupPlan, OperationKind, PlanAction, ScanReport};
 use parking_lot::RwLock;
 use planner::build_plan;
@@ -1081,40 +1081,15 @@ impl ConfigurablePlugin for FolderCleanerPlugin {
 }
 
 impl Plugin for FolderCleanerPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_, _) => PluginResponse::FormattedField(None),
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
     }
 }
-
-impl ProtobufHandler for FolderCleanerPlugin {}
 
 lla_plugin_sdk::export_plugin!(FolderCleanerPlugin);
 

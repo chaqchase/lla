@@ -1,11 +1,14 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
-use lla_plugin_utils::{
-    config::PluginConfig,
-    ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
+use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
+    config::PluginConfig,
+    decode_decorated_entry,
+    ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
+};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
@@ -188,53 +191,59 @@ impl FileHashPlugin {
 }
 
 impl Plugin for FileHashPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if entry.metadata.is_file {
-                            let spinner = SPINNER.write();
-                            spinner.set_status("Calculating hashes...".to_string());
-
-                            if let Some((sha1, sha256)) = Self::calculate_hashes(&entry.path) {
-                                entry.custom_fields.insert("sha1".to_string(), sha1);
-                                entry.custom_fields.insert("sha256".to_string(), sha256);
-                            }
-
-                            spinner.finish();
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_hash_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        if entry
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.is_file)
+        {
+            let spinner = SPINNER.write();
+            spinner.set_status("Calculating hashes...".to_string());
+            if let Some((sha1, sha256)) = Self::calculate_hashes(entry.path.as_ref()) {
+                entry.insert_field("sha1", value::string(&sha1), sha1);
+                entry.insert_field("sha256", value::string(&sha256), sha256);
             }
-            Err(e) => self.encode_error(&e),
+            spinner.finish();
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        let spinner = SPINNER.write();
+        spinner.set_status("Calculating hashes...".to_string());
+        for entry in &mut entries {
+            if entry
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.is_file)
+            {
+                if let Some((sha1, sha256)) = Self::calculate_hashes(entry.path.as_ref()) {
+                    entry.insert_field("sha1", value::string(&sha1), sha1);
+                    entry.insert_field("sha256", value::string(&sha256), sha256);
+                }
+            }
+        }
+        spinner.finish();
+        entries
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_hash_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
     }
 }
 
@@ -255,7 +264,5 @@ impl ConfigurablePlugin for FileHashPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for FileHashPlugin {}
 
 lla_plugin_sdk::export_plugin!(FileHashPlugin);

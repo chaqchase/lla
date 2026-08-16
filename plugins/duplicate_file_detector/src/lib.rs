@@ -1,14 +1,18 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
+};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -339,43 +343,53 @@ impl DuplicateFileDetectorPlugin {
 }
 
 impl Plugin for DuplicateFileDetectorPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(entry) => {
-                        PluginResponse::Decorated(self.process_entry(entry))
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_duplicate_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        promote_duplicate_fields(map_decorated_entry(entry, |entry| {
+            self.process_entry(entry)
+        }))
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| {
+                promote_duplicate_fields(map_decorated_entry(entry, |entry| {
+                    self.process_entry(entry)
+                }))
+            })
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_duplicate_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
+    }
+}
+
+fn promote_duplicate_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    for name in ["has_duplicates", "is_duplicate"] {
+        if let Some(display) = entry.custom_fields.get(name).cloned() {
+            entry.insert_field(name, value::boolean(display == "true"), display);
         }
     }
+    if let Some(display) = entry.custom_fields.get("original_path").cloned() {
+        entry.insert_field("original_path", value::path(&display), display);
+    }
+    entry
 }
 
 impl Default for DuplicateFileDetectorPlugin {
@@ -395,7 +409,5 @@ impl ConfigurablePlugin for DuplicateFileDetectorPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for DuplicateFileDetectorPlugin {}
 
 lla_plugin_sdk::export_plugin!(DuplicateFileDetectorPlugin);

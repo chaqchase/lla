@@ -6,13 +6,16 @@ use dialoguer::{MultiSelect, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
-use lla_plugin_utils::{
-    config::PluginConfig,
-    ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
+use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
+    config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry,
+    ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
+};
 use parking_lot::RwLock;
 use ring::digest;
 use serde::{Deserialize, Serialize};
@@ -1235,56 +1238,55 @@ impl Deref for CodeSnippetExtractorPlugin {
 }
 
 impl Plugin for CodeSnippetExtractorPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if let Some(file_path) = entry.path.to_str() {
-                            let snippet_count = self.list_snippets_by_file(file_path).len();
-                            if snippet_count > 0 {
-                                entry
-                                    .custom_fields
-                                    .insert("snippet_count".to_string(), snippet_count.to_string());
-                            }
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = match format.as_str() {
-                            "default" | "long" | "snippet_count" => entry
-                                .custom_fields
-                                .get("snippet_count")
-                                .map(|count| Self::format_snippet_count(count)),
-                            _ => None,
-                        };
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let mut entry = map_decorated_entry(entry, |mut entry| {
+            if let Some(file_path) = entry.path.to_str() {
+                let snippet_count = self.list_snippets_by_file(file_path).len();
+                if snippet_count > 0 {
+                    entry
+                        .custom_fields
+                        .insert("snippet_count".into(), snippet_count.to_string());
+                }
             }
-            Err(e) => self.encode_error(&e),
+            entry
+        });
+        if let Some(display) = entry.custom_fields.get("snippet_count").cloned() {
+            if let Ok(count) = display.parse::<i64>() {
+                entry.insert_field("snippet_count", value::integer(count), display);
+            }
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| self.decorate_entry(entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        let entry = decode_decorated_entry(entry).ok()?;
+        match format.as_str() {
+            "default" | "long" | "snippet_count" => entry
+                .custom_fields
+                .get("snippet_count")
+                .map(|count| Self::format_snippet_count(count)),
+            _ => None,
+        }
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
     }
 }
 
@@ -1299,8 +1301,6 @@ impl ConfigurablePlugin for CodeSnippetExtractorPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for CodeSnippetExtractorPlugin {}
 
 lla_plugin_sdk::export_plugin!(CodeSnippetExtractorPlugin);
 

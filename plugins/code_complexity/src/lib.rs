@@ -1,14 +1,18 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
+};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
+    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -598,74 +602,70 @@ impl CodeComplexityEstimatorPlugin {
 }
 
 impl Plugin for CodeComplexityEstimatorPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if entry.path.is_file() {
-                            let metrics = PLUGIN_STATE.read().analyze_file(&entry.path);
-                            if let Some(metrics) = metrics {
-                                entry.custom_fields.insert(
-                                    "complexity_metrics".to_string(),
-                                    toml::to_string(&metrics).unwrap_or_default(),
-                                );
-
-                                if let Some(ext) = entry.path.extension().and_then(|e| e.to_str()) {
-                                    let lang = {
-                                        let state = PLUGIN_STATE.read();
-                                        state
-                                            .config
-                                            .languages
-                                            .iter()
-                                            .find(|(_, rules)| {
-                                                rules.extensions.iter().any(|e| e == ext)
-                                            })
-                                            .map(|(lang, _)| lang.clone())
-                                    };
-
-                                    if let Some(lang) = lang {
-                                        PLUGIN_STATE
-                                            .write()
-                                            .stats
-                                            .entry(lang)
-                                            .or_default()
-                                            .push((entry.path.clone(), metrics));
-                                    }
-                                }
-                            }
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let mut entry = map_decorated_entry(entry, |mut entry| {
+            if entry.path.is_file() {
+                let metrics = PLUGIN_STATE.read().analyze_file(&entry.path);
+                if let Some(metrics) = metrics {
+                    entry.custom_fields.insert(
+                        "complexity_metrics".to_string(),
+                        toml::to_string(&metrics).unwrap_or_default(),
+                    );
+                    if let Some(ext) = entry
+                        .path
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                    {
+                        let language = PLUGIN_STATE
+                            .read()
+                            .config
+                            .languages
+                            .iter()
+                            .find(|(_, rules)| rules.extensions.iter().any(|item| item == ext))
+                            .map(|(language, _)| language.clone());
+                        if let Some(language) = language {
+                            PLUGIN_STATE
+                                .write()
+                                .stats
+                                .entry(language)
+                                .or_default()
+                                .push((entry.path.clone(), metrics));
                         }
-                        PluginResponse::Decorated(entry)
                     }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_file_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+                }
             }
-            Err(e) => self.encode_error(&e),
+            entry
+        });
+        if let Some(display) = entry.custom_fields.get("complexity_metrics").cloned() {
+            entry.insert_field("complexity_metrics", value::string(&display), display);
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| self.decorate_entry(entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_file_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let arguments = action_arguments_as_strings(arguments);
+        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        action_infos(ACTION_REGISTRY.read().list_actions())
     }
 }
 
@@ -686,7 +686,5 @@ impl ConfigurablePlugin for CodeComplexityEstimatorPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for CodeComplexityEstimatorPlugin {}
 
 lla_plugin_sdk::export_plugin!(CodeComplexityEstimatorPlugin);
