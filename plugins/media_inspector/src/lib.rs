@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
-    ActionRegistry, DecoratedEntry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
 };
 use parking_lot::RwLock;
 use serde_json::Value;
@@ -22,7 +21,7 @@ lazy_static! {
             "inspect",
             "inspect <path>",
             "Print complete media metadata for a file",
-            ["lla plugin media_inspector inspect ./photo.jpg"],
+            ["lla plugin run media_inspector inspect -- ./photo.jpg"],
             MediaInspectorPlugin::inspect_action
         );
         lla_plugin_utils::define_action!(
@@ -30,7 +29,7 @@ lazy_static! {
             "tools",
             "tools",
             "Report optional media metadata tools available on PATH",
-            ["lla plugin media_inspector tools"],
+            ["lla plugin run media_inspector tools"],
             |_| MediaInspectorPlugin::tools_action()
         );
         lla_plugin_utils::define_action!(
@@ -38,7 +37,7 @@ lazy_static! {
             "help",
             "help",
             "Show media inspector usage",
-            ["lla plugin media_inspector help"],
+            ["lla plugin run media_inspector help"],
             |_| MediaInspectorPlugin::help_action()
         );
         actions
@@ -517,7 +516,7 @@ fn tool_available(tool: &str) -> bool {
 
 impl Plugin for MediaInspectorPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        map_decorated_entry(entry, Self::decorate)
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
     }
 
     fn decorate_batch(
@@ -527,7 +526,7 @@ impl Plugin for MediaInspectorPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         entries
             .into_iter()
-            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
             .collect()
     }
 
@@ -538,13 +537,27 @@ impl Plugin for MediaInspectorPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTIONS.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTIONS.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
+}
+
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    for name in ["mime_type", "media_kind", "codecs", "exif"] {
+        entry.promote_string_field(name);
+    }
+    for name in ["media_width", "media_height", "duration_ms", "bitrate_bps"] {
+        entry.promote_integer_field(name);
+    }
+    entry
 }
 
 lla_plugin_sdk::export_plugin!(MediaInspectorPlugin);

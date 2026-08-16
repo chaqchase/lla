@@ -17,8 +17,6 @@ serde_json = { workspace = true }
 colored = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
-prost = { workspace = true }
-bytes = "1.5.0"
 chrono = { workspace = true }
 users = { workspace = true }
 indicatif = { workspace = true }

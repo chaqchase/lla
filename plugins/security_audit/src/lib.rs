@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
-    ActionRegistry, DecoratedEntry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
 };
 use parking_lot::RwLock;
 use std::{fs, path::Path};
@@ -17,8 +16,8 @@ lazy_static! {
             "audit <path> [--recursive]",
             "Audit a file or directory and print security findings",
             [
-                "lla plugin security_audit audit .",
-                "lla plugin security_audit audit . -- --recursive"
+                "lla plugin run security_audit audit -- .",
+                "lla plugin run security_audit audit -- . -- --recursive"
             ],
             SecurityAuditPlugin::audit_action
         );
@@ -27,7 +26,7 @@ lazy_static! {
             "help",
             "help",
             "Show security audit usage and risk rules",
-            ["lla plugin security_audit help"],
+            ["lla plugin run security_audit help"],
             |_| SecurityAuditPlugin::help_action()
         );
         actions
@@ -287,7 +286,7 @@ fn is_secret_name(path: &Path) -> bool {
 
 impl Plugin for SecurityAuditPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        map_decorated_entry(entry, Self::decorate)
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
     }
 
     fn decorate_batch(
@@ -297,7 +296,7 @@ impl Plugin for SecurityAuditPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         entries
             .into_iter()
-            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
             .collect()
     }
 
@@ -308,13 +307,26 @@ impl Plugin for SecurityAuditPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTIONS.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTIONS.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
+}
+
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_string_field("security_risk");
+    entry.promote_integer_field("security_score");
+    entry.promote_string_field("security_findings");
+    entry.promote_boolean_field("suspicious_symlink");
+    entry.promote_boolean_field("secret_exposed");
+    entry
 }
 
 lla_plugin_sdk::export_plugin!(SecurityAuditPlugin);

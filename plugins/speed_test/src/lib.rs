@@ -5,7 +5,7 @@ use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
-    ActionInfo, BasePlugin, ConfigurablePlugin,
+    BasePlugin, ConfigurablePlugin,
 };
 use reqwest::blocking::Client;
 use reqwest::header;
@@ -594,27 +594,27 @@ impl SpeedTestPlugin {
             .add_command(
                 "test".to_string(),
                 "Run a full speed test (multiple servers)".to_string(),
-                vec!["lla plugin speed_test test".to_string()],
+                vec!["lla plugin run speed_test test".to_string()],
             )
             .add_command(
                 "quick".to_string(),
                 "Run a quick speed test (single server)".to_string(),
-                vec!["lla plugin speed_test quick".to_string()],
+                vec!["lla plugin run speed_test quick".to_string()],
             )
             .add_command(
                 "history".to_string(),
                 "Show speed test history".to_string(),
-                vec!["lla plugin speed_test history".to_string()],
+                vec!["lla plugin run speed_test history".to_string()],
             )
             .add_command(
                 "clear-history".to_string(),
                 "Clear speed test history".to_string(),
-                vec!["lla plugin speed_test clear-history".to_string()],
+                vec!["lla plugin run speed_test clear-history".to_string()],
             )
             .add_command(
                 "help".to_string(),
                 "Show this help information".to_string(),
-                vec!["lla plugin speed_test help".to_string()],
+                vec!["lla plugin run speed_test help".to_string()],
             );
 
         println!(
@@ -764,51 +764,14 @@ impl Plugin for SpeedTestPlugin {
                                 • clear-history - Clear test history\n  \
                                 • menu          - Interactive menu\n  \
                                 • help          - Show help\n\n\
-                                Example: lla plugin speed_test test",
+                                Example: lla plugin run speed_test test",
                 action
             )),
         })
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        lla_plugin_utils::action_infos(vec![
-            ActionInfo {
-                name: "test".to_string(),
-                usage: "test".to_string(),
-                description: "Run a full speed test".to_string(),
-                examples: vec!["lla plugin speed_test test".to_string()],
-            },
-            ActionInfo {
-                name: "quick".to_string(),
-                usage: "quick".to_string(),
-                description: "Run a quick speed test".to_string(),
-                examples: vec!["lla plugin speed_test quick".to_string()],
-            },
-            ActionInfo {
-                name: "history".to_string(),
-                usage: "history".to_string(),
-                description: "Show speed test history".to_string(),
-                examples: vec!["lla plugin speed_test history".to_string()],
-            },
-            ActionInfo {
-                name: "clear-history".to_string(),
-                usage: "clear-history".to_string(),
-                description: "Clear speed test history".to_string(),
-                examples: vec!["lla plugin speed_test clear-history".to_string()],
-            },
-            ActionInfo {
-                name: "menu".to_string(),
-                usage: "menu".to_string(),
-                description: "Interactive menu".to_string(),
-                examples: vec!["lla plugin speed_test menu".to_string()],
-            },
-            ActionInfo {
-                name: "help".to_string(),
-                usage: "help".to_string(),
-                description: "Show help information".to_string(),
-                examples: vec!["lla plugin speed_test help".to_string()],
-            },
-        ])
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

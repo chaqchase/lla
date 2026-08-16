@@ -392,7 +392,6 @@ fn typed_value_matches_field(value: &proto::TypedValue, field: FieldType) -> boo
 pub struct PluginManager {
     plugins: HashMap<String, LoadedPlugin>,
     loaded_paths: HashSet<PathBuf>,
-    supported_formats: HashMap<String, HashSet<String>>,
     manifests: HashMap<String, PluginManifest>,
     shadowed_plugins: Vec<(String, PathBuf)>,
     pub enabled_plugins: HashSet<String>,
@@ -405,7 +404,6 @@ impl PluginManager {
         PluginManager {
             plugins: HashMap::new(),
             loaded_paths: HashSet::new(),
-            supported_formats: HashMap::new(),
             manifests: HashMap::new(),
             shadowed_plugins: Vec::new(),
             enabled_plugins,
@@ -694,64 +692,17 @@ impl PluginManager {
     }
 
     pub fn list_plugins(&mut self) -> Vec<(String, String, String)> {
-        let mut result = Vec::new();
-        for plugin_name in self.plugins.keys() {
-            if let Some(manifest) = self.manifests.get(plugin_name) {
-                result.push((
+        self.plugins
+            .keys()
+            .filter_map(|plugin_name| self.manifests.get(plugin_name))
+            .map(|manifest| {
+                (
                     manifest.plugin.name.clone(),
                     manifest.plugin.version.clone(),
                     manifest.plugin.description.clone(),
-                ));
-                continue;
-            }
-            let name = match self
-                .send_request(
-                    plugin_name,
-                    PluginMessage {
-                        message: Some(Message::GetName(true)),
-                    },
                 )
-                .and_then(|msg| match msg.message {
-                    Some(Message::NameResponse(name)) => Ok(name),
-                    _ => Err(LlaError::Plugin("Invalid response type".to_string())),
-                }) {
-                Ok(name) => name,
-                Err(_) => continue,
-            };
-
-            let version = match self
-                .send_request(
-                    plugin_name,
-                    PluginMessage {
-                        message: Some(Message::GetVersion(true)),
-                    },
-                )
-                .and_then(|msg| match msg.message {
-                    Some(Message::VersionResponse(version)) => Ok(version),
-                    _ => Err(LlaError::Plugin("Invalid response type".to_string())),
-                }) {
-                Ok(version) => version,
-                Err(_) => continue,
-            };
-
-            let description = match self
-                .send_request(
-                    plugin_name,
-                    PluginMessage {
-                        message: Some(Message::GetDescription(true)),
-                    },
-                )
-                .and_then(|msg| match msg.message {
-                    Some(Message::DescriptionResponse(description)) => Ok(description),
-                    _ => Err(LlaError::Plugin("Invalid response type".to_string())),
-                }) {
-                Ok(description) => description,
-                Err(_) => continue,
-            };
-
-            result.push((name, version, description));
-        }
-        result
+            })
+            .collect()
     }
 
     pub fn get_plugin_actions(&mut self, plugin_name: &str) -> Result<Vec<ActionInfo>> {
@@ -1516,29 +1467,13 @@ impl PluginManager {
     }
 
     fn supports_format(&mut self, plugin_name: &str, format: &str) -> bool {
-        if let Some(formats) = self.supported_formats.get(plugin_name) {
-            return formats.contains(format);
-        }
-
-        let formats = self
-            .send_request(
-                plugin_name,
-                PluginMessage {
-                    message: Some(Message::GetSupportedFormats(true)),
-                },
-            )
-            .ok()
-            .and_then(|response| match response.message {
-                Some(Message::FormatsResponse(response)) => {
-                    Some(response.formats.into_iter().collect::<HashSet<_>>())
-                }
-                _ => None,
-            })
-            .unwrap_or_default();
-        let supports = formats.contains(format);
-        self.supported_formats
-            .insert(plugin_name.to_string(), formats);
-        supports
+        self.manifests.get(plugin_name).is_some_and(|manifest| {
+            manifest
+                .capabilities
+                .formats
+                .iter()
+                .any(|supported| supported == format)
+        })
     }
 
     pub fn enable_plugin(&mut self, name: &str) -> Result<()> {

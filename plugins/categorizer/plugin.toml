@@ -33,32 +33,32 @@ filterable = true
 
 [[actions]]
 id = "add-category"
-description = "Run the add-category action"
-examples = ["lla plugin run categorizer add-category"]
+description = "Add a new category"
+examples = ["lla plugin run categorizer add-category -- Documents blue txt,doc,pdf \"Text documents\""]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "name", type = "string", description = "Name of the item to create or select.", position = 0, required = true }, { name = "color", type = "string", description = "Display color for the category.", position = 1, required = true }, { name = "extensions", type = "string", description = "Comma-separated file extensions.", position = 2, required = true }, { name = "description", type = "string", description = "Human-readable description.", position = 3 }]
 output = { type = "none" }
 
 [[actions]]
 id = "add-subcategory"
-description = "Run the add-subcategory action"
-examples = ["lla plugin run categorizer add-subcategory"]
+description = "Add a subcategory to an existing category"
+examples = ["lla plugin run categorizer add-subcategory -- Documents Text txt,md"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "category", type = "string", description = "Category name to use.", position = 0, required = true }, { name = "subcategory", type = "string", description = "Subcategory name.", position = 1, required = true }, { name = "extensions", type = "string", description = "Comma-separated file extensions.", position = 2, required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "list-categories"
-description = "Run the list-categories action"
+description = "List all categories and their details"
 examples = ["lla plugin run categorizer list-categories"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run categorizer help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

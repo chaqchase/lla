@@ -33,19 +33,11 @@ message DecoratedEntry {
 
 message PluginMessage {
     oneof message {
-        bool get_name = 1;
-        bool get_version = 2;
-        bool get_description = 3;
-        bool get_supported_formats = 4;
         DecoratedEntry decorate = 5;
         FormatFieldRequest format_field = 6;
         ActionRequest action = 7;
         bool list_actions = 8;
         BatchDecorateRequest decorate_batch = 9;
-        string name_response = 101;
-        string version_response = 102;
-        string description_response = 103;
-        SupportedFormatsResponse formats_response = 104;
         DecoratedEntry decorated_response = 105;
         FormattedFieldResponse field_response = 106;
         ActionResponse action_response = 107;
@@ -101,10 +93,6 @@ message ActionRequest {
     string action = 1;
     reserved 2;
     map<string, TypedValue> arguments = 3;
-}
-
-message SupportedFormatsResponse {
-    repeated string formats = 1;
 }
 
 message FormattedFieldResponse {

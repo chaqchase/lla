@@ -2,13 +2,13 @@ use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    typed_action_arguments_as_strings,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -824,67 +824,67 @@ impl HackerNewsPlugin {
             .add_command(
                 "top".to_string(),
                 "Show top stories".to_string(),
-                vec!["lla plugin hackernews top".to_string()],
+                vec!["lla plugin run hackernews top".to_string()],
             )
             .add_command(
                 "best".to_string(),
                 "Show best stories".to_string(),
-                vec!["lla plugin hackernews best".to_string()],
+                vec!["lla plugin run hackernews best".to_string()],
             )
             .add_command(
                 "new".to_string(),
                 "Show new stories".to_string(),
-                vec!["lla plugin hackernews new".to_string()],
+                vec!["lla plugin run hackernews new".to_string()],
             )
             .add_command(
                 "ask".to_string(),
                 "Show Ask HN stories".to_string(),
-                vec!["lla plugin hackernews ask".to_string()],
+                vec!["lla plugin run hackernews ask".to_string()],
             )
             .add_command(
                 "show".to_string(),
                 "Show Show HN stories".to_string(),
-                vec!["lla plugin hackernews show".to_string()],
+                vec!["lla plugin run hackernews show".to_string()],
             )
             .add_command(
                 "jobs".to_string(),
                 "Show job postings".to_string(),
-                vec!["lla plugin hackernews jobs".to_string()],
+                vec!["lla plugin run hackernews jobs".to_string()],
             )
             .add_command(
                 "open <n>".to_string(),
                 "Open story #n in browser".to_string(),
-                vec!["lla plugin hackernews open 1".to_string()],
+                vec!["lla plugin run hackernews open -- 1".to_string()],
             )
             .add_command(
                 "comments <n>".to_string(),
                 "Open comments for story #n".to_string(),
-                vec!["lla plugin hackernews comments 1".to_string()],
+                vec!["lla plugin run hackernews comments -- 1".to_string()],
             )
             .add_command(
                 "copy <n>".to_string(),
                 "Copy URL of story #n".to_string(),
-                vec!["lla plugin hackernews copy 1".to_string()],
+                vec!["lla plugin run hackernews copy -- 1".to_string()],
             )
             .add_command(
                 "browse".to_string(),
                 "Interactive story browser".to_string(),
-                vec!["lla plugin hackernews browse".to_string()],
+                vec!["lla plugin run hackernews browse".to_string()],
             )
             .add_command(
                 "menu".to_string(),
                 "Interactive menu".to_string(),
-                vec!["lla plugin hackernews menu".to_string()],
+                vec!["lla plugin run hackernews menu".to_string()],
             )
             .add_command(
                 "clear-cache".to_string(),
                 "Clear cached stories".to_string(),
-                vec!["lla plugin hackernews clear-cache".to_string()],
+                vec!["lla plugin run hackernews clear-cache".to_string()],
             )
             .add_command(
                 "help".to_string(),
                 "Show this help information".to_string(),
-                vec!["lla plugin hackernews help".to_string()],
+                vec!["lla plugin run hackernews help".to_string()],
             );
 
         println!(
@@ -900,90 +900,78 @@ impl HackerNewsPlugin {
 }
 
 impl Plugin for HackerNewsPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let default_topic = self.base.config().default_topic;
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let args = match typed_action_arguments_as_strings(
+            &action,
+            &arguments,
+            include_str!("../plugin.toml"),
+        ) {
+            Ok(arguments) => arguments,
+            Err(error) => return response::error(error),
+        };
+        let default_topic = self.base.config().default_topic;
 
-                        let result = match action.as_str() {
-                            "top" => self.display_stories(HNTopic::Top),
-                            "best" => self.display_stories(HNTopic::Best),
-                            "new" | "newest" => self.display_stories(HNTopic::New),
-                            "ask" => self.display_stories(HNTopic::Ask),
-                            "show" => self.display_stories(HNTopic::Show),
-                            "jobs" => self.display_stories(HNTopic::Jobs),
-                            "open" => {
-                                if let Some(index_str) = args.first() {
-                                    if let Ok(index) = index_str.parse::<usize>() {
-                                        self.open_story(default_topic, index)
-                                    } else {
-                                        Err("Invalid story number".to_string())
-                                    }
-                                } else {
-                                    Err("Please specify a story number".to_string())
-                                }
-                            }
-                            "comments" => {
-                                if let Some(index_str) = args.first() {
-                                    if let Ok(index) = index_str.parse::<usize>() {
-                                        self.open_comments(default_topic, index)
-                                    } else {
-                                        Err("Invalid story number".to_string())
-                                    }
-                                } else {
-                                    Err("Please specify a story number".to_string())
-                                }
-                            }
-                            "copy" => {
-                                if let Some(index_str) = args.first() {
-                                    if let Ok(index) = index_str.parse::<usize>() {
-                                        self.copy_url(default_topic, index)
-                                    } else {
-                                        Err("Invalid story number".to_string())
-                                    }
-                                } else {
-                                    Err("Please specify a story number".to_string())
-                                }
-                            }
-                            "browse" => {
-                                let topic = if let Some(topic_str) = args.first() {
-                                    match topic_str.to_lowercase().as_str() {
-                                        "top" => HNTopic::Top,
-                                        "best" => HNTopic::Best,
-                                        "new" | "newest" => HNTopic::New,
-                                        "ask" => HNTopic::Ask,
-                                        "show" => HNTopic::Show,
-                                        "jobs" => HNTopic::Jobs,
-                                        _ => default_topic,
-                                    }
-                                } else {
-                                    default_topic
-                                };
-                                self.interactive_browse(topic)
-                            }
-                            "menu" => self.interactive_menu(),
-                            "clear-cache" | "refresh" => self.clear_cache(),
-                            "help" => self.show_help(),
-                            _ => Err(format!(
-                                "Unknown action: '{}'\n\n\
+        let result = match action.as_str() {
+            "top" => self.display_stories(HNTopic::Top),
+            "best" => self.display_stories(HNTopic::Best),
+            "new" | "newest" => self.display_stories(HNTopic::New),
+            "ask" => self.display_stories(HNTopic::Ask),
+            "show" => self.display_stories(HNTopic::Show),
+            "jobs" => self.display_stories(HNTopic::Jobs),
+            "open" => {
+                if let Some(index_str) = args.first() {
+                    if let Ok(index) = index_str.parse::<usize>() {
+                        self.open_story(default_topic, index)
+                    } else {
+                        Err("Invalid story number".to_string())
+                    }
+                } else {
+                    Err("Please specify a story number".to_string())
+                }
+            }
+            "comments" => {
+                if let Some(index_str) = args.first() {
+                    if let Ok(index) = index_str.parse::<usize>() {
+                        self.open_comments(default_topic, index)
+                    } else {
+                        Err("Invalid story number".to_string())
+                    }
+                } else {
+                    Err("Please specify a story number".to_string())
+                }
+            }
+            "copy" => {
+                if let Some(index_str) = args.first() {
+                    if let Ok(index) = index_str.parse::<usize>() {
+                        self.copy_url(default_topic, index)
+                    } else {
+                        Err("Invalid story number".to_string())
+                    }
+                } else {
+                    Err("Please specify a story number".to_string())
+                }
+            }
+            "browse" => {
+                let topic = if let Some(topic_str) = args.first() {
+                    match topic_str.to_lowercase().as_str() {
+                        "top" => HNTopic::Top,
+                        "best" => HNTopic::Best,
+                        "new" | "newest" => HNTopic::New,
+                        "ask" => HNTopic::Ask,
+                        "show" => HNTopic::Show,
+                        "jobs" => HNTopic::Jobs,
+                        _ => default_topic,
+                    }
+                } else {
+                    default_topic
+                };
+                self.interactive_browse(topic)
+            }
+            "menu" => self.interactive_menu(),
+            "clear-cache" | "refresh" => self.clear_cache(),
+            "help" => self.show_help(),
+            _ => Err(format!(
+                "Unknown action: '{}'\n\n\
                                 Available actions:\n  \
                                 • top       - Show top stories\n  \
                                 • best      - Show best stories\n  \
@@ -997,94 +985,15 @@ impl Plugin for HackerNewsPlugin {
                                 • browse    - Interactive browser\n  \
                                 • menu      - Interactive menu\n  \
                                 • help      - Show help\n\n\
-                                Example: lla plugin hackernews top",
-                                action
-                            )),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "top".to_string(),
-                                usage: "top".to_string(),
-                                description: "Show top stories".to_string(),
-                                examples: vec!["lla plugin hackernews top".to_string()],
-                            },
-                            ActionInfo {
-                                name: "best".to_string(),
-                                usage: "best".to_string(),
-                                description: "Show best stories".to_string(),
-                                examples: vec!["lla plugin hackernews best".to_string()],
-                            },
-                            ActionInfo {
-                                name: "new".to_string(),
-                                usage: "new".to_string(),
-                                description: "Show new stories".to_string(),
-                                examples: vec!["lla plugin hackernews new".to_string()],
-                            },
-                            ActionInfo {
-                                name: "ask".to_string(),
-                                usage: "ask".to_string(),
-                                description: "Show Ask HN".to_string(),
-                                examples: vec!["lla plugin hackernews ask".to_string()],
-                            },
-                            ActionInfo {
-                                name: "show".to_string(),
-                                usage: "show".to_string(),
-                                description: "Show Show HN".to_string(),
-                                examples: vec!["lla plugin hackernews show".to_string()],
-                            },
-                            ActionInfo {
-                                name: "jobs".to_string(),
-                                usage: "jobs".to_string(),
-                                description: "Show job postings".to_string(),
-                                examples: vec!["lla plugin hackernews jobs".to_string()],
-                            },
-                            ActionInfo {
-                                name: "open".to_string(),
-                                usage: "open <number>".to_string(),
-                                description: "Open story in browser".to_string(),
-                                examples: vec!["lla plugin hackernews open 1".to_string()],
-                            },
-                            ActionInfo {
-                                name: "comments".to_string(),
-                                usage: "comments <number>".to_string(),
-                                description: "Open story comments".to_string(),
-                                examples: vec!["lla plugin hackernews comments 1".to_string()],
-                            },
-                            ActionInfo {
-                                name: "copy".to_string(),
-                                usage: "copy <number>".to_string(),
-                                description: "Copy story URL".to_string(),
-                                examples: vec!["lla plugin hackernews copy 1".to_string()],
-                            },
-                            ActionInfo {
-                                name: "browse".to_string(),
-                                usage: "browse [topic]".to_string(),
-                                description: "Interactive browser".to_string(),
-                                examples: vec!["lla plugin hackernews browse".to_string()],
-                            },
-                            ActionInfo {
-                                name: "menu".to_string(),
-                                usage: "menu".to_string(),
-                                description: "Interactive menu".to_string(),
-                                examples: vec!["lla plugin hackernews menu".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin hackernews help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+                                Example: lla plugin run hackernews top",
+                action
+            )),
+        };
+        response::from_result(result)
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -1105,7 +1014,5 @@ impl ConfigurablePlugin for HackerNewsPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for HackerNewsPlugin {}
 
 lla_plugin_sdk::export_plugin!(HackerNewsPlugin);

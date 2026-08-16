@@ -5,7 +5,7 @@ use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionInfo, BasePlugin, ConfigurablePlugin,
+    BasePlugin, ConfigurablePlugin,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -958,38 +958,7 @@ impl Plugin for JwtPlugin {
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        lla_plugin_utils::action_infos(vec![
-            ActionInfo {
-                name: "decode".to_string(),
-                usage: "decode".to_string(),
-                description: "View decoded JWT tokens".to_string(),
-                examples: vec!["lla plugin jwt decode".to_string()],
-            },
-            ActionInfo {
-                name: "search".to_string(),
-                usage: "search".to_string(),
-                description: "Search decoded JWT tokens".to_string(),
-                examples: vec!["lla plugin jwt search".to_string()],
-            },
-            ActionInfo {
-                name: "history".to_string(),
-                usage: "history".to_string(),
-                description: "Manage token history".to_string(),
-                examples: vec!["lla plugin jwt history".to_string()],
-            },
-            ActionInfo {
-                name: "preferences".to_string(),
-                usage: "preferences".to_string(),
-                description: "Configure preferences".to_string(),
-                examples: vec!["lla plugin jwt preferences".to_string()],
-            },
-            ActionInfo {
-                name: "help".to_string(),
-                usage: "help".to_string(),
-                description: "Show help information".to_string(),
-                examples: vec!["lla plugin jwt help".to_string()],
-            },
-        ])
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

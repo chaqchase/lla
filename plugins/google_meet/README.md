@@ -13,22 +13,22 @@ Google Meet plugin for `lla` that creates meeting rooms and manages links with b
 
 ```bash
 # Create a new meeting room
-lla plugin --name google_meet --action create
+lla plugin run google_meet create
 
 # Create meeting with browser profile
-lla plugin --name google_meet --action create-with-profile
+lla plugin run google_meet create-with-profile
 
 # Manage meeting history
-lla plugin --name google_meet --action history
+lla plugin run google_meet history
 
 # Manage browser profiles
-lla plugin --name google_meet --action profiles
+lla plugin run google_meet profiles
 
 # Configure preferences
-lla plugin --name google_meet --action preferences
+lla plugin run google_meet preferences
 
 # Show help
-lla plugin --name google_meet --action help
+lla plugin run google_meet help
 ```
 
 ## Configuration

@@ -30,61 +30,61 @@ lla use  # Select brew
 
 ### List Installed Packages
 ```bash
-lla plugin brew list
+lla plugin run brew list
 ```
 
 ### Search for Packages
 ```bash
-lla plugin brew search git
-lla plugin brew search firefox
+lla plugin run brew search -- git
+lla plugin run brew search -- firefox
 ```
 
 ### Check for Updates
 ```bash
-lla plugin brew outdated
+lla plugin run brew outdated
 ```
 
 ### Install a Package
 ```bash
-lla plugin brew install wget
-lla plugin brew install firefox --cask   # For cask applications
+lla plugin run brew install -- wget
+lla plugin run brew install -- firefox --cask   # For cask applications
 ```
 
 ### Uninstall a Package
 ```bash
-lla plugin brew uninstall wget
+lla plugin run brew uninstall -- wget
 ```
 
 ### Upgrade Packages
 ```bash
-lla plugin brew upgrade           # Upgrade all packages
-lla plugin brew upgrade wget      # Upgrade specific package
+lla plugin run brew upgrade --           # Upgrade all packages
+lla plugin run brew upgrade -- wget      # Upgrade specific package
 ```
 
 ### View Package Info
 ```bash
-lla plugin brew info git
-lla plugin brew info visual-studio-code
+lla plugin run brew info -- git
+lla plugin run brew info -- visual-studio-code
 ```
 
 ### Cleanup Old Versions
 ```bash
-lla plugin brew cleanup
+lla plugin run brew cleanup
 ```
 
 ### Run Diagnostics
 ```bash
-lla plugin brew doctor
+lla plugin run brew doctor
 ```
 
 ### Interactive Menu
 ```bash
-lla plugin brew menu
+lla plugin run brew menu
 ```
 
 ### Show Help
 ```bash
-lla plugin brew help
+lla plugin run brew help
 ```
 
 ## Configuration

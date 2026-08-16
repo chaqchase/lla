@@ -6,7 +6,7 @@ use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ui::interactive_suggest,
-    ActionInfo, BasePlugin, ConfigurablePlugin,
+    BasePlugin, ConfigurablePlugin,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -600,38 +600,7 @@ impl Plugin for GoogleSearchPlugin {
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        lla_plugin_utils::action_infos(vec![
-            ActionInfo {
-                name: "search".to_string(),
-                usage: "search".to_string(),
-                description: "Perform a search".to_string(),
-                examples: vec!["lla plugin google_search search".to_string()],
-            },
-            ActionInfo {
-                name: "search-selected".to_string(),
-                usage: "search-selected".to_string(),
-                description: "Search selected text".to_string(),
-                examples: vec!["lla plugin google_search search-selected".to_string()],
-            },
-            ActionInfo {
-                name: "history".to_string(),
-                usage: "history".to_string(),
-                description: "Manage search history".to_string(),
-                examples: vec!["lla plugin google_search history".to_string()],
-            },
-            ActionInfo {
-                name: "preferences".to_string(),
-                usage: "preferences".to_string(),
-                description: "Configure preferences".to_string(),
-                examples: vec!["lla plugin google_search preferences".to_string()],
-            },
-            ActionInfo {
-                name: "help".to_string(),
-                usage: "help".to_string(),
-                description: "Show help information".to_string(),
-                examples: vec!["lla plugin google_search help".to_string()],
-            },
-        ])
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

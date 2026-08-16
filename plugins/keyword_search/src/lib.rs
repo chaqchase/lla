@@ -3,13 +3,15 @@ use colored::Colorize;
 use dialoguer::{MultiSelect, Select};
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::Plugin;
+use lla_plugin_sdk::{
+    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
+};
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
-use lla_plugin_utils::{PluginRequest, PluginResponse};
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -547,203 +549,171 @@ impl KeywordSearchPlugin {
 }
 
 impl Plugin for KeywordSearchPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if let Some(matches) = entry
-                            .path
-                            .is_file()
-                            .then(|| self.search_file(&entry.path))
-                            .flatten()
-                        {
-                            entry.custom_fields.insert(
-                                "keyword_matches".to_string(),
-                                toml::to_string(&matches).unwrap_or_default(),
-                            );
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, _format) => {
-                        let field = entry
-                            .custom_fields
-                            .get("keyword_matches")
-                            .and_then(|toml_str| toml::from_str::<Vec<KeywordMatch>>(toml_str).ok())
-                            .map(|matches| {
-                                matches
-                                    .iter()
-                                    .map(|m| self.render_match(m, &entry.path.to_string_lossy()))
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
-                            });
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let response = match action.as_str() {
-                            "search" => {
-                                let result = (|| {
-                                    let config = self.base.config();
-                                    if config.keywords.is_empty() {
-                                        let theme = LlaDialoguerTheme::default();
-                                        let input = dialoguer::Input::<String>::with_theme(&theme)
-                                            .with_prompt("Enter keywords (space-separated)")
-                                            .interact_text()
-                                            .map_err(|e| {
-                                                format!("Failed to get keywords: {}", e)
-                                            })?;
-
-                                        let keywords: Vec<String> = input
-                                            .split_whitespace()
-                                            .map(|s| s.to_string())
-                                            .collect();
-
-                                        if keywords.is_empty() {
-                                            return Err("No keywords provided".to_string());
-                                        }
-
-                                        self.base.config_mut().keywords = keywords;
-                                    }
-
-                                    let mut files: Vec<String> = Vec::new();
-                                    for entry in std::fs::read_dir(".")
-                                        .map_err(|e| format!("Failed to read directory: {}", e))?
-                                    {
-                                        let entry = entry
-                                            .map_err(|e| format!("Failed to read entry: {}", e))?;
-                                        let path = entry.path();
-                                        if path.is_file() {
-                                            if let Some(ext) = path.extension() {
-                                                if self
-                                                    .base
-                                                    .config()
-                                                    .file_extensions
-                                                    .contains(&ext.to_string_lossy().to_string())
-                                                {
-                                                    files.push(path.to_string_lossy().to_string());
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if files.is_empty() {
-                                        return Err(
-                                            "No supported files found in current directory"
-                                                .to_string(),
-                                        );
-                                    }
-
-                                    let files =
-                                        files.iter().map(|p| p.to_string()).collect::<Vec<_>>();
-                                    let theme = LlaDialoguerTheme::default();
-                                    let selection = MultiSelect::with_theme(&theme)
-                                        .with_prompt("Select files to search")
-                                        .items(&files)
-                                        .interact()
-                                        .map_err(|e| {
-                                            format!("Failed to show file selector: {}", e)
-                                        })?;
-
-                                    if selection.is_empty() {
-                                        return Err("No files selected".to_string());
-                                    }
-
-                                    let mut all_matches = Vec::new();
-                                    for &idx in &selection {
-                                        let path = std::path::Path::new(&files[idx]);
-                                        if let Some(matches) = self.search_file(path) {
-                                            all_matches.extend(matches);
-                                        }
-                                    }
-
-                                    if all_matches.is_empty() {
-                                        println!(
-                                            "{} No matches found in selected files",
-                                            "Info:".bright_blue()
-                                        );
-                                        Ok(())
-                                    } else {
-                                        self.interactive_search(all_matches, "Selected Files")
-                                    }
-                                })();
-                                PluginResponse::ActionResult(result)
-                            }
-                            "help" => {
-                                let result = {
-                                    let mut help =
-                                        HelpFormatter::new("Keyword Search Plugin".to_string());
-                                    help.add_section("Description".to_string())
-                                        .add_command(
-                                            "".to_string(),
-                                            "Search for keywords in files with interactive selection and actions.".to_string(),
-                                            vec![],
-                                        );
-
-                                    help.add_section("Actions".to_string())
-                                        .add_command(
-                                            "search".to_string(),
-                                            "Search for keywords in files".to_string(),
-                                            vec!["search".to_string()],
-                                        )
-                                        .add_command(
-                                            "help".to_string(),
-                                            "Show this help information".to_string(),
-                                            vec!["help".to_string()],
-                                        );
-
-                                    println!(
-                                        "{}",
-                                        BoxComponent::new(help.render(&self.base.config().colors))
-                                            .style(BoxStyle::Minimal)
-                                            .padding(1)
-                                            .render()
-                                    );
-                                    Ok(())
-                                };
-                                PluginResponse::ActionResult(result)
-                            }
-                            _ => PluginResponse::ActionResult(Err(format!(
-                                "Unknown action: {}",
-                                action
-                            ))),
-                        };
-                        response
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_utils::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search".to_string(),
-                                description: "Search for keywords in files".to_string(),
-                                examples: vec!["lla plugin keyword_search search".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin keyword_search help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let mut entry = map_decorated_entry(entry, |mut entry| {
+            if let Some(matches) = entry
+                .path
+                .is_file()
+                .then(|| self.search_file(&entry.path))
+                .flatten()
+            {
+                entry.custom_fields.insert(
+                    "keyword_matches".to_string(),
+                    toml::to_string(&matches).unwrap_or_default(),
+                );
             }
-            Err(e) => self.encode_error(&e),
+            entry
+        });
+        if let Some(display) = entry.custom_fields.get("keyword_matches").cloned() {
+            entry.insert_field("keyword_matches", value::string(&display), display);
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| self.decorate_entry(entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, _format: String) -> Option<String> {
+        let entry = decode_decorated_entry(entry).ok()?;
+        entry
+            .custom_fields
+            .get("keyword_matches")
+            .and_then(|toml| toml::from_str::<Vec<KeywordMatch>>(toml).ok())
+            .map(|matches| {
+                matches
+                    .iter()
+                    .map(|item| self.render_match(item, &entry.path.to_string_lossy()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+    }
+
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        let result = match action.as_str() {
+            "search" => {
+                let result = (|| {
+                    let config = self.base.config();
+                    if config.keywords.is_empty() {
+                        let theme = LlaDialoguerTheme::default();
+                        let input = dialoguer::Input::<String>::with_theme(&theme)
+                            .with_prompt("Enter keywords (space-separated)")
+                            .interact_text()
+                            .map_err(|e| format!("Failed to get keywords: {}", e))?;
+
+                        let keywords: Vec<String> =
+                            input.split_whitespace().map(|s| s.to_string()).collect();
+
+                        if keywords.is_empty() {
+                            return Err("No keywords provided".to_string());
+                        }
+
+                        self.base.config_mut().keywords = keywords;
+                    }
+
+                    let mut files: Vec<String> = Vec::new();
+                    for entry in std::fs::read_dir(".")
+                        .map_err(|e| format!("Failed to read directory: {}", e))?
+                    {
+                        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(ext) = path.extension() {
+                                if self
+                                    .base
+                                    .config()
+                                    .file_extensions
+                                    .contains(&ext.to_string_lossy().to_string())
+                                {
+                                    files.push(path.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    if files.is_empty() {
+                        return Err("No supported files found in current directory".to_string());
+                    }
+
+                    let files = files.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+                    let theme = LlaDialoguerTheme::default();
+                    let selection = MultiSelect::with_theme(&theme)
+                        .with_prompt("Select files to search")
+                        .items(&files)
+                        .interact()
+                        .map_err(|e| format!("Failed to show file selector: {}", e))?;
+
+                    if selection.is_empty() {
+                        return Err("No files selected".to_string());
+                    }
+
+                    let mut all_matches = Vec::new();
+                    for &idx in &selection {
+                        let path = std::path::Path::new(&files[idx]);
+                        if let Some(matches) = self.search_file(path) {
+                            all_matches.extend(matches);
+                        }
+                    }
+
+                    if all_matches.is_empty() {
+                        println!(
+                            "{} No matches found in selected files",
+                            "Info:".bright_blue()
+                        );
+                        Ok(())
+                    } else {
+                        self.interactive_search(all_matches, "Selected Files")
+                    }
+                })();
+                result
+            }
+            "help" => {
+                let result = {
+                    let mut help = HelpFormatter::new("Keyword Search Plugin".to_string());
+                    help.add_section("Description".to_string()).add_command(
+                        "".to_string(),
+                        "Search for keywords in files with interactive selection and actions."
+                            .to_string(),
+                        vec![],
+                    );
+
+                    help.add_section("Actions".to_string())
+                        .add_command(
+                            "search".to_string(),
+                            "Search for keywords in files".to_string(),
+                            vec!["search".to_string()],
+                        )
+                        .add_command(
+                            "help".to_string(),
+                            "Show this help information".to_string(),
+                            vec!["help".to_string()],
+                        );
+
+                    println!(
+                        "{}",
+                        BoxComponent::new(help.render(&self.base.config().colors))
+                            .style(BoxStyle::Minimal)
+                            .padding(1)
+                            .render()
+                    );
+                    Ok(())
+                };
+                result
+            }
+            _ => Err(format!("Unknown action: {action}")),
+        };
+        response::from_result(result)
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -764,7 +734,5 @@ impl ConfigurablePlugin for KeywordSearchPlugin {
         self.base.config_mut()
     }
 }
-
-impl ProtobufHandler for KeywordSearchPlugin {}
 
 lla_plugin_sdk::export_plugin!(KeywordSearchPlugin);

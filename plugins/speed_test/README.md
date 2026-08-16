@@ -22,32 +22,32 @@ lla use  # Select speed_test
 
 ### Run a Full Speed Test
 ```bash
-lla plugin speed_test test
+lla plugin run speed_test test
 ```
 
 ### Run a Quick Speed Test
 ```bash
-lla plugin speed_test quick
+lla plugin run speed_test quick
 ```
 
 ### View Speed Test History
 ```bash
-lla plugin speed_test history
+lla plugin run speed_test history
 ```
 
 ### Clear History
 ```bash
-lla plugin speed_test clear-history
+lla plugin run speed_test clear-history
 ```
 
 ### Interactive Menu
 ```bash
-lla plugin speed_test menu
+lla plugin run speed_test menu
 ```
 
 ### Show Help
 ```bash
-lla plugin speed_test help
+lla plugin run speed_test help
 ```
 
 ## Configuration

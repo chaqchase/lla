@@ -6,10 +6,10 @@ use dialoguer::{
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
@@ -63,7 +63,7 @@ lazy_static! {
             "list",
             "list",
             "List all running processes with detailed information",
-            ["lla plugin --name kill_process --action list"],
+            ["lla plugin run kill_process list"],
             |_| KillProcessPlugin::list_action()
         );
 
@@ -72,7 +72,7 @@ lazy_static! {
             "kill",
             "kill",
             "Interactively select and kill a process",
-            ["lla plugin --name kill_process --action kill"],
+            ["lla plugin run kill_process kill"],
             |_| KillProcessPlugin::kill_action(false)
         );
 
@@ -81,7 +81,7 @@ lazy_static! {
             "force-kill",
             "force-kill",
             "Forcefully terminate a process (SIGKILL on Unix, /F on Windows)",
-            ["lla plugin --name kill_process --action force-kill"],
+            ["lla plugin run kill_process force-kill"],
             |_| KillProcessPlugin::kill_action(true)
         );
 
@@ -91,8 +91,8 @@ lazy_static! {
             "kill-by-name <name>",
             "Kill processes matching a specific name pattern",
             [
-                "lla plugin --name kill_process --action kill-by-name --args chrome",
-                "lla plugin --name kill_process --action kill-by-name --args firefox"
+                "lla plugin run kill_process kill-by-name -- chrome",
+                "lla plugin run kill_process kill-by-name -- firefox"
             ],
             |args| KillProcessPlugin::kill_by_name_action(args, false)
         );
@@ -102,7 +102,7 @@ lazy_static! {
             "force-kill-by-name",
             "force-kill-by-name <name>",
             "Forcefully kill processes matching a specific name pattern",
-            ["lla plugin --name kill_process --action force-kill-by-name --args chrome"],
+            ["lla plugin run kill_process force-kill-by-name -- chrome"],
             |args| KillProcessPlugin::kill_by_name_action(args, true)
         );
 
@@ -111,7 +111,7 @@ lazy_static! {
             "kill-by-pid",
             "kill-by-pid <pid>",
             "Kill a specific process by its PID",
-            ["lla plugin --name kill_process --action kill-by-pid --args 1234"],
+            ["lla plugin run kill_process kill-by-pid -- 1234"],
             |args| KillProcessPlugin::kill_by_pid_action(args, false)
         );
 
@@ -120,7 +120,7 @@ lazy_static! {
             "force-kill-by-pid",
             "force-kill-by-pid <pid>",
             "Forcefully kill a specific process by its PID",
-            ["lla plugin --name kill_process --action force-kill-by-pid --args 1234"],
+            ["lla plugin run kill_process force-kill-by-pid -- 1234"],
             |args| KillProcessPlugin::kill_by_pid_action(args, true)
         );
 
@@ -129,7 +129,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name kill_process --action help"],
+            ["lla plugin run kill_process help"],
             |_| KillProcessPlugin::help_action()
         );
 
@@ -738,19 +738,19 @@ impl KillProcessPlugin {
             .add_command(
                 "list".to_string(),
                 "List all running processes with detailed information".to_string(),
-                vec!["lla plugin --name kill_process --action list".to_string()],
+                vec!["lla plugin run kill_process list".to_string()],
             )
             .add_command(
                 "kill".to_string(),
                 "Interactively select and kill processes with fuzzy search (SIGTERM/taskkill)"
                     .to_string(),
-                vec!["lla plugin --name kill_process --action kill".to_string()],
+                vec!["lla plugin run kill_process kill".to_string()],
             )
             .add_command(
                 "force-kill".to_string(),
                 "Forcefully terminate processes with fuzzy search (SIGKILL/taskkill /F)"
                     .to_string(),
-                vec!["lla plugin --name kill_process --action force-kill".to_string()],
+                vec!["lla plugin run kill_process force-kill".to_string()],
             );
 
         help.add_section("Direct Targeting".to_string())
@@ -758,32 +758,24 @@ impl KillProcessPlugin {
                 "kill-by-name <name>".to_string(),
                 "Kill processes matching a specific name pattern".to_string(),
                 vec![
-                    "lla plugin --name kill_process --action kill-by-name --args chrome"
-                        .to_string(),
-                    "lla plugin --name kill_process --action kill-by-name --args firefox"
-                        .to_string(),
+                    "lla plugin run kill_process kill-by-name -- chrome".to_string(),
+                    "lla plugin run kill_process kill-by-name -- firefox".to_string(),
                 ],
             )
             .add_command(
                 "force-kill-by-name <name>".to_string(),
                 "Forcefully kill processes matching a name pattern".to_string(),
-                vec![
-                    "lla plugin --name kill_process --action force-kill-by-name --args chrome"
-                        .to_string(),
-                ],
+                vec!["lla plugin run kill_process force-kill-by-name -- chrome".to_string()],
             )
             .add_command(
                 "kill-by-pid <pid>".to_string(),
                 "Kill a specific process by its PID".to_string(),
-                vec!["lla plugin --name kill_process --action kill-by-pid --args 1234".to_string()],
+                vec!["lla plugin run kill_process kill-by-pid -- 1234".to_string()],
             )
             .add_command(
                 "force-kill-by-pid <pid>".to_string(),
                 "Forcefully kill a specific process by its PID".to_string(),
-                vec![
-                    "lla plugin --name kill_process --action force-kill-by-pid --args 1234"
-                        .to_string(),
-                ],
+                vec!["lla plugin run kill_process force-kill-by-pid -- 1234".to_string()],
             );
 
         help.add_section("Platform-Specific Notes".to_string())
@@ -826,12 +818,16 @@ impl Deref for KillProcessPlugin {
 
 impl Plugin for KillProcessPlugin {
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

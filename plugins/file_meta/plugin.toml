@@ -38,8 +38,8 @@ filterable = true
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run file_meta help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

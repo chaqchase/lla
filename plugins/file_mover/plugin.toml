@@ -20,48 +20,48 @@ clipboard = true
 
 [[actions]]
 id = "add"
-description = "Run the add action"
-examples = ["lla plugin run file_mover add"]
+description = "Add files/directories to clipboard from current or specified directory"
+examples = ["lla plugin run file_mover add", "lla plugin run file_mover add -- /path/to/dir"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "move-all"
-description = "Run the move-all action"
-examples = ["lla plugin run file_mover move-all"]
+description = "Move all items from clipboard to current or specified directory"
+examples = ["lla plugin run file_mover move-all", "lla plugin run file_mover move-all -- /path/to/target"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "target_path", type = "path", description = "Destination path.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "move-partial"
-description = "Run the move-partial action"
-examples = ["lla plugin run file_mover move-partial"]
+description = "Move selected items from clipboard to current or specified directory"
+examples = ["lla plugin run file_mover move-partial", "lla plugin run file_mover move-partial -- /path/to/target"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "target_path", type = "path", description = "Destination path.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "clear"
-description = "Run the clear action"
+description = "Clear the clipboard"
 examples = ["lla plugin run file_mover clear"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "show"
-description = "Run the show action"
+description = "Show clipboard contents"
 examples = ["lla plugin run file_mover show"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run file_mover help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

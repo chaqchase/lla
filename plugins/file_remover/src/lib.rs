@@ -1,10 +1,10 @@
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    run_cli_action,
     trash::{remove_path, TrashStore},
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
@@ -48,8 +48,8 @@ lazy_static! {
             "remove [path]",
             "Move selected files/directories into recoverable trash",
             [
-                "lla plugin --name file_remover --action remove",
-                "lla plugin --name file_remover --action remove --args /path/to/dir"
+                "lla plugin run file_remover remove",
+                "lla plugin run file_remover remove -- /path/to/dir"
             ],
             FileRemoverPlugin::remove_action
         );
@@ -60,8 +60,8 @@ lazy_static! {
             "purge [path]",
             "Permanently delete selected files/directories after confirmation",
             [
-                "lla plugin --name file_remover --action purge",
-                "lla plugin --name file_remover --action purge --args /path/to/dir"
+                "lla plugin run file_remover purge",
+                "lla plugin run file_remover purge -- /path/to/dir"
             ],
             FileRemoverPlugin::purge_action
         );
@@ -71,7 +71,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_remover --action help"],
+            ["lla plugin run file_remover help"],
             |_| FileRemoverPlugin::help_action()
         );
 
@@ -253,17 +253,14 @@ impl FileRemoverPlugin {
                 "remove [path]".to_string(),
                 "Move selected files/directories into recoverable trash".to_string(),
                 vec![
-                    "lla plugin --name file_remover --action remove".to_string(),
-                    "lla plugin --name file_remover --action remove --args /path/to/dir"
-                        .to_string(),
+                    "lla plugin run file_remover remove".to_string(),
+                    "lla plugin run file_remover remove -- /path/to/dir".to_string(),
                 ],
             )
             .add_command(
                 "purge [path]".to_string(),
                 "Permanently delete selected items after an explicit confirmation".to_string(),
-                vec![
-                    "lla plugin --name file_remover --action purge --args /path/to/dir".to_string(),
-                ],
+                vec!["lla plugin run file_remover purge -- /path/to/dir".to_string()],
             );
 
         println!(
@@ -287,12 +284,16 @@ impl Deref for FileRemoverPlugin {
 
 impl Plugin for FileRemoverPlugin {
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

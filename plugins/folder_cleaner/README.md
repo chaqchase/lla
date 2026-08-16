@@ -30,37 +30,37 @@ of deleting them.
 
 ```bash
 # Analyze a folder without saving or moving anything
-lla plugin --name folder_cleaner --action scan --args ~/Downloads
+lla plugin run folder_cleaner scan -- ~/Downloads
 
 # Preview and save a proposed plan
-lla plugin --name folder_cleaner --action preview --args ~/Downloads downloads
+lla plugin run folder_cleaner preview -- ~/Downloads downloads
 
 # Preview, interactively approve, and apply selected actions
-lla plugin --name folder_cleaner --action clean --args ~/Downloads downloads
+lla plugin run folder_cleaner clean -- ~/Downloads downloads
 
 # Apply a saved plan
-lla plugin --name folder_cleaner --action apply --args plan-20260508090000000
+lla plugin run folder_cleaner apply -- plan-20260508090000000
 
 # Restore files moved by a previous run
-lla plugin --name folder_cleaner --action restore --args run-20260508090000000
+lla plugin run folder_cleaner restore -- run-20260508090000000
 
 # If you pass a plan id to restore, or a run-like id made from a plan timestamp,
 # folder_cleaner resolves the applied run when there is exactly one match.
 
 # Inspect history and render saved plans
-lla plugin --name folder_cleaner --action history
-lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000
+lla plugin run folder_cleaner history
+lla plugin run folder_cleaner show-plan -- plan-20260508090000000
 
 # Diagnose run health; add --repair to restore recoverable moved files
-lla plugin --name folder_cleaner --action doctor
-lla plugin --name folder_cleaner --action doctor --args run-20260508090000000 --repair
+lla plugin run folder_cleaner doctor
+lla plugin run folder_cleaner doctor -- run-20260508090000000 --repair
 
 # Inspect or empty quarantine
-lla plugin --name folder_cleaner --action quarantine-list
-lla plugin --name folder_cleaner --action quarantine-empty --args 30
+lla plugin run folder_cleaner quarantine-list
+lla plugin run folder_cleaner quarantine-empty -- 30
 
 # Edit common profile settings
-lla plugin --name folder_cleaner --action config-wizard
+lla plugin run folder_cleaner config-wizard
 ```
 
 ## Configuration
@@ -136,8 +136,8 @@ still requires confirmation.
 If a run is interrupted or files are hard to find, use:
 
 ```bash
-lla plugin --name folder_cleaner --action doctor
-lla plugin --name folder_cleaner --action history
+lla plugin run folder_cleaner doctor
+lla plugin run folder_cleaner history
 ```
 
 `doctor --repair` restores recoverable files whose targets still exist. Orphaned

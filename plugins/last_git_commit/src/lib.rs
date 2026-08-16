@@ -1,11 +1,8 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{
-    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
-};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
-    decode_decorated_entry,
+    decode_decorated_entry, run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
@@ -28,7 +25,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name last_git_commit --action help"],
+            ["lla plugin run last_git_commit help"],
             |_| {
                 let mut help = HelpFormatter::new("Last Git Commit Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -40,7 +37,7 @@ lazy_static! {
                 help.add_section("Actions".to_string()).add_command(
                     "help".to_string(),
                     "Show this help information".to_string(),
-                    vec!["lla plugin --name last_git_commit --action help".to_string()],
+                    vec!["lla plugin run last_git_commit help".to_string()],
                 );
 
                 help.add_section("Formats".to_string())
@@ -266,12 +263,16 @@ impl Plugin for LastGitCommitPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

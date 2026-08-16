@@ -39,24 +39,24 @@ filterable = true
 
 [[actions]]
 id = "clear-cache"
-description = "Run the clear-cache action"
+description = "Clear the directory analysis cache"
 examples = ["lla plugin run dirs_meta clear-cache"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "stats"
-description = "Run the stats action"
-examples = ["lla plugin run dirs_meta stats"]
+description = "Show detailed statistics for a directory"
+examples = ["lla plugin run dirs_meta stats -- \"/path/to/dir\""]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run dirs_meta help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

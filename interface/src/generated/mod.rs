@@ -64,7 +64,7 @@ pub struct DecoratedEntry {
 pub struct PluginMessage {
     #[prost(
         oneof = "plugin_message::Message",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111"
+        tags = "5, 6, 7, 8, 9, 105, 106, 107, 108, 109, 110, 111"
     )]
     pub message: ::core::option::Option<plugin_message::Message>,
 }
@@ -73,14 +73,6 @@ pub mod plugin_message {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Message {
-        #[prost(bool, tag = "1")]
-        GetName(bool),
-        #[prost(bool, tag = "2")]
-        GetVersion(bool),
-        #[prost(bool, tag = "3")]
-        GetDescription(bool),
-        #[prost(bool, tag = "4")]
-        GetSupportedFormats(bool),
         #[prost(message, tag = "5")]
         Decorate(super::DecoratedEntry),
         #[prost(message, tag = "6")]
@@ -91,14 +83,6 @@ pub mod plugin_message {
         ListActions(bool),
         #[prost(message, tag = "9")]
         DecorateBatch(super::BatchDecorateRequest),
-        #[prost(string, tag = "101")]
-        NameResponse(::prost::alloc::string::String),
-        #[prost(string, tag = "102")]
-        VersionResponse(::prost::alloc::string::String),
-        #[prost(string, tag = "103")]
-        DescriptionResponse(::prost::alloc::string::String),
-        #[prost(message, tag = "104")]
-        FormatsResponse(super::SupportedFormatsResponse),
         #[prost(message, tag = "105")]
         DecoratedResponse(super::DecoratedEntry),
         #[prost(message, tag = "106")]
@@ -192,12 +176,6 @@ pub struct ActionRequest {
         ::prost::alloc::string::String,
         TypedValue,
     >,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SupportedFormatsResponse {
-    #[prost(string, repeated, tag = "1")]
-    pub formats: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

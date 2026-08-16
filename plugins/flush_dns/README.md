@@ -13,19 +13,19 @@ DNS cache flushing plugin for `lla` with history tracking and cross-platform sup
 
 ```bash
 # Flush DNS cache
-lla plugin --name flush_dns --action flush
+lla plugin run flush_dns flush
 
 # View flush history
-lla plugin --name flush_dns --action history
+lla plugin run flush_dns history
 
 # Clear history
-lla plugin --name flush_dns --action clear-history
+lla plugin run flush_dns clear-history
 
 # Configure preferences
-lla plugin --name flush_dns --action preferences
+lla plugin run flush_dns preferences
 
 # Show help
-lla plugin --name flush_dns --action help
+lla plugin run flush_dns help
 ```
 
 ## Configuration

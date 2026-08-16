@@ -2,9 +2,9 @@ mod config;
 mod strategies;
 use colored::Colorize;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
+    run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
@@ -25,11 +25,11 @@ lazy_static! {
             "organize",
             "organize <directory> [strategy]",
             "Organize files in the specified directory using the given strategy (defaults to extension)",
-            ["lla plugin --name file_organizer --action organize --args /path/to/dir",
-                "lla plugin --name file_organizer --action organize --args /path/to/dir extension",
-                "lla plugin --name file_organizer --action organize --args /path/to/dir date",
-                "lla plugin --name file_organizer --action organize --args /path/to/dir type",
-                "lla plugin --name file_organizer --action organize --args /path/to/dir size"],
+            ["lla plugin run file_organizer organize -- /path/to/dir",
+                "lla plugin run file_organizer organize -- /path/to/dir extension",
+                "lla plugin run file_organizer organize -- /path/to/dir date",
+                "lla plugin run file_organizer organize -- /path/to/dir type",
+                "lla plugin run file_organizer organize -- /path/to/dir size"],
             FileOrganizerPlugin::organize_action
         );
 
@@ -39,11 +39,11 @@ lazy_static! {
             "preview <directory> [strategy]",
             "Preview organization changes without applying them",
             [
-                "lla plugin --name file_organizer --action preview --args /path/to/dir",
-                "lla plugin --name file_organizer --action preview --args /path/to/dir extension",
-                "lla plugin --name file_organizer --action preview --args /path/to/dir date",
-                "lla plugin --name file_organizer --action preview --args /path/to/dir type",
-                "lla plugin --name file_organizer --action preview --args /path/to/dir size"
+                "lla plugin run file_organizer preview -- /path/to/dir",
+                "lla plugin run file_organizer preview -- /path/to/dir extension",
+                "lla plugin run file_organizer preview -- /path/to/dir date",
+                "lla plugin run file_organizer preview -- /path/to/dir type",
+                "lla plugin run file_organizer preview -- /path/to/dir size"
             ],
             FileOrganizerPlugin::preview_action
         );
@@ -53,7 +53,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_organizer --action help"],
+            ["lla plugin run file_organizer help"],
             |_| FileOrganizerPlugin::help_action()
         );
 
@@ -196,30 +196,22 @@ impl FileOrganizerPlugin {
                 "organize".to_string(),
                 "Organize files in the specified directory".to_string(),
                 vec![
-                    "lla plugin --name file_organizer --action organize /path/to/dir".to_string(),
-                    "lla plugin --name file_organizer --action organize /path/to/dir extension"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action organize /path/to/dir date"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action organize /path/to/dir type"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action organize /path/to/dir size"
-                        .to_string(),
+                    "lla plugin run file_organizer organize /path/to/dir".to_string(),
+                    "lla plugin run file_organizer organize /path/to/dir extension".to_string(),
+                    "lla plugin run file_organizer organize /path/to/dir date".to_string(),
+                    "lla plugin run file_organizer organize /path/to/dir type".to_string(),
+                    "lla plugin run file_organizer organize /path/to/dir size".to_string(),
                 ],
             )
             .add_command(
                 "preview".to_string(),
                 "Preview organization changes".to_string(),
                 vec![
-                    "lla plugin --name file_organizer --action preview /path/to/dir".to_string(),
-                    "lla plugin --name file_organizer --action preview /path/to/dir extension"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action preview /path/to/dir date"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action preview /path/to/dir type"
-                        .to_string(),
-                    "lla plugin --name file_organizer --action preview /path/to/dir size"
-                        .to_string(),
+                    "lla plugin run file_organizer preview /path/to/dir".to_string(),
+                    "lla plugin run file_organizer preview /path/to/dir extension".to_string(),
+                    "lla plugin run file_organizer preview /path/to/dir date".to_string(),
+                    "lla plugin run file_organizer preview /path/to/dir type".to_string(),
+                    "lla plugin run file_organizer preview /path/to/dir size".to_string(),
                 ],
             );
 
@@ -250,12 +242,16 @@ impl Deref for FileOrganizerPlugin {
 
 impl Plugin for FileOrganizerPlugin {
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

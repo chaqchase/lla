@@ -19,48 +19,48 @@ network = ["cloudflare-dns.com", "dns.google", "nbg1-speed.hetzner.com", "proof.
 
 [[actions]]
 id = "test"
-description = "Run the test action"
+description = "Run a full speed test"
 examples = ["lla plugin run speed_test test"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "quick"
-description = "Run the quick action"
+description = "Run a quick speed test"
 examples = ["lla plugin run speed_test quick"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "history"
-description = "Run the history action"
+description = "Show speed test history"
 examples = ["lla plugin run speed_test history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "clear-history"
-description = "Run the clear-history action"
+description = "Clear speed test history"
 examples = ["lla plugin run speed_test clear-history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "menu"
-description = "Run the menu action"
+description = "Interactive menu"
 examples = ["lla plugin run speed_test menu"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run speed_test help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

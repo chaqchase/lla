@@ -14,19 +14,19 @@ YouTube search plugin for `lla` with live autosuggestions, history management, a
 
 ```bash
 # Perform a YouTube search
-lla plugin --name youtube --action search
+lla plugin run youtube search
 
 # Search with selected/clipboard text
-lla plugin --name youtube --action search-selected
+lla plugin run youtube search-selected
 
 # Manage search history
-lla plugin --name youtube --action history
+lla plugin run youtube history
 
 # Configure preferences
-lla plugin --name youtube --action preferences
+lla plugin run youtube preferences
 
 # Show help
-lla plugin --name youtube --action help
+lla plugin run youtube help
 ```
 
 ## Configuration

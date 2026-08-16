@@ -27,10 +27,10 @@ name = "bright_yellow"        # Name highlighting
 
 ```bash
 # Clear the detection cache
-lla plugin --name duplicate_file_detector --action clear-cache
+lla plugin run duplicate_file_detector clear-cache
 
 # View help information
-lla plugin --name duplicate_file_detector --action help
+lla plugin run duplicate_file_detector help
 ```
 
 ## Display Formats

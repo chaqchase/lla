@@ -28,10 +28,10 @@ time = "bright_magenta"
 
 ```bash
 # Show stats
-lla plugin --name dirs_meta --action stats --args "/path/to/directory"
+lla plugin run dirs_meta stats -- "/path/to/directory"
 
 # Clear cache
-lla plugin --name dirs_meta --action clear-cache
+lla plugin run dirs_meta clear-cache
 ```
 
 ## Display Formats

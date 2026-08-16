@@ -1,12 +1,9 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{
-    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
-};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
-    decode_decorated_entry,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         format_size, TextBlock,
@@ -39,7 +36,7 @@ lazy_static! {
             "clear-cache",
             "clear-cache",
             "Clear the directory analysis cache",
-            ["lla plugin --name dirs_meta --action clear-cache"],
+            ["lla plugin run dirs_meta clear-cache"],
             |_| {
                 let spinner = SPINNER.write();
                 spinner.set_status("Clearing cache...".to_string());
@@ -65,7 +62,7 @@ lazy_static! {
             "stats",
             "stats <path>",
             "Show detailed statistics for a directory",
-            ["lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""],
+            ["lla plugin run dirs_meta stats -- \"/path/to/dir\""],
             DirsPlugin::stats_action
         );
 
@@ -74,7 +71,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name dirs_meta --action help"],
+            ["lla plugin run dirs_meta help"],
             |_| {
                 let mut help = HelpFormatter::new("Directory Metadata Plugin".to_string());
                 help.add_section("Description".to_string())
@@ -88,20 +85,17 @@ lazy_static! {
                     .add_command(
                         "clear-cache".to_string(),
                         "Clear the directory analysis cache".to_string(),
-                        vec!["lla plugin --name dirs_meta --action clear-cache".to_string()],
+                        vec!["lla plugin run dirs_meta clear-cache".to_string()],
                     )
                     .add_command(
                         "stats".to_string(),
                         "Show detailed statistics for a directory".to_string(),
-                        vec![
-                            "lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""
-                                .to_string(),
-                        ],
+                        vec!["lla plugin run dirs_meta stats -- \"/path/to/dir\"".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name dirs_meta --action help".to_string()],
+                        vec!["lla plugin run dirs_meta help".to_string()],
                     );
 
                 help.add_section("Formats".to_string())
@@ -435,12 +429,16 @@ impl Plugin for DirsPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

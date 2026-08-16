@@ -1,10 +1,10 @@
 use colored::Colorize;
 use dialoguer::MultiSelect;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
+    run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
@@ -103,8 +103,8 @@ lazy_static! {
             "add [path]",
             "Add files/directories to clipboard from current or specified directory",
             [
-                "lla plugin --name file_copier --action add",
-                "lla plugin --name file_copier --action add --args /path/to/dir"
+                "lla plugin run file_copier add",
+                "lla plugin run file_copier add -- /path/to/dir"
             ],
             FileCopierPlugin::add_action
         );
@@ -115,8 +115,8 @@ lazy_static! {
             "copy-all [target_path]",
             "Copy all items from clipboard to current or specified directory",
             [
-                "lla plugin --name file_copier --action copy-all",
-                "lla plugin --name file_copier --action copy-all --args /path/to/target"
+                "lla plugin run file_copier copy-all",
+                "lla plugin run file_copier copy-all -- /path/to/target"
             ],
             FileCopierPlugin::copy_all_action
         );
@@ -127,8 +127,8 @@ lazy_static! {
             "copy-partial [target_path]",
             "Copy selected items from clipboard to current or specified directory",
             [
-                "lla plugin --name file_copier --action copy-partial",
-                "lla plugin --name file_copier --action copy-partial --args /path/to/target"
+                "lla plugin run file_copier copy-partial",
+                "lla plugin run file_copier copy-partial -- /path/to/target"
             ],
             FileCopierPlugin::copy_partial_action
         );
@@ -138,7 +138,7 @@ lazy_static! {
             "clear",
             "clear",
             "Clear the clipboard",
-            ["lla plugin --name file_copier --action clear"],
+            ["lla plugin run file_copier clear"],
             |_| FileCopierPlugin::clear_action()
         );
 
@@ -147,7 +147,7 @@ lazy_static! {
             "show",
             "show",
             "Show clipboard contents",
-            ["lla plugin --name file_copier --action show"],
+            ["lla plugin run file_copier show"],
             |_| FileCopierPlugin::show_action()
         );
 
@@ -156,7 +156,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_copier --action help"],
+            ["lla plugin run file_copier help"],
             |_| FileCopierPlugin::help_action()
         );
 
@@ -402,26 +402,24 @@ impl FileCopierPlugin {
                 "Add files/directories to clipboard from current or specified directory"
                     .to_string(),
                 vec![
-                    "lla plugin --name file_copier --action add".to_string(),
-                    "lla plugin --name file_copier --action add --args /path/to/dir".to_string(),
+                    "lla plugin run file_copier add".to_string(),
+                    "lla plugin run file_copier add -- /path/to/dir".to_string(),
                 ],
             )
             .add_command(
                 "copy-all [target_path]".to_string(),
                 "Copy all items from clipboard to current or specified directory".to_string(),
                 vec![
-                    "lla plugin --name file_copier --action copy-all".to_string(),
-                    "lla plugin --name file_copier --action copy-all --args /path/to/target"
-                        .to_string(),
+                    "lla plugin run file_copier copy-all".to_string(),
+                    "lla plugin run file_copier copy-all -- /path/to/target".to_string(),
                 ],
             )
             .add_command(
                 "copy-partial [target_path]".to_string(),
                 "Copy selected items from clipboard to current or specified directory".to_string(),
                 vec![
-                    "lla plugin --name file_copier --action copy-partial".to_string(),
-                    "lla plugin --name file_copier --action copy-partial --args /path/to/target"
-                        .to_string(),
+                    "lla plugin run file_copier copy-partial".to_string(),
+                    "lla plugin run file_copier copy-partial -- /path/to/target".to_string(),
                 ],
             );
 
@@ -429,12 +427,12 @@ impl FileCopierPlugin {
             .add_command(
                 "show".to_string(),
                 "Show clipboard contents with option to remove items".to_string(),
-                vec!["lla plugin --name file_copier --action show".to_string()],
+                vec!["lla plugin run file_copier show".to_string()],
             )
             .add_command(
                 "clear".to_string(),
                 "Clear the clipboard".to_string(),
-                vec!["lla plugin --name file_copier --action clear".to_string()],
+                vec!["lla plugin run file_copier clear".to_string()],
             );
 
         println!(
@@ -458,12 +456,16 @@ impl Deref for FileCopierPlugin {
 
 impl Plugin for FileCopierPlugin {
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

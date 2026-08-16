@@ -21,48 +21,48 @@ open_url = true
 
 [[actions]]
 id = "create"
-description = "Run the create action"
+description = "Create a Google Meet"
 examples = ["lla plugin run google_meet create"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "create-with-profile"
-description = "Run the create-with-profile action"
+description = "Create a Meet with profile selection"
 examples = ["lla plugin run google_meet create-with-profile"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "history"
-description = "Run the history action"
+description = "Manage Meet history"
 examples = ["lla plugin run google_meet history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "profiles"
-description = "Run the profiles action"
+description = "Manage profiles"
 examples = ["lla plugin run google_meet profiles"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "preferences"
-description = "Run the preferences action"
+description = "Configure preferences"
 examples = ["lla plugin run google_meet preferences"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run google_meet help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

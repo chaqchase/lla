@@ -19,7 +19,7 @@ Utility library for building lla plugins.
 - `BasePlugin`: Base plugin implementation
 - `ConfigManager`: Plugin configuration handling
 - `ActionRegistry`: Plugin action registration and handling
-- `ProtobufHandler`: Protocol buffer message handling
+- `run_cli_action`: manifest-aware typed action dispatch for established terminal UIs
 
 ### Code Utilities
 

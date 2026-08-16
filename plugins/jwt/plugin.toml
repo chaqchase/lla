@@ -19,40 +19,40 @@ clipboard = true
 
 [[actions]]
 id = "decode"
-description = "Run the decode action"
+description = "View decoded JWT tokens"
 examples = ["lla plugin run jwt decode"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "search"
-description = "Run the search action"
+description = "Search decoded JWT tokens"
 examples = ["lla plugin run jwt search"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "history"
-description = "Run the history action"
+description = "Manage token history"
 examples = ["lla plugin run jwt history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "preferences"
-description = "Run the preferences action"
+description = "Configure preferences"
 examples = ["lla plugin run jwt preferences"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run jwt help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

@@ -32,57 +32,57 @@ lla use  # Select remove_paywall
 
 ### Remove Paywall from URL
 ```bash
-lla plugin remove_paywall remove https://example.com/paywalled-article
+lla plugin run remove_paywall remove -- https://example.com/paywalled-article
 ```
 
 ### Remove Paywall from Clipboard URL
 ```bash
 # Copy a URL first, then:
-lla plugin remove_paywall clipboard
+lla plugin run remove_paywall clipboard
 ```
 
 ### Choose Service Interactively
 ```bash
-lla plugin remove_paywall choose
-lla plugin remove_paywall choose https://example.com/article
+lla plugin run remove_paywall choose
+lla plugin run remove_paywall choose -- https://example.com/article
 ```
 
 ### Generate Links for All Services
 ```bash
-lla plugin remove_paywall try-all
-lla plugin remove_paywall try-all https://example.com/article
+lla plugin run remove_paywall try-all
+lla plugin run remove_paywall try-all -- https://example.com/article
 ```
 
 ### Use Specific Services
 ```bash
-lla plugin remove_paywall 12ft https://nytimes.com/article
-lla plugin remove_paywall archive https://wsj.com/article
-lla plugin remove_paywall freedium https://medium.com/article
+lla plugin run remove_paywall 12ft -- https://nytimes.com/article
+lla plugin run remove_paywall archive -- https://wsj.com/article
+lla plugin run remove_paywall freedium -- https://medium.com/article
 ```
 
 ### List Available Services
 ```bash
-lla plugin remove_paywall services
+lla plugin run remove_paywall services
 ```
 
 ### View History
 ```bash
-lla plugin remove_paywall history
+lla plugin run remove_paywall history
 ```
 
 ### Configure Preferences
 ```bash
-lla plugin remove_paywall preferences
+lla plugin run remove_paywall preferences
 ```
 
 ### Interactive Menu
 ```bash
-lla plugin remove_paywall menu
+lla plugin run remove_paywall menu
 ```
 
 ### Show Help
 ```bash
-lla plugin remove_paywall help
+lla plugin run remove_paywall help
 ```
 
 ## Configuration
@@ -131,4 +131,3 @@ service = "bright_magenta"
 ## Disclaimer
 
 This plugin is provided for educational purposes. Please respect content creators and consider subscribing to publications you regularly read.
-

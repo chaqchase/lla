@@ -19,64 +19,64 @@ process = true
 
 [[actions]]
 id = "list"
-description = "Run the list action"
+description = "List all running processes with detailed information"
 examples = ["lla plugin run kill_process list"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "kill"
-description = "Run the kill action"
+description = "Interactively select and kill a process"
 examples = ["lla plugin run kill_process kill"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "force-kill"
-description = "Run the force-kill action"
+description = "Forcefully terminate a process (SIGKILL on Unix, /F on Windows)"
 examples = ["lla plugin run kill_process force-kill"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "kill-by-name"
-description = "Run the kill-by-name action"
-examples = ["lla plugin run kill_process kill-by-name"]
+description = "Kill processes matching a specific name pattern"
+examples = ["lla plugin run kill_process kill-by-name -- chrome", "lla plugin run kill_process kill-by-name -- firefox"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "name", type = "string", description = "Name of the item to create or select.", position = 0, required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "force-kill-by-name"
-description = "Run the force-kill-by-name action"
-examples = ["lla plugin run kill_process force-kill-by-name"]
+description = "Forcefully kill processes matching a specific name pattern"
+examples = ["lla plugin run kill_process force-kill-by-name -- chrome"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "name", type = "string", description = "Name of the item to create or select.", position = 0, required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "kill-by-pid"
-description = "Run the kill-by-pid action"
-examples = ["lla plugin run kill_process kill-by-pid"]
+description = "Kill a specific process by its PID"
+examples = ["lla plugin run kill_process kill-by-pid -- 1234"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "pid", type = "integer", description = "Operating-system process identifier.", position = 0, required = true, min = 1 }]
 output = { type = "none" }
 
 [[actions]]
 id = "force-kill-by-pid"
-description = "Run the force-kill-by-pid action"
-examples = ["lla plugin run kill_process force-kill-by-pid"]
+description = "Forcefully kill a specific process by its PID"
+examples = ["lla plugin run kill_process force-kill-by-pid -- 1234"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "pid", type = "integer", description = "Operating-system process identifier.", position = 0, required = true, min = 1 }]
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run kill_process help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

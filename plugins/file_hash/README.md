@@ -26,7 +26,7 @@ name = "bright_yellow"   # Name highlighting
 
 ```bash
 # View help information
-lla plugin --name file_hash --action help
+lla plugin run file_hash help
 ```
 
 ## Display Formats

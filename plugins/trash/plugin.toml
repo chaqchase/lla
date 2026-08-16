@@ -31,40 +31,40 @@ filterable = true
 
 [[actions]]
 id = "put"
-description = "Run the put action"
-examples = ["lla plugin run trash put"]
+description = "Move one or more files or directories into recoverable trash"
+examples = ["lla plugin run trash put -- ./draft.txt ./old-folder"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "paths", type = "path", description = "One or more file or directory paths.", position = 0, required = true, repeatable = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "list"
-description = "Run the list action"
+description = "List recoverable trash records and their original paths"
 examples = ["lla plugin run trash list"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "restore"
-description = "Run the restore action"
-examples = ["lla plugin run trash restore"]
+description = "Restore a trashed item without overwriting an existing path"
+examples = ["lla plugin run trash restore -- 20260815T120000.000Z-123-0"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "id", type = "string", description = "Identifier of the item to process.", position = 0, required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "empty"
-description = "Run the empty action"
-examples = ["lla plugin run trash empty"]
+description = "Permanently delete old trash records after explicit confirmation"
+examples = ["lla plugin run trash empty -- 30 -- --yes"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "older_than_days", type = "integer", description = "Only include records older than this many days.", position = 0, min = 0 }, { name = "yes", type = "boolean", description = "Confirm the irreversible operation.", option = "--yes", required = true }]
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show recoverable trash usage"
 examples = ["lla plugin run trash help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

@@ -32,22 +32,22 @@ Persistent tag data is stored at: `~/.config/lla/file_tags.txt`
 
 ```bash
 # Add tag
-lla plugin --name file_tagger --action add-tag --args "/path/to/file" "important"
+lla plugin run file_tagger add-tag -- "/path/to/file" "important"
 
 # Remove tag
-lla plugin --name file_tagger --action remove-tag --args "/path/to/file" "important"
+lla plugin run file_tagger remove-tag -- "/path/to/file" "important"
 
 # List tags
-lla plugin --name file_tagger --action list-tags --args "/path/to/file"
+lla plugin run file_tagger list-tags -- "/path/to/file"
 
 # List all tags
-lla plugin --name file_tagger --action all-tags
+lla plugin run file_tagger all-tags
 
 # List files by tag
-lla plugin --name file_tagger --action files-by-tag --args "important"
+lla plugin run file_tagger files-by-tag -- "important"
 
 # Help
-lla plugin --name file_tagger --action help
+lla plugin run file_tagger help
 ```
 
 ### Display Examples

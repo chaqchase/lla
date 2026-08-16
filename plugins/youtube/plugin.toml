@@ -21,40 +21,40 @@ open_url = true
 
 [[actions]]
 id = "search"
-description = "Run the search action"
+description = "Search YouTube videos"
 examples = ["lla plugin run youtube search"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "search-selected"
-description = "Run the search-selected action"
+description = "Search selected text on YouTube"
 examples = ["lla plugin run youtube search-selected"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "history"
-description = "Run the history action"
+description = "Manage search history"
 examples = ["lla plugin run youtube history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "preferences"
-description = "Run the preferences action"
+description = "Configure preferences"
 examples = ["lla plugin run youtube preferences"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run youtube help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

@@ -1,8 +1,8 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
-    trash::TrashStore, ActionRegistry, DecoratedEntry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action, trash::TrashStore, ActionRegistry,
+    DecoratedEntry,
 };
 use parking_lot::RwLock;
 use std::path::Path;
@@ -15,7 +15,7 @@ lazy_static! {
             "put",
             "put <path>...",
             "Move one or more files or directories into recoverable trash",
-            ["lla plugin trash put ./draft.txt ./old-folder"],
+            ["lla plugin run trash put -- ./draft.txt ./old-folder"],
             TrashPlugin::put_action
         );
         lla_plugin_utils::define_action!(
@@ -23,7 +23,7 @@ lazy_static! {
             "list",
             "list",
             "List recoverable trash records and their original paths",
-            ["lla plugin trash list"],
+            ["lla plugin run trash list"],
             |_| TrashPlugin::list_action()
         );
         lla_plugin_utils::define_action!(
@@ -31,7 +31,7 @@ lazy_static! {
             "restore",
             "restore <id>",
             "Restore a trashed item without overwriting an existing path",
-            ["lla plugin trash restore 20260815T120000.000Z-123-0"],
+            ["lla plugin run trash restore -- 20260815T120000.000Z-123-0"],
             TrashPlugin::restore_action
         );
         lla_plugin_utils::define_action!(
@@ -39,7 +39,7 @@ lazy_static! {
             "empty",
             "empty [older-than-days] --yes",
             "Permanently delete old trash records after explicit confirmation",
-            ["lla plugin trash empty 30 -- --yes"],
+            ["lla plugin run trash empty -- 30 -- --yes"],
             TrashPlugin::empty_action
         );
         lla_plugin_utils::define_action!(
@@ -47,7 +47,7 @@ lazy_static! {
             "help",
             "help",
             "Show recoverable trash usage",
-            ["lla plugin trash help"],
+            ["lla plugin run trash help"],
             |_| TrashPlugin::help_action()
         );
         actions
@@ -95,7 +95,7 @@ impl TrashPlugin {
             }
             match store.put(Path::new(value)) {
                 Ok(record) => println!(
-                    "Trashed {}\n  id: {}\n  restore: lla plugin trash restore {}",
+                    "Trashed {}\n  id: {}\n  restore: lla plugin run trash restore -- {}",
                     record.original_path.display(),
                     record.id,
                     record.id
@@ -140,7 +140,7 @@ impl TrashPlugin {
     fn empty_action(args: &[String]) -> Result<(), String> {
         if !args.iter().any(|arg| arg == "--yes") {
             return Err(
-                "Permanent deletion requires --yes. Example: lla plugin trash empty 30 -- --yes"
+                "Permanent deletion requires --yes. Example: lla plugin run trash empty -- 30 -- --yes"
                     .to_string(),
             );
         }
@@ -166,7 +166,7 @@ impl TrashPlugin {
 
 impl Plugin for TrashPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        map_decorated_entry(entry, Self::decorate)
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
     }
 
     fn decorate_batch(
@@ -176,7 +176,7 @@ impl Plugin for TrashPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         entries
             .into_iter()
-            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
             .collect()
     }
 
@@ -187,13 +187,23 @@ impl Plugin for TrashPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTIONS.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTIONS.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
+}
+
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_boolean_field("trashable");
+    entry.promote_string_field("trash_state");
+    entry
 }
 
 lla_plugin_sdk::export_plugin!(TrashPlugin);

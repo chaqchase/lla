@@ -13,7 +13,11 @@ pub use ui::{
     TextBlock, TextStyle,
 };
 
+use lla_plugin_interface::manifest::{
+    ActionArgument, ActionArgumentType, ActionDescriptor, PluginManifest,
+};
 use lla_plugin_interface::proto;
+use lla_plugin_sdk::{response, ActionArguments, ActionError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,31 +43,6 @@ pub struct EntryMetadata {
     pub permissions: u32,
     pub uid: u32,
     pub gid: u32,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum PluginRequest {
-    GetName,
-    GetVersion,
-    GetDescription,
-    GetSupportedFormats,
-    Decorate(DecoratedEntry),
-    FormatField(DecoratedEntry, String),
-    PerformAction(String, Vec<String>),
-    GetAvailableActions,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum PluginResponse {
-    Name(String),
-    Version(String),
-    Description(String),
-    SupportedFormats(Vec<String>),
-    Decorated(DecoratedEntry),
-    FormattedField(Option<String>),
-    ActionResult(Result<(), String>),
-    AvailableActions(Vec<ActionInfo>),
-    Error(String),
 }
 
 impl From<EntryMetadata> for proto::EntryMetadata {
@@ -112,45 +91,167 @@ impl From<DecoratedEntry> for proto::DecoratedEntry {
     }
 }
 
-fn value_as_strings(value: proto::TypedValue) -> Vec<String> {
+fn value_as_strings(value: &proto::TypedValue) -> Vec<String> {
     use proto::typed_value::Value;
-    match value.value {
-        Some(Value::StringValue(value) | Value::PathValue(value)) => vec![value],
+    match value.value.as_ref() {
+        Some(Value::StringValue(value) | Value::PathValue(value)) => vec![value.clone()],
         Some(Value::IntegerValue(value)) => vec![value.to_string()],
         Some(Value::FloatValue(value)) => vec![value.to_string()],
         Some(Value::BooleanValue(value)) => vec![value.to_string()],
         Some(Value::BytesValue(value) | Value::TimestampValue(value)) => vec![value.to_string()],
-        Some(Value::ListValue(values)) => values
-            .values
-            .into_iter()
-            .flat_map(value_as_strings)
-            .collect(),
+        Some(Value::ListValue(values)) => values.values.iter().flat_map(value_as_strings).collect(),
         Some(Value::ObjectValue(_)) | Some(Value::NullValue(_)) | None => Vec::new(),
     }
 }
 
-/// Converts a repeatable v3 argument into the argv shape used by existing
+/// Converts validated v3 arguments into the argv shape used by established
 /// interactive action implementations.
 ///
 /// New actions should use `lla_plugin_sdk::ActionArgumentsExt` directly. This
-/// helper lets established UIs move to the v3 trait without changing their
-/// terminal behavior in the same patch.
-pub fn action_arguments_as_strings(
-    arguments: std::collections::HashMap<String, proto::TypedValue>,
-) -> Vec<String> {
-    if let Some(arguments) = arguments.get("args").cloned() {
-        return value_as_strings(arguments);
+/// manifest-aware adapter lets established UIs adopt precise typed schemas
+/// without changing their terminal behavior.
+pub fn typed_action_arguments_as_strings(
+    action_id: &str,
+    arguments: &ActionArguments,
+    manifest_source: &str,
+) -> Result<Vec<String>, ActionError> {
+    let manifest: PluginManifest = toml::from_str(manifest_source).map_err(|error| {
+        ActionError::new(
+            "invalid-embedded-manifest",
+            format!("failed to parse embedded plugin manifest: {error}"),
+        )
+    })?;
+    manifest.validate().map_err(|error| {
+        ActionError::new(
+            "invalid-embedded-manifest",
+            format!("embedded plugin manifest is invalid: {error}"),
+        )
+    })?;
+    let action = manifest
+        .actions
+        .iter()
+        .find(|action| action.id == action_id)
+        .ok_or_else(|| {
+            ActionError::new(
+                "unknown-action",
+                format!("action '{action_id}' is not declared in plugin.toml"),
+            )
+        })?;
+
+    let mut positional = action
+        .arguments
+        .iter()
+        .filter(|argument| argument.position.is_some())
+        .collect::<Vec<_>>();
+    positional.sort_by_key(|argument| argument.position);
+    let mut result = Vec::new();
+    for argument in positional {
+        append_argument(&mut result, argument, arguments)?;
     }
-    let mut arguments = arguments.into_iter().collect::<Vec<_>>();
-    arguments.sort_by(|(left, _), (right, _)| {
-        let left_index = left.parse::<usize>().unwrap_or(usize::MAX);
-        let right_index = right.parse::<usize>().unwrap_or(usize::MAX);
-        left_index.cmp(&right_index).then_with(|| left.cmp(right))
-    });
-    arguments
-        .into_iter()
-        .flat_map(|(_, value)| value_as_strings(value))
+    for argument in action
+        .arguments
+        .iter()
+        .filter(|argument| argument.position.is_none())
+    {
+        append_argument(&mut result, argument, arguments)?;
+    }
+    Ok(result)
+}
+
+fn append_argument(
+    result: &mut Vec<String>,
+    descriptor: &ActionArgument,
+    arguments: &ActionArguments,
+) -> Result<(), ActionError> {
+    let Some(value) = arguments.get(&descriptor.name) else {
+        return Ok(());
+    };
+    let values = value_as_strings(value);
+    if let Some(option) = descriptor.option.as_ref() {
+        if matches!(
+            descriptor.argument_type,
+            lla_plugin_interface::manifest::ActionArgumentType::Boolean
+        ) {
+            if values.first().is_some_and(|value| value == "true") {
+                result.push(option.clone());
+            }
+            return Ok(());
+        }
+        if descriptor.repeatable {
+            for value in values {
+                result.push(option.clone());
+                result.push(value);
+            }
+        } else if let Some(value) = values.into_iter().next() {
+            result.push(option.clone());
+            result.push(value);
+        }
+    } else {
+        result.extend(values);
+    }
+    Ok(())
+}
+
+pub fn run_cli_action(
+    action_id: &str,
+    arguments: ActionArguments,
+    manifest_source: &str,
+    handler: impl FnOnce(&[String]) -> Result<(), String>,
+) -> proto::ActionResponse {
+    match typed_action_arguments_as_strings(action_id, &arguments, manifest_source) {
+        Ok(arguments) => response::from_result(handler(&arguments)),
+        Err(error) => response::error(error),
+    }
+}
+
+/// Builds the runtime handler inventory from the embedded v3 manifest.
+///
+/// The manifest is validated by the export macro at compile time. Reading it
+/// here keeps action descriptions, examples, and usage in one source of truth
+/// while still letting `plugin doctor` compare declared IDs with handlers.
+pub fn manifest_action_infos(manifest_source: &str) -> Vec<proto::ActionInfo> {
+    let manifest: PluginManifest = toml::from_str(manifest_source)
+        .expect("exported plugin.toml must remain parseable at runtime");
+    manifest
+        .actions
+        .iter()
+        .map(|action| proto::ActionInfo {
+            name: action.id.clone(),
+            usage: action_usage(action),
+            description: action.description.clone(),
+            examples: action.examples.clone(),
+        })
         .collect()
+}
+
+fn action_usage(action: &ActionDescriptor) -> String {
+    let mut arguments = action.arguments.iter().collect::<Vec<_>>();
+    arguments.sort_by_key(|argument| (argument.position.is_none(), argument.position));
+    let arguments = arguments
+        .into_iter()
+        .map(|argument| {
+            let value = match argument.argument_type {
+                ActionArgumentType::Boolean if argument.option.is_some() => String::new(),
+                _ if argument.repeatable => format!("<{}>...", argument.name),
+                _ => format!("<{}>", argument.name),
+            };
+            let token = match argument.option.as_deref() {
+                Some(option) if value.is_empty() => option.to_string(),
+                Some(option) => format!("{option} {value}"),
+                None => value,
+            };
+            if argument.required {
+                token
+            } else {
+                format!("[{token}]")
+            }
+        })
+        .collect::<Vec<_>>();
+    if arguments.is_empty() {
+        action.id.clone()
+    } else {
+        format!("{} {}", action.id, arguments.join(" "))
+    }
 }
 
 pub fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry, String> {
@@ -251,125 +352,6 @@ pub trait ConfigurablePlugin {
     fn config_mut(&mut self) -> &mut Self::Config;
 }
 
-pub trait ProtobufHandler {
-    fn decode_request(&self, request: &[u8]) -> Result<PluginRequest, String> {
-        use prost::Message;
-        let proto_msg = proto::PluginMessage::decode(request)
-            .map_err(|e| format!("Failed to decode request: {}", e))?;
-
-        match proto_msg.message {
-            Some(proto::plugin_message::Message::GetName(_)) => Ok(PluginRequest::GetName),
-            Some(proto::plugin_message::Message::GetVersion(_)) => Ok(PluginRequest::GetVersion),
-            Some(proto::plugin_message::Message::GetDescription(_)) => {
-                Ok(PluginRequest::GetDescription)
-            }
-            Some(proto::plugin_message::Message::GetSupportedFormats(_)) => {
-                Ok(PluginRequest::GetSupportedFormats)
-            }
-            Some(proto::plugin_message::Message::Decorate(entry)) => {
-                Ok(PluginRequest::Decorate(decode_decorated_entry(entry)?))
-            }
-            Some(proto::plugin_message::Message::FormatField(req)) => {
-                let entry = req.entry.ok_or("Missing entry in format field request")?;
-                Ok(PluginRequest::FormatField(
-                    decode_decorated_entry(entry)?,
-                    req.format,
-                ))
-            }
-            Some(proto::plugin_message::Message::Action(req)) => Ok(PluginRequest::PerformAction(
-                req.action,
-                action_arguments_as_strings(req.arguments),
-            )),
-            Some(proto::plugin_message::Message::ListActions(_)) => {
-                Ok(PluginRequest::GetAvailableActions)
-            }
-            _ => Err("Invalid request type".to_string()),
-        }
-    }
-
-    fn encode_response(&self, response: PluginResponse) -> Vec<u8> {
-        use prost::Message;
-        let response_msg = match response {
-            PluginResponse::Name(name) => proto::plugin_message::Message::NameResponse(name),
-            PluginResponse::Version(version) => {
-                proto::plugin_message::Message::VersionResponse(version)
-            }
-            PluginResponse::Description(desc) => {
-                proto::plugin_message::Message::DescriptionResponse(desc)
-            }
-            PluginResponse::SupportedFormats(formats) => {
-                proto::plugin_message::Message::FormatsResponse(proto::SupportedFormatsResponse {
-                    formats,
-                })
-            }
-            PluginResponse::Decorated(entry) => {
-                proto::plugin_message::Message::DecoratedResponse(entry.into())
-            }
-            PluginResponse::FormattedField(field) => {
-                proto::plugin_message::Message::FieldResponse(proto::FormattedFieldResponse {
-                    field,
-                })
-            }
-            PluginResponse::ActionResult(result) => match result {
-                Ok(()) => proto::plugin_message::Message::ActionResponse(proto::ActionResponse {
-                    success: true,
-                    error: None,
-                    output: Some(proto::ActionOutput {
-                        output: Some(proto::action_output::Output::None(true)),
-                    }),
-                    structured_error: None,
-                }),
-                Err(e) => proto::plugin_message::Message::ActionResponse(proto::ActionResponse {
-                    success: false,
-                    error: Some(e),
-                    output: None,
-                    structured_error: None,
-                }),
-            },
-            PluginResponse::AvailableActions(actions) => {
-                let proto_actions: Vec<proto::ActionInfo> = actions
-                    .into_iter()
-                    .map(|action| proto::ActionInfo {
-                        name: action.name,
-                        usage: action.usage,
-                        description: action.description,
-                        examples: action.examples,
-                    })
-                    .collect();
-                proto::plugin_message::Message::ListActionsResponse(proto::ListActionsResponse {
-                    actions: proto_actions,
-                })
-            }
-            PluginResponse::Error(e) => proto::plugin_message::Message::ErrorResponse(e),
-        };
-
-        let proto_msg = proto::PluginMessage {
-            message: Some(response_msg),
-        };
-        let mut buf = bytes::BytesMut::with_capacity(proto_msg.encoded_len());
-        proto_msg
-            .encode(&mut buf)
-            .map(|_| buf.to_vec())
-            .unwrap_or_else(|e| {
-                self.encode_error(&format!("failed to encode plugin response: {}", e))
-            })
-    }
-
-    fn encode_error(&self, error: &str) -> Vec<u8> {
-        use prost::Message;
-        let error_msg = proto::PluginMessage {
-            message: Some(proto::plugin_message::Message::ErrorResponse(
-                error.to_string(),
-            )),
-        };
-        let mut buf = bytes::BytesMut::with_capacity(error_msg.encoded_len());
-        if error_msg.encode(&mut buf).is_err() {
-            return Vec::new();
-        }
-        buf.to_vec()
-    }
-}
-
 #[macro_export]
 macro_rules! plugin_action {
     ($registry:expr, $name:expr, $usage:expr, $description:expr, $examples:expr, $handler:expr) => {
@@ -377,29 +359,75 @@ macro_rules! plugin_action {
     };
 }
 
-#[macro_export]
-macro_rules! create_plugin {
-    ($plugin:ty) => {
-        impl Default for $plugin {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
+#[cfg(test)]
+mod v3_tests {
+    use super::*;
+    use lla_plugin_sdk::value;
 
-        impl $crate::ConfigurablePlugin for $plugin {
-            type Config = <$plugin as std::ops::Deref>::Target;
+    const MANIFEST: &str = r#"
+schema_version = 3
 
-            fn config(&self) -> &Self::Config {
-                self.base.config()
-            }
+[plugin]
+id = "dev.lla.fixture"
+name = "fixture"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+entrypoint = "fixture"
 
-            fn config_mut(&mut self) -> &mut Self::Config {
-                self.base.config_mut()
-            }
-        }
+[[actions]]
+id = "copy"
+description = "Copy paths"
+arguments = [
+  { name = "sources", type = "path", description = "Source paths.", position = 0, required = true, repeatable = true },
+  { name = "destination", type = "path", description = "Destination path.", option = "--destination", required = true },
+  { name = "force", type = "boolean", description = "Overwrite existing files.", option = "--force", default = false },
+  { name = "tag", type = "string", description = "Tag to apply.", option = "--tag", repeatable = true },
+]
+"#;
 
-        impl $crate::ProtobufHandler for $plugin {}
+    #[test]
+    fn typed_arguments_reconstruct_existing_cli_shape() {
+        let arguments = [
+            (
+                "sources".to_string(),
+                value::list([value::path("one"), value::path("two")]),
+            ),
+            ("destination".to_string(), value::path("archive")),
+            ("force".to_string(), value::boolean(true)),
+            (
+                "tag".to_string(),
+                value::list([value::string("work"), value::string("safe")]),
+            ),
+        ]
+        .into_iter()
+        .collect();
 
-        lla_plugin_sdk::export_plugin!($plugin);
-    };
+        assert_eq!(
+            typed_action_arguments_as_strings("copy", &arguments, MANIFEST).unwrap(),
+            [
+                "one",
+                "two",
+                "--destination",
+                "archive",
+                "--force",
+                "--tag",
+                "work",
+                "--tag",
+                "safe",
+            ]
+        );
+    }
+
+    #[test]
+    fn runtime_action_inventory_comes_from_the_manifest() {
+        let actions = manifest_action_infos(MANIFEST);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].name, "copy");
+        assert_eq!(
+            actions[0].usage,
+            "copy <sources>... --destination <destination> [--force] [--tag <tag>...]"
+        );
+        assert_eq!(actions[0].description, "Copy paths");
+    }
 }

@@ -6,13 +6,10 @@ use dialoguer::{MultiSelect, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{
-    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
-};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
-    decode_decorated_entry, map_decorated_entry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
@@ -137,7 +134,7 @@ lazy_static! {
             "extract",
             "extract <file_path> <snippet_name> <start_line> <end_line> [context_lines]",
             "Extract a code snippet from a file",
-            ["lla plugin --name code_snippet_extractor --action extract --args \"file.rs\" \"my_func\" 10 20"],
+            ["lla plugin run code_snippet_extractor extract -- \"file.rs\" \"my_func\" 10 20"],
             CodeSnippetExtractorPlugin::extract_action
         );
 
@@ -147,8 +144,8 @@ lazy_static! {
             "list [file_path]",
             "List all snippets, optionally filtered by file",
             [
-                "lla plugin --name code_snippet_extractor --action list",
-                "lla plugin --name code_snippet_extractor --action list --args \"file.rs\""
+                "lla plugin run code_snippet_extractor list",
+                "lla plugin run code_snippet_extractor list -- \"file.rs\""
             ],
             CodeSnippetExtractorPlugin::list_action
         );
@@ -158,7 +155,7 @@ lazy_static! {
             "get",
             "get <snippet_id>",
             "Get a specific snippet by ID",
-            ["lla plugin --name code_snippet_extractor --action get --args \"abc123\""],
+            ["lla plugin run code_snippet_extractor get -- \"abc123\""],
             CodeSnippetExtractorPlugin::get_action
         );
 
@@ -167,7 +164,7 @@ lazy_static! {
             "search",
             "search <query>",
             "Search through all snippets",
-            ["lla plugin --name code_snippet_extractor --action search --args \"function\""],
+            ["lla plugin run code_snippet_extractor search -- \"function\""],
             CodeSnippetExtractorPlugin::search_action
         );
 
@@ -176,7 +173,7 @@ lazy_static! {
             "add-tags",
             "add-tags <snippet_id> <tag1> [tag2...]",
             "Add tags to a snippet",
-            ["lla plugin --name code_snippet_extractor --action add-tags --args \"abc123\" \"rust\" \"function\""],
+            ["lla plugin run code_snippet_extractor add-tags -- \"abc123\" \"rust\" \"function\""],
             CodeSnippetExtractorPlugin::add_tags_action
         );
 
@@ -185,7 +182,7 @@ lazy_static! {
             "remove-tags",
             "remove-tags <snippet_id> <tag1> [tag2...]",
             "Remove tags from a snippet",
-            ["lla plugin --name code_snippet_extractor --action remove-tags --args \"abc123\" \"rust\""],
+            ["lla plugin run code_snippet_extractor remove-tags -- \"abc123\" \"rust\""],
             CodeSnippetExtractorPlugin::remove_tags_action
         );
 
@@ -194,7 +191,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name code_snippet_extractor --action help"],
+            ["lla plugin run code_snippet_extractor help"],
             |_| CodeSnippetExtractorPlugin::help_action()
         );
 
@@ -203,7 +200,7 @@ lazy_static! {
             "list-categories",
             "list-categories",
             "List all available categories",
-            ["lla plugin --name code_snippet_extractor --action list-categories"],
+            ["lla plugin run code_snippet_extractor list-categories"],
             |_| CodeSnippetExtractorPlugin::list_categories_action()
         );
 
@@ -212,7 +209,7 @@ lazy_static! {
             "list-by-category",
             "list-by-category <category>",
             "List all snippets in a category",
-            ["lla plugin --name code_snippet_extractor --action list-by-category --args \"algorithms\""],
+            ["lla plugin run code_snippet_extractor list-by-category -- \"algorithms\""],
             CodeSnippetExtractorPlugin::list_by_category_action
         );
 
@@ -221,7 +218,7 @@ lazy_static! {
             "set-category",
             "set-category <snippet_id> <category>",
             "Set or change the category of a snippet",
-            ["lla plugin --name code_snippet_extractor --action set-category --args \"abc123\" \"algorithms\""],
+            ["lla plugin run code_snippet_extractor set-category -- \"abc123\" \"algorithms\""],
             CodeSnippetExtractorPlugin::set_category_action
         );
 
@@ -231,8 +228,8 @@ lazy_static! {
             "export <file_path> [snippet_ids...]",
             "Export snippets to a JSON file",
             [
-                "lla plugin --name code_snippet_extractor --action export --args \"snippets.json\"",
-                "lla plugin --name code_snippet_extractor --action export --args \"snippets.json\" \"abc123\" \"def456\""
+                "lla plugin run code_snippet_extractor export -- \"snippets.json\"",
+                "lla plugin run code_snippet_extractor export -- \"snippets.json\" \"abc123\" \"def456\""
             ],
             CodeSnippetExtractorPlugin::export_action
         );
@@ -242,7 +239,7 @@ lazy_static! {
             "import",
             "import <file_path>",
             "Import snippets from a JSON file",
-            ["lla plugin --name code_snippet_extractor --action import --args \"snippets.json\""],
+            ["lla plugin run code_snippet_extractor import -- \"snippets.json\""],
             CodeSnippetExtractorPlugin::import_action
         );
 
@@ -1281,12 +1278,16 @@ impl Plugin for CodeSnippetExtractorPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

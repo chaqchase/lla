@@ -26,6 +26,11 @@ pub trait DecoratedEntryExt {
         value: proto::TypedValue,
         display: impl Into<String>,
     );
+
+    fn promote_string_field(&mut self, name: &str);
+    fn promote_integer_field(&mut self, name: &str);
+    fn promote_boolean_field(&mut self, name: &str);
+    fn promote_path_field(&mut self, name: &str);
 }
 
 impl DecoratedEntryExt for proto::DecoratedEntry {
@@ -38,6 +43,42 @@ impl DecoratedEntryExt for proto::DecoratedEntry {
         let name = name.into();
         self.custom_fields.insert(name.clone(), display.into());
         self.typed_fields.insert(name, value);
+    }
+
+    fn promote_string_field(&mut self, name: &str) {
+        if let Some(display) = self.custom_fields.get(name).cloned() {
+            self.typed_fields
+                .insert(name.to_string(), value::string(display));
+        }
+    }
+
+    fn promote_integer_field(&mut self, name: &str) {
+        if let Some(value) = self
+            .custom_fields
+            .get(name)
+            .and_then(|display| display.parse::<i64>().ok())
+        {
+            self.typed_fields
+                .insert(name.to_string(), value::integer(value));
+        }
+    }
+
+    fn promote_boolean_field(&mut self, name: &str) {
+        if let Some(value) = self
+            .custom_fields
+            .get(name)
+            .and_then(|display| display.parse::<bool>().ok())
+        {
+            self.typed_fields
+                .insert(name.to_string(), value::boolean(value));
+        }
+    }
+
+    fn promote_path_field(&mut self, name: &str) {
+        if let Some(display) = self.custom_fields.get(name).cloned() {
+            self.typed_fields
+                .insert(name.to_string(), value::path(display));
+        }
     }
 }
 
@@ -309,41 +350,13 @@ pub mod response {
 
 /// High-level API implemented by native plugins.
 ///
-/// Existing protobuf-based plugins can implement `handle_message` while they
-/// migrate. New plugins should override `decorate_entry`, `decorate_batch`,
-/// `format_field`, `registered_actions`, and `run_action` as needed. These
-/// methods avoid wire encoding and support a true one-call batch.
+/// Plugins override `decorate_entry`, `decorate_batch`, `format_field`,
+/// `registered_actions`, and `run_action` as needed. Metadata comes from the
+/// embedded manifest, so plugin implementations never encode or decode wire
+/// messages themselves.
 pub trait Plugin: Default + Send + 'static {
-    fn handle_message(&mut self, message: proto::PluginMessage) -> proto::PluginMessage {
-        let bytes = self.handle_raw_request(&message.encode_to_vec());
-        proto::PluginMessage::decode(bytes.as_slice()).unwrap_or_else(|error| {
-            proto::PluginMessage {
-                message: Some(plugin_message::Message::ErrorResponse(format!(
-                    "plugin returned an invalid response: {error}"
-                ))),
-            }
-        })
-    }
-
-    /// Transitional source adapter for plugins written before the high-level
-    /// SDK. This is not part of the native ABI and will be removed in a later
-    /// SDK major version.
-    #[doc(hidden)]
-    fn handle_raw_request(&mut self, _request: &[u8]) -> Vec<u8> {
-        lla_plugin_interface::encode_plugin_error("plugin request is not implemented")
-    }
-
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        let original = entry.clone();
-        match self
-            .handle_message(proto::PluginMessage {
-                message: Some(plugin_message::Message::Decorate(entry)),
-            })
-            .message
-        {
-            Some(plugin_message::Message::DecoratedResponse(entry)) => entry,
-            _ => original,
-        }
+        entry
     }
 
     fn decorate_batch(
@@ -357,73 +370,21 @@ pub trait Plugin: Default + Send + 'static {
             .collect()
     }
 
-    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
-        match self
-            .handle_message(proto::PluginMessage {
-                message: Some(plugin_message::Message::FormatField(
-                    proto::FormatFieldRequest {
-                        entry: Some(entry),
-                        format,
-                    },
-                )),
-            })
-            .message
-        {
-            Some(plugin_message::Message::FieldResponse(response)) => response.field,
-            _ => None,
-        }
+    fn format_field(&mut self, _entry: proto::DecoratedEntry, _format: String) -> Option<String> {
+        None
     }
 
-    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        match self
-            .handle_message(proto::PluginMessage {
-                message: Some(plugin_message::Message::Action(proto::ActionRequest {
-                    action,
-                    arguments,
-                })),
-            })
-            .message
-        {
-            Some(plugin_message::Message::ActionResponse(response)) => response,
-            Some(plugin_message::Message::ErrorResponse(error)) => proto::ActionResponse {
-                success: false,
-                error: Some(error),
-                output: None,
-                structured_error: None,
-            },
-            Some(plugin_message::Message::StructuredErrorResponse(error)) => {
-                proto::ActionResponse {
-                    success: false,
-                    error: Some(error.message.clone()),
-                    output: None,
-                    structured_error: Some(error),
-                }
-            }
-            _ => proto::ActionResponse {
-                success: false,
-                error: Some("plugin returned an invalid action response".to_string()),
-                output: None,
-                structured_error: Some(proto::PluginError {
-                    code: "invalid-action-response".to_string(),
-                    message: "plugin returned an invalid action response".to_string(),
-                    details: HashMap::new(),
-                }),
-            },
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::error(ActionError::new(
+            "unknown-action",
+            format!("plugin does not implement action '{action}'"),
+        ))
     }
 
     /// Declares the action handlers registered by this plugin. The host checks
     /// these IDs against `plugin.toml` during installation and `plugin doctor`.
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        match self
-            .handle_message(proto::PluginMessage {
-                message: Some(plugin_message::Message::ListActions(true)),
-            })
-            .message
-        {
-            Some(plugin_message::Message::ListActionsResponse(actions)) => actions.actions,
-            _ => Vec::new(),
-        }
+        Vec::new()
     }
 }
 
@@ -481,7 +442,15 @@ pub fn dispatch<P: Plugin>(plugin: &mut P, bytes: &[u8]) -> Vec<u8> {
                 },
             )),
         },
-        message => plugin.handle_message(proto::PluginMessage { message }),
+        _ => proto::PluginMessage {
+            message: Some(plugin_message::Message::StructuredErrorResponse(
+                proto::PluginError {
+                    code: "unsupported-request".to_string(),
+                    message: "request is not part of the API v3 SDK contract".to_string(),
+                    details: HashMap::new(),
+                },
+            )),
+        },
     };
     response.encode_to_vec()
 }
@@ -573,12 +542,6 @@ mod tests {
     }
 
     impl Plugin for BatchPlugin {
-        fn handle_message(&mut self, message: proto::PluginMessage) -> proto::PluginMessage {
-            proto::PluginMessage {
-                message: message.message,
-            }
-        }
-
         fn decorate_entry(&mut self, mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
             entry.custom_fields.insert("mode".into(), "single".into());
             entry

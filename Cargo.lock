@@ -2160,7 +2160,6 @@ dependencies = [
 name = "lla_plugin_utils"
 version = "0.6.0"
 dependencies = [
- "bytes",
  "chrono",
  "colored",
  "console",
@@ -2170,7 +2169,6 @@ dependencies = [
  "lazy_static",
  "lla_plugin_interface",
  "lla_plugin_sdk",
- "prost",
  "serde",
  "serde_json",
  "syntect",

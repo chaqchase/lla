@@ -21,88 +21,128 @@ open_url = true
 
 [[actions]]
 id = "remove"
-description = "Run the remove action"
-examples = ["lla plugin run remove_paywall remove"]
+description = "Remove paywall from URL"
+examples = ["lla plugin run remove_paywall remove -- https://example.com"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "clipboard"
-description = "Run the clipboard action"
+description = "Remove paywall from clipboard URL"
 examples = ["lla plugin run remove_paywall clipboard"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "choose"
-description = "Run the choose action"
+description = "Choose service interactively"
 examples = ["lla plugin run remove_paywall choose"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "try-all"
-description = "Run the try-all action"
+description = "Generate links for all services"
 examples = ["lla plugin run remove_paywall try-all"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "services"
-description = "Run the services action"
+description = "List available services"
 examples = ["lla plugin run remove_paywall services"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "list"
+description = "List available services (alias for services)"
+examples = ["lla plugin run remove_paywall list"]
+interactive = true
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "history"
-description = "Run the history action"
+description = "View usage history"
 examples = ["lla plugin run remove_paywall history"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "clear-history"
+description = "Clear the paywall service usage history"
+examples = ["lla plugin run remove_paywall clear-history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Configure plugin preferences"
+examples = ["lla plugin run remove_paywall preferences"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "config"
+description = "Configure plugin preferences (alias for preferences)"
+examples = ["lla plugin run remove_paywall config"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "set-default"
+description = "Choose the default paywall removal service"
+examples = ["lla plugin run remove_paywall set-default"]
+interactive = true
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "12ft"
-description = "Run the 12ft action"
+description = "Use 12ft.io service"
 examples = ["lla plugin run remove_paywall 12ft"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "archive"
-description = "Run the archive action"
+description = "Use archive.is service"
 examples = ["lla plugin run remove_paywall archive"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "freedium"
-description = "Run the freedium action"
+description = "Use Freedium for Medium articles"
 examples = ["lla plugin run remove_paywall freedium"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "url", type = "string", description = "Article URL.", position = 0 }]
 output = { type = "none" }
 
 [[actions]]
 id = "menu"
-description = "Run the menu action"
+description = "Interactive menu"
 examples = ["lla plugin run remove_paywall menu"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run remove_paywall help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

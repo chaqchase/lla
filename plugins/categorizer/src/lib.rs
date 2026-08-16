@@ -1,12 +1,9 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{
-    interface::proto, response, value, ActionArguments, DecoratedEntryExt, Plugin,
-};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos,
     config::PluginConfig,
-    decode_decorated_entry, map_decorated_entry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         TextBlock,
@@ -26,7 +23,7 @@ lazy_static! {
             "add-category",
             "add-category <name> <color> <ext1,ext2,...> [description]",
             "Add a new category",
-            ["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\""],
+            ["lla plugin run categorizer add-category -- Documents blue txt,doc,pdf \"Text documents\""],
             |args| {
                 if args.len() < 3 {
                     return Err("Usage: add-category <name> <color> <ext1,ext2,...> [description]".to_string());
@@ -50,7 +47,7 @@ lazy_static! {
             "add-subcategory",
             "add-subcategory <category> <subcategory> <ext1,ext2,...>",
             "Add a subcategory to an existing category",
-            ["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md"],
+            ["lla plugin run categorizer add-subcategory -- Documents Text txt,md"],
             |args| {
                 if args.len() != 3 {
                     return Err(
@@ -80,7 +77,7 @@ lazy_static! {
             "list-categories",
             "list-categories",
             "List all categories and their details",
-            ["lla plugin --name categorizer --action list-categories"],
+            ["lla plugin run categorizer list-categories"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut list = List::new();
@@ -123,7 +120,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name categorizer --action help"],
+            ["lla plugin run categorizer help"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut help = HelpFormatter::new("File Categorizer Plugin".to_string());
@@ -137,22 +134,22 @@ lazy_static! {
                     .add_command(
                         "add-category".to_string(),
                         "Add a new category".to_string(),
-                        vec!["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\"".to_string()],
+                        vec!["lla plugin run categorizer add-category -- Documents blue txt,doc,pdf \"Text documents\"".to_string()],
                     )
                     .add_command(
                         "add-subcategory".to_string(),
                         "Add a subcategory to an existing category".to_string(),
-                        vec!["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md".to_string()],
+                        vec!["lla plugin run categorizer add-subcategory -- Documents Text txt,md".to_string()],
                     )
                     .add_command(
                         "list-categories".to_string(),
                         "List all categories and their details".to_string(),
-                        vec!["lla plugin --name categorizer --action list-categories".to_string()],
+                        vec!["lla plugin run categorizer list-categories".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name categorizer --action help".to_string()],
+                        vec!["lla plugin run categorizer help".to_string()],
                     );
 
                 println!(
@@ -418,12 +415,16 @@ impl Plugin for FileCategoryPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTION_REGISTRY.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTION_REGISTRY.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

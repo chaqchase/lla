@@ -5,7 +5,7 @@ use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionInfo, BasePlugin, ConfigurablePlugin,
+    BasePlugin, ConfigurablePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -548,32 +548,7 @@ impl Plugin for NpmPlugin {
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        lla_plugin_utils::action_infos(vec![
-            ActionInfo {
-                name: "search".to_string(),
-                usage: "search".to_string(),
-                description: "Search npm packages".to_string(),
-                examples: vec!["lla plugin npm search".to_string()],
-            },
-            ActionInfo {
-                name: "favorites".to_string(),
-                usage: "favorites".to_string(),
-                description: "View favorite packages".to_string(),
-                examples: vec!["lla plugin npm favorites".to_string()],
-            },
-            ActionInfo {
-                name: "preferences".to_string(),
-                usage: "preferences".to_string(),
-                description: "Configure preferences".to_string(),
-                examples: vec!["lla plugin npm preferences".to_string()],
-            },
-            ActionInfo {
-                name: "help".to_string(),
-                usage: "help".to_string(),
-                description: "Show help information".to_string(),
-                examples: vec!["lla plugin npm help".to_string()],
-            },
-        ])
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 

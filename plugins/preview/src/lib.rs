@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
-    ActionRegistry, DecoratedEntry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
 };
 use parking_lot::RwLock;
 use std::{
@@ -27,8 +26,8 @@ lazy_static! {
             "show <path> [--lines <count>]",
             "Render a terminal preview using bat, chafa, archive tools, or built-in fallbacks",
             [
-                "lla plugin preview show README.md",
-                "lla plugin preview show src/main.rs -- --lines 80"
+                "lla plugin run preview show -- README.md",
+                "lla plugin run preview show -- src/main.rs -- --lines 80"
             ],
             PreviewPlugin::show_action
         );
@@ -37,7 +36,7 @@ lazy_static! {
             "backends",
             "backends",
             "Report optional preview backends available on PATH",
-            ["lla plugin preview backends"],
+            ["lla plugin run preview backends"],
             |_| PreviewPlugin::backends_action()
         );
         lla_plugin_utils::define_action!(
@@ -45,7 +44,7 @@ lazy_static! {
             "help",
             "help",
             "Show preview usage",
-            ["lla plugin preview help"],
+            ["lla plugin run preview help"],
             |_| PreviewPlugin::help_action()
         );
         actions
@@ -428,7 +427,7 @@ fn command_available(program: &str) -> bool {
 
 impl Plugin for PreviewPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        map_decorated_entry(entry, Self::decorate)
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
     }
 
     fn decorate_batch(
@@ -438,7 +437,7 @@ impl Plugin for PreviewPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         entries
             .into_iter()
-            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
             .collect()
     }
 
@@ -449,13 +448,23 @@ impl Plugin for PreviewPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTIONS.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTIONS.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
+}
+
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_string_field("preview_kind");
+    entry.promote_string_field("preview_backend");
+    entry
 }
 
 lla_plugin_sdk::export_plugin!(PreviewPlugin);

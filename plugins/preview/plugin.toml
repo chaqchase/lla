@@ -33,24 +33,24 @@ filterable = true
 
 [[actions]]
 id = "show"
-description = "Run the show action"
-examples = ["lla plugin run preview show"]
+description = "Render a terminal preview using bat, chafa, archive tools, or built-in fallbacks"
+examples = ["lla plugin run preview show -- README.md", "lla plugin run preview show -- src/main.rs -- --lines 80"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }, { name = "lines", type = "integer", description = "Maximum number of lines to render.", option = "--lines", min = 1, max = 10000 }]
 output = { type = "none" }
 
 [[actions]]
 id = "backends"
-description = "Run the backends action"
+description = "Report optional preview backends available on PATH"
 examples = ["lla plugin run preview backends"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show preview usage"
 examples = ["lla plugin run preview help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

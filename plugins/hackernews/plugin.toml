@@ -21,96 +21,120 @@ open_url = true
 
 [[actions]]
 id = "top"
-description = "Run the top action"
+description = "Show top stories"
 examples = ["lla plugin run hackernews top"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "best"
-description = "Run the best action"
+description = "Show best stories"
 examples = ["lla plugin run hackernews best"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "new"
-description = "Run the new action"
+description = "Show new stories"
 examples = ["lla plugin run hackernews new"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "newest"
+description = "Show new stories (alias for new)"
+examples = ["lla plugin run hackernews newest"]
+interactive = true
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "ask"
-description = "Run the ask action"
+description = "Show Ask HN"
 examples = ["lla plugin run hackernews ask"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "show"
-description = "Run the show action"
+description = "Show Show HN"
 examples = ["lla plugin run hackernews show"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "jobs"
-description = "Run the jobs action"
+description = "Show job postings"
 examples = ["lla plugin run hackernews jobs"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "open"
-description = "Run the open action"
-examples = ["lla plugin run hackernews open"]
+description = "Open story in browser"
+examples = ["lla plugin run hackernews open -- 1"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "number", type = "integer", description = "One-based item number.", position = 0, required = true, min = 1 }]
 output = { type = "none" }
 
 [[actions]]
 id = "comments"
-description = "Run the comments action"
-examples = ["lla plugin run hackernews comments"]
+description = "Open story comments"
+examples = ["lla plugin run hackernews comments -- 1"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "number", type = "integer", description = "One-based item number.", position = 0, required = true, min = 1 }]
 output = { type = "none" }
 
 [[actions]]
 id = "copy"
-description = "Run the copy action"
-examples = ["lla plugin run hackernews copy"]
+description = "Copy story URL"
+examples = ["lla plugin run hackernews copy -- 1"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "number", type = "integer", description = "One-based item number.", position = 0, required = true, min = 1 }]
 output = { type = "none" }
 
 [[actions]]
 id = "browse"
-description = "Run the browse action"
+description = "Interactive browser"
 examples = ["lla plugin run hackernews browse"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "topic", type = "string", description = "Story topic to browse.", position = 0, choices = ["top", "best", "new", "newest", "ask", "show", "jobs"] }]
 output = { type = "none" }
 
 [[actions]]
 id = "menu"
-description = "Run the menu action"
+description = "Interactive menu"
 examples = ["lla plugin run hackernews menu"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "clear-cache"
+description = "Clear cached Hacker News stories"
+examples = ["lla plugin run hackernews clear-cache"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "refresh"
+description = "Clear cached stories (alias for clear-cache)"
+examples = ["lla plugin run hackernews refresh"]
+interactive = true
+arguments = []
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show help information"
 examples = ["lla plugin run hackernews help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

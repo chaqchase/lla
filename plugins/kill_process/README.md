@@ -21,7 +21,7 @@ A plugin for lla that provides an interactive interface for managing and termina
 List all running processes with detailed information.
 
 ```bash
-lla plugin --name kill_process --action list
+lla plugin run kill_process list
 ```
 
 ### `kill`
@@ -29,7 +29,7 @@ lla plugin --name kill_process --action list
 Interactively select and kill a process with **live fuzzy search**.
 
 ```bash
-lla plugin --name kill_process --action kill
+lla plugin run kill_process kill
 ```
 
 Features:
@@ -56,7 +56,7 @@ Example workflow:
 Forcefully terminate a process with **live fuzzy search** (SIGKILL on Unix, /F flag on Windows).
 
 ```bash
-lla plugin --name kill_process --action force-kill
+lla plugin run kill_process force-kill
 ```
 
 This is useful for unresponsive processes that don't respond to normal termination signals. Includes the same real-time fuzzy search filtering as the regular `kill` action.
@@ -66,7 +66,7 @@ This is useful for unresponsive processes that don't respond to normal terminati
 Kill processes matching a specific name pattern.
 
 ```bash
-lla plugin --name kill_process --action kill-by-name --args "chrome"
+lla plugin run kill_process kill-by-name -- "chrome"
 ```
 
 ### `kill-by-pid`
@@ -74,7 +74,7 @@ lla plugin --name kill_process --action kill-by-name --args "chrome"
 Kill a specific process by its PID.
 
 ```bash
-lla plugin --name kill_process --action kill-by-pid --args "1234"
+lla plugin run kill_process kill-by-pid -- "1234"
 ```
 
 ### `help`
@@ -82,7 +82,7 @@ lla plugin --name kill_process --action kill-by-pid --args "1234"
 Display help information about the plugin.
 
 ```bash
-lla plugin --name kill_process --action help
+lla plugin run kill_process help
 ```
 
 ## Platform-Specific Behavior
@@ -133,20 +133,20 @@ pid = "bright_magenta"
 ### Kill a specific application
 
 ```bash
-lla plugin --name kill_process --action kill-by-name --args "Firefox"
+lla plugin run kill_process kill-by-name -- "Firefox"
 ```
 
 ### Force kill an unresponsive process
 
 ```bash
-lla plugin --name kill_process --action force-kill
+lla plugin run kill_process force-kill
 # Then select the process from the interactive list
 ```
 
 ### List all processes
 
 ```bash
-lla plugin --name kill_process --action list
+lla plugin run kill_process list
 ```
 
 ## Troubleshooting

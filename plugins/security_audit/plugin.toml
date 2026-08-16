@@ -48,16 +48,16 @@ filterable = true
 
 [[actions]]
 id = "audit"
-description = "Run the audit action"
-examples = ["lla plugin run security_audit audit"]
+description = "Audit a file or directory and print security findings"
+examples = ["lla plugin run security_audit audit -- .", "lla plugin run security_audit audit -- . -- --recursive"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }, { name = "recursive", type = "boolean", description = "Process nested directories recursively.", option = "--recursive" }]
 output = { type = "none" }
 
 [[actions]]
 id = "help"
-description = "Run the help action"
+description = "Show security audit usage and risk rules"
 examples = ["lla plugin run security_audit help"]
 interactive = true
-arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+arguments = []
 output = { type = "none" }

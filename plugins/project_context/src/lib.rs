@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
-    action_arguments_as_strings, action_infos, decode_decorated_entry, map_decorated_entry,
-    ActionRegistry, DecoratedEntry,
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
 };
 use parking_lot::RwLock;
 use std::{
@@ -20,7 +19,7 @@ lazy_static! {
             "inspect",
             "inspect <path>",
             "Inspect the nearest project and print ecosystem and repository health",
-            ["lla plugin project_context inspect ."],
+            ["lla plugin run project_context inspect -- ."],
             ProjectContextPlugin::inspect_action
         );
         lla_plugin_utils::define_action!(
@@ -28,7 +27,7 @@ lazy_static! {
             "refresh",
             "refresh",
             "Clear cached project detection results",
-            ["lla plugin project_context refresh"],
+            ["lla plugin run project_context refresh"],
             |_| {
                 CACHE.write().clear();
                 println!("Project context cache cleared.");
@@ -40,7 +39,7 @@ lazy_static! {
             "help",
             "help",
             "Show project context usage",
-            ["lla plugin project_context help"],
+            ["lla plugin run project_context help"],
             |_| ProjectContextPlugin::help_action()
         );
         actions
@@ -388,7 +387,7 @@ fn repository_health(root: &Path) -> (String, Option<String>, usize) {
 
 impl Plugin for ProjectContextPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        map_decorated_entry(entry, Self::decorate)
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
     }
 
     fn decorate_batch(
@@ -398,7 +397,7 @@ impl Plugin for ProjectContextPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         entries
             .into_iter()
-            .map(|entry| map_decorated_entry(entry, Self::decorate))
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
             .collect()
     }
 
@@ -409,13 +408,34 @@ impl Plugin for ProjectContextPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
-        let arguments = action_arguments_as_strings(arguments);
-        response::from_result(ACTIONS.read().handle(&action, &arguments))
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
     }
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
-        action_infos(ACTIONS.read().list_actions())
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
+}
+
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    for name in [
+        "project_type",
+        "project_health",
+        "lockfile_state",
+        "build_artifacts",
+        "toolchains",
+        "repository_state",
+        "git_branch",
+    ] {
+        entry.promote_string_field(name);
+    }
+    entry.promote_path_field("project_root");
+    entry.promote_integer_field("project_issues");
+    entry
 }
 
 lla_plugin_sdk::export_plugin!(ProjectContextPlugin);

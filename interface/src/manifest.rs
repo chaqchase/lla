@@ -268,6 +268,12 @@ pub struct ActionArgument {
 
 impl ActionArgument {
     fn validate(&self, action: &str) -> Result<(), String> {
+        if self.description.trim().is_empty() {
+            return Err(format!(
+                "argument '{}' in action '{action}' needs a description",
+                self.name
+            ));
+        }
         if self.required && self.default.is_some() {
             return Err(format!(
                 "required argument '{}' in action '{action}' cannot have a default",
@@ -487,6 +493,65 @@ sortable = true
                 "{} does not export the shared v3 plugin ABI",
                 manifest.plugin.name
             );
+            for legacy_api in [
+                "handle_raw_request",
+                "PluginRequest",
+                "PluginResponse",
+                "ProtobufHandler",
+            ] {
+                assert!(
+                    !source.contains(legacy_api),
+                    "{} still uses removed source adapter {legacy_api}",
+                    manifest.plugin.name
+                );
+            }
+            if manifest.capabilities.decorates_entries {
+                assert!(
+                    source.contains("fn decorate_entry") && source.contains("fn decorate_batch"),
+                    "{} must implement both v3 decoration paths",
+                    manifest.plugin.name
+                );
+                assert!(
+                    source.contains("insert_field(")
+                        || source.contains("promote_")
+                        || source.contains("typed_fields"),
+                    "{} declares typed fields without emitting v3 values",
+                    manifest.plugin.name
+                );
+            }
+            if !manifest.actions.is_empty() {
+                assert!(
+                    source.contains("fn run_action") && source.contains("fn registered_actions"),
+                    "{} must register and implement its v3 actions",
+                    manifest.plugin.name
+                );
+                for action in &manifest.actions {
+                    assert!(
+                        !action.description.starts_with("Run the "),
+                        "{}:{} still has a generated action description",
+                        manifest.plugin.name,
+                        action.id
+                    );
+                    let command_prefix =
+                        format!("lla plugin run {} {}", manifest.plugin.name, action.id);
+                    assert!(
+                        action
+                            .examples
+                            .iter()
+                            .all(|example| example.starts_with(&command_prefix)),
+                        "{}:{} must use the canonical v3 command in every example",
+                        manifest.plugin.name,
+                        action.id
+                    );
+                    for argument in &action.arguments {
+                        assert_ne!(
+                            argument.name, "args",
+                            "{}:{} still exposes the legacy untyped args bag",
+                            manifest.plugin.name, action.id
+                        );
+                    }
+                }
+            }
             if source.contains("arboard::Clipboard") {
                 assert!(
                     manifest.permissions.clipboard,

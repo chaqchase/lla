@@ -7,8 +7,8 @@ ImageMagick `identify` as image-dimension fallbacks.
 
 ```bash
 lla --enable-plugin media_inspector --long ./media
-lla plugin media_inspector inspect ./media/video.mp4
-lla plugin media_inspector tools
+lla plugin run media_inspector inspect -- ./media/video.mp4
+lla plugin run media_inspector tools
 ```
 
 Missing optional tools do not prevent the plugin from loading or decorating entries.
