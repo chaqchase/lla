@@ -50,6 +50,7 @@ fn synthesize_directory_entries(entries: &mut Vec<DecoratedEntry>, root_prefix: 
                 permissions: 0o755,
                 uid: 0,
                 gid: 0,
+                ..EntryMetadata::default()
             }),
             custom_fields: HashMap::new(),
             typed_fields: HashMap::new(),
@@ -97,6 +98,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
             permissions: 0o755,
             uid: 0,
             gid: 0,
+            ..EntryMetadata::default()
         }),
         custom_fields: root_fields,
         typed_fields: HashMap::new(),
@@ -155,6 +157,7 @@ pub fn read_zip(path: &Path) -> Result<Vec<DecoratedEntry>> {
                 permissions: mode,
                 uid: 0,
                 gid: 0,
+                ..EntryMetadata::default()
             }),
             custom_fields,
             typed_fields: HashMap::new(),
@@ -195,6 +198,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
             permissions: 0o755,
             uid: 0,
             gid: 0,
+            ..EntryMetadata::default()
         }),
         custom_fields: root_fields,
         typed_fields: HashMap::new(),
@@ -274,6 +278,7 @@ pub fn read_tar<R: Read>(mut reader: R, source_path: &Path) -> Result<Vec<Decora
                 permissions: mode,
                 uid,
                 gid,
+                ..EntryMetadata::default()
             }),
             custom_fields,
             typed_fields: HashMap::new(),

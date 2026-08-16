@@ -2,6 +2,7 @@ use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
@@ -43,6 +44,7 @@ impl FuzzyFormatter {
         } else {
             colored_name
         };
+        let name_display = hyperlink::link_path(path, name_display);
 
         let perms = Permissions::from_mode(metadata.permissions);
         let perms_display = colorize_permissions(&perms, Some(&self.permission_format));

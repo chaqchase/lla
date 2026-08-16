@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use chrono::{DateTime, Duration, Local};
 use colored::*;
@@ -148,6 +149,7 @@ impl FileFormatter for TimelineFormatter {
                     format_with_icon(path, colored_name, self.show_icons),
                 )
                 .to_string();
+                let name = hyperlink::link_path(path, name);
 
                 let plugin_fields = plugin_manager.format_fields(entry, "timeline").join(" ");
                 let git_info = if let Some(git_field) = plugin_fields

@@ -90,6 +90,24 @@ struct SerializableMetadata {
     permissions: u32,
     uid: u32,
     gid: u32,
+    #[serde(default)]
+    inode: u64,
+    #[serde(default)]
+    hard_links: u64,
+    #[serde(default)]
+    allocated_size: u64,
+    #[serde(default)]
+    xattrs: HashMap<String, u64>,
+    #[serde(default)]
+    has_acl: bool,
+    #[serde(default)]
+    security_context: String,
+    #[serde(default)]
+    mount_point: String,
+    #[serde(default)]
+    mount_source: String,
+    #[serde(default)]
+    filesystem: String,
 }
 
 impl From<&DecoratedEntry> for SerializableEntry {
@@ -126,6 +144,15 @@ impl From<&EntryMetadata> for SerializableMetadata {
             permissions: meta.permissions,
             uid: meta.uid,
             gid: meta.gid,
+            inode: meta.inode,
+            hard_links: meta.hard_links,
+            allocated_size: meta.allocated_size,
+            xattrs: meta.xattrs.clone(),
+            has_acl: meta.has_acl,
+            security_context: meta.security_context.clone(),
+            mount_point: meta.mount_point.clone(),
+            mount_source: meta.mount_source.clone(),
+            filesystem: meta.filesystem.clone(),
         }
     }
 }
@@ -143,6 +170,15 @@ impl From<SerializableMetadata> for EntryMetadata {
             permissions: meta.permissions,
             uid: meta.uid,
             gid: meta.gid,
+            inode: meta.inode,
+            hard_links: meta.hard_links,
+            allocated_size: meta.allocated_size,
+            xattrs: meta.xattrs,
+            has_acl: meta.has_acl,
+            security_context: meta.security_context,
+            mount_point: meta.mount_point,
+            mount_source: meta.mount_source,
+            filesystem: meta.filesystem,
         }
     }
 }

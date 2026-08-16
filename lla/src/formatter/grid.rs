@@ -1,6 +1,7 @@
 use super::FileFormatter;
 use crate::plugin::PluginManager;
 use crate::utils::color::colorize_file_name;
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use crate::{error::Result, utils::color::colorize_file_name_with_icon};
 use lla_plugin_interface::proto::DecoratedEntry;
@@ -53,6 +54,7 @@ impl FileFormatter for GridFormatter {
                 format_with_icon(path, colored_name, self.show_icons),
             )
             .to_string();
+            let name_with_icon = hyperlink::link_path(path, name_with_icon);
             let plugin_fields = plugin_manager.format_fields(file, "grid").join(" ");
             let total_str = if plugin_fields.is_empty() {
                 name_with_icon.clone()

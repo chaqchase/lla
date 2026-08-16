@@ -13,6 +13,15 @@ message EntryMetadata {
     uint32 permissions = 8;
     uint32 uid = 9;
     uint32 gid = 10;
+    uint64 inode = 11;
+    uint64 hard_links = 12;
+    uint64 allocated_size = 13;
+    map<string, uint64> xattrs = 14;
+    bool has_acl = 15;
+    string security_context = 16;
+    string mount_point = 17;
+    string mount_source = 18;
+    string filesystem = 19;
 }
 
 message DecoratedEntry {

@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use chrono::{DateTime, Local};
 use colored::*;
@@ -45,7 +46,9 @@ impl RecursiveFormatter {
             let name = colorize_file_name_with_icon(
                 path,
                 format_with_icon(path, colored_name, self.show_icons),
-            );
+            )
+            .to_string();
+            let name = hyperlink::link_path(path, name);
 
             print!("{:>16} │ {}", date, name);
 

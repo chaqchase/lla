@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
@@ -497,6 +498,7 @@ impl GitFormatter {
                 format_with_icon(path, name.to_string(), show_icons),
             )
             .to_string();
+            let name_with_icon = hyperlink::link_path(path, name_with_icon);
 
             let name_width = Self::strip_ansi(&name_with_icon).width();
             max_name_width = max_name_width.max(name_width);

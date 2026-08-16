@@ -79,6 +79,7 @@ impl From<EntryMetadata> for proto::EntryMetadata {
             permissions: meta.permissions,
             uid: meta.uid,
             gid: meta.gid,
+            ..proto::EntryMetadata::default()
         }
     }
 }

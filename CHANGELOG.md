@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- OSC 8 file hyperlinks with `--hyperlink=always|auto|never` across human-readable views.
+- Long-view columns and machine-output fields for inode numbers, hard-link counts, allocated size, extended attributes, ACL/SELinux context, and mount details.
+- Symlink controls for target metadata (`--dereference`), target visibility (`--no-symlink-target`), and inclusion alongside file/directory filters (`--show-symlinks`).
+
 ## [0.6.0] - 2026-08-16
 
 ### Added

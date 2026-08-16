@@ -2,6 +2,7 @@ use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::{colorize_file_name, colorize_file_name_with_icon};
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use lla_plugin_interface::proto::DecoratedEntry;
 use std::path::Path;
@@ -31,6 +32,7 @@ impl FileFormatter for DefaultFormatter {
                     format_with_icon(path, colored_name, self.show_icons),
                 )
                 .to_string();
+                let name_with_icon = hyperlink::link_path(path, name_with_icon);
                 let plugin_fields = plugin_manager.format_fields(file, "default").join(" ");
                 if plugin_fields.is_empty() {
                     name_with_icon

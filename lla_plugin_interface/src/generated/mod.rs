@@ -22,6 +22,24 @@ pub struct EntryMetadata {
     pub uid: u32,
     #[prost(uint32, tag = "10")]
     pub gid: u32,
+    #[prost(uint64, tag = "11")]
+    pub inode: u64,
+    #[prost(uint64, tag = "12")]
+    pub hard_links: u64,
+    #[prost(uint64, tag = "13")]
+    pub allocated_size: u64,
+    #[prost(map = "string, uint64", tag = "14")]
+    pub xattrs: ::std::collections::HashMap<::prost::alloc::string::String, u64>,
+    #[prost(bool, tag = "15")]
+    pub has_acl: bool,
+    #[prost(string, tag = "16")]
+    pub security_context: ::prost::alloc::string::String,
+    #[prost(string, tag = "17")]
+    pub mount_point: ::prost::alloc::string::String,
+    #[prost(string, tag = "18")]
+    pub mount_source: ::prost::alloc::string::String,
+    #[prost(string, tag = "19")]
+    pub filesystem: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

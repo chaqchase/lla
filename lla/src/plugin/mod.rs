@@ -16,8 +16,6 @@ use once_cell::sync::Lazy;
 use prost::Message as _;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod grants;
@@ -416,44 +414,7 @@ impl PluginManager {
     }
 
     fn convert_metadata(metadata: &std::fs::Metadata) -> proto::EntryMetadata {
-        #[cfg(unix)]
-        let (permissions, uid, gid) = (metadata.mode(), metadata.uid(), metadata.gid());
-        #[cfg(not(unix))]
-        let (permissions, uid, gid) = (0, 0, 0);
-
-        proto::EntryMetadata {
-            size: metadata.len(),
-            modified: metadata
-                .modified()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            accessed: metadata
-                .accessed()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            created: metadata
-                .created()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            is_symlink: metadata.is_symlink(),
-            permissions,
-            uid,
-            gid,
-        }
+        crate::utils::fs_metadata::from_metadata(metadata)
     }
 
     fn send_request(&self, plugin_name: &str, request: PluginMessage) -> Result<PluginMessage> {

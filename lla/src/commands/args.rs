@@ -20,6 +20,7 @@ pub struct Args {
     pub fuzzy_format: bool,
     pub recursive_format: bool,
     pub show_icons: bool,
+    pub hyperlinks: bool,
     pub no_color: bool,
     pub sort_by: String,
     pub sort_reverse: bool,
@@ -43,9 +44,12 @@ pub struct Args {
     pub dirs_only: bool,
     pub files_only: bool,
     pub symlinks_only: bool,
+    pub show_symlinks: bool,
     pub no_dirs: bool,
     pub no_files: bool,
     pub no_symlinks: bool,
+    pub dereference_symlinks: bool,
+    pub show_symlink_target: bool,
     pub no_dotfiles: bool,
     pub almost_all: bool,
     pub dotfiles_only: bool,
@@ -54,6 +58,12 @@ pub struct Args {
     pub hide_group: bool,
     pub relative_dates: bool,
     pub date_format: String,
+    pub show_inode: bool,
+    pub show_hard_links: bool,
+    pub show_allocated_size: bool,
+    pub show_xattrs: bool,
+    pub show_context: bool,
+    pub show_mounts: bool,
     pub output_mode: OutputMode,
     pub command: Option<Command>,
     pub search: Option<String>,
@@ -356,6 +366,17 @@ impl Args {
                     .help("Hide icons for files and directories (overrides config setting)"),
             )
             .arg(
+                Arg::with_name("hyperlink")
+                    .long("hyperlink")
+                    .takes_value(true)
+                    .min_values(0)
+                    .max_values(1)
+                    .default_missing_value("auto")
+                    .value_name("WHEN")
+                    .possible_values(["always", "auto", "automatic", "never"])
+                    .help("Emit OSC 8 file hyperlinks (always, auto, never)"),
+            )
+            .arg(
                 Arg::with_name("no-color")
                     .long("no-color")
                     .help("Disable all colors in the output"),
@@ -489,6 +510,12 @@ impl Args {
                     .help("Show only symbolic links"),
             )
             .arg(
+                Arg::with_name("show-symlinks")
+                    .long("show-symlinks")
+                    .conflicts_with("no-symlinks")
+                    .help("Include symlinks whose targets match --dirs-only or --files-only"),
+            )
+            .arg(
                 Arg::with_name("no-dirs")
                     .long("no-dirs")
                     .help("Hide directories"),
@@ -502,6 +529,17 @@ impl Args {
                 Arg::with_name("no-symlinks")
                     .long("no-symlinks")
                     .help("Hide symbolic links"),
+            )
+            .arg(
+                Arg::with_name("dereference")
+                    .short('X')
+                    .long("dereference")
+                    .help("Display metadata from symbolic-link targets"),
+            )
+            .arg(
+                Arg::with_name("no-symlink-target")
+                    .long("no-symlink-target")
+                    .help("Do not display symbolic-link targets after file names"),
             )
             .arg(
                 Arg::with_name("no-dotfiles")
@@ -563,6 +601,42 @@ impl Args {
                     .long("date-format")
                     .takes_value(true)
                     .help("Format absolute dates in long format using chrono strftime syntax (e.g., '%Y-%m-%d %H:%M')"),
+            )
+            .arg(
+                Arg::with_name("inode")
+                    .short('i')
+                    .long("inode")
+                    .help("Show inode numbers in long format"),
+            )
+            .arg(
+                Arg::with_name("links")
+                    .short('H')
+                    .long("links")
+                    .help("Show hard-link counts in long format"),
+            )
+            .arg(
+                Arg::with_name("allocated-size")
+                    .long("allocated-size")
+                    .alias("blocksize")
+                    .help("Show allocated filesystem size in long format"),
+            )
+            .arg(
+                Arg::with_name("extended")
+                    .short('@')
+                    .long("extended")
+                    .help("Show extended attribute names and sizes in long format"),
+            )
+            .arg(
+                Arg::with_name("context")
+                    .short('Z')
+                    .long("context")
+                    .help("Show ACL or SELinux security context in long format"),
+            )
+            .arg(
+                Arg::with_name("mounts")
+                    .short('M')
+                    .long("mounts")
+                    .help("Show source, mount point, and filesystem in long format"),
             )
             .subcommand(
                 SubCommand::with_name("install")
@@ -874,6 +948,7 @@ impl Args {
                     fuzzy_format: false,
                     recursive_format: false,
                     show_icons: config.show_icons,
+                    hyperlinks: false,
                     no_color: false,
                     sort_by: config.default_sort.clone(),
                     sort_reverse: false,
@@ -897,9 +972,12 @@ impl Args {
                     dirs_only: false,
                     files_only: false,
                     symlinks_only: false,
+                    show_symlinks: false,
                     no_dirs: false,
                     no_files: false,
                     no_symlinks: false,
+                    dereference_symlinks: false,
+                    show_symlink_target: true,
                     no_dotfiles: config.filter.no_dotfiles,
                     almost_all: false,
                     dotfiles_only: false,
@@ -908,6 +986,27 @@ impl Args {
                     hide_group: config.formatters.long.hide_group,
                     relative_dates: config.formatters.long.relative_dates,
                     date_format: config.formatters.long.date_format.clone(),
+                    show_inode: configured_column(config, &["inode", "ino"]),
+                    show_hard_links: configured_column(
+                        config,
+                        &["links", "hard_links", "hard-links"],
+                    ),
+                    show_allocated_size: configured_column(
+                        config,
+                        &[
+                            "allocated",
+                            "allocated_size",
+                            "allocated-size",
+                            "blocks",
+                            "blocksize",
+                        ],
+                    ),
+                    show_xattrs: configured_column(config, &["xattrs", "extended"]),
+                    show_context: configured_column(
+                        config,
+                        &["context", "security_context", "security-context", "acl"],
+                    ),
+                    show_mounts: configured_column(config, &["mount", "mounts"]),
                     output_mode: OutputMode::Human,
                     command: Some(Command::Shortcut(ShortcutAction::Run(
                         potential_shortcut.clone(),
@@ -1167,7 +1266,14 @@ impl Args {
             })
         };
 
-        let has_format_flag = matches.is_present("long")
+        let has_long_metadata_flag = matches.is_present("inode")
+            || matches.is_present("links")
+            || matches.is_present("allocated-size")
+            || matches.is_present("extended")
+            || matches.is_present("context")
+            || matches.is_present("mounts");
+
+        let has_view_format_flag = matches.is_present("long")
             || matches.is_present("tree")
             || matches.is_present("table")
             || matches.is_present("grid")
@@ -1176,6 +1282,7 @@ impl Args {
             || matches.is_present("git")
             || matches.is_present("fuzzy")
             || matches.is_present("recursive");
+        let has_format_flag = has_view_format_flag || has_long_metadata_flag;
 
         let preset_names: Vec<String> = matches
             .values_of("preset")
@@ -1264,6 +1371,7 @@ impl Args {
                 .and_then(|s| s.parse().ok())
                 .or(config.default_depth),
             long_format: matches.is_present("long")
+                || (has_long_metadata_flag && !has_view_format_flag)
                 || (!has_format_flag && config.default_format == "long"),
             tree_format: matches.is_present("tree")
                 || (!has_format_flag && config.default_format == "tree"),
@@ -1283,6 +1391,14 @@ impl Args {
                 || (!has_format_flag && config.default_format == "recursive"),
             show_icons: matches.is_present("icons")
                 || (!matches.is_present("no-icons") && config.show_icons),
+            hyperlinks: match matches.value_of("hyperlink") {
+                Some("always") => true,
+                Some("auto") | Some("automatic") => {
+                    atty::is(atty::Stream::Stdout)
+                        && std::env::var("TERM").map_or(true, |term| term != "dumb")
+                }
+                _ => false,
+            },
             no_color: matches.is_present("no-color"),
             sort_by: matches
                 .value_of("sort")
@@ -1319,9 +1435,12 @@ impl Args {
             dirs_only: matches.is_present("dirs-only"),
             files_only: matches.is_present("files-only"),
             symlinks_only: matches.is_present("symlinks-only"),
+            show_symlinks: matches.is_present("show-symlinks"),
             no_dirs: matches.is_present("no-dirs"),
             no_files: matches.is_present("no-files"),
             no_symlinks: matches.is_present("no-symlinks"),
+            dereference_symlinks: matches.is_present("dereference"),
+            show_symlink_target: !matches.is_present("no-symlink-target"),
             no_dotfiles: (matches.is_present("no-dotfiles") || config.filter.no_dotfiles)
                 && !matches.is_present("all")
                 && !matches.is_present("almost-all"),
@@ -1342,6 +1461,29 @@ impl Args {
             relative_dates: matches.is_present("relative-dates")
                 || config.formatters.long.relative_dates,
             date_format,
+            show_inode: matches.is_present("inode") || configured_column(config, &["inode", "ino"]),
+            show_hard_links: matches.is_present("links")
+                || configured_column(config, &["links", "hard_links", "hard-links"]),
+            show_allocated_size: matches.is_present("allocated-size")
+                || configured_column(
+                    config,
+                    &[
+                        "allocated",
+                        "allocated_size",
+                        "allocated-size",
+                        "blocks",
+                        "blocksize",
+                    ],
+                ),
+            show_xattrs: matches.is_present("extended")
+                || configured_column(config, &["xattrs", "extended"]),
+            show_context: matches.is_present("context")
+                || configured_column(
+                    config,
+                    &["context", "security_context", "security-context", "acl"],
+                ),
+            show_mounts: matches.is_present("mounts")
+                || configured_column(config, &["mount", "mounts"]),
             output_mode: {
                 let pretty = matches.is_present("pretty");
                 if matches.is_present("json") {
@@ -1363,6 +1505,16 @@ impl Args {
             search_pipelines,
         })
     }
+}
+
+fn configured_column(config: &Config, names: &[&str]) -> bool {
+    config
+        .formatters
+        .long
+        .columns
+        .iter()
+        .chain(config.formatters.table.columns.iter())
+        .any(|column| names.iter().any(|name| column.eq_ignore_ascii_case(name)))
 }
 
 fn combine_pattern_filters(filters: &[String]) -> Option<String> {
@@ -1410,4 +1562,54 @@ fn parse_search_pipeline_spec(value: &str) -> Result<SearchPipelineSpec> {
         action: action.to_string(),
         args,
     })
+}
+
+#[cfg(test)]
+mod rich_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn metadata_flags_select_long_view_and_hyperlink_mode() {
+        let config = Config::default();
+        let matches = Args::build_cli(&config)
+            .try_get_matches_from([
+                "lla",
+                "--inode",
+                "--links",
+                "--allocated-size",
+                "--extended",
+                "--context",
+                "--mounts",
+                "--hyperlink=always",
+            ])
+            .unwrap();
+        let args = Args::from_matches(&matches, &config).unwrap();
+
+        assert!(args.long_format);
+        assert!(args.show_inode);
+        assert!(args.show_hard_links);
+        assert!(args.show_allocated_size);
+        assert!(args.show_xattrs);
+        assert!(args.show_context);
+        assert!(args.show_mounts);
+        assert!(args.hyperlinks);
+    }
+
+    #[test]
+    fn symlink_modes_are_independent() {
+        let config = Config::default();
+        let matches = Args::build_cli(&config)
+            .try_get_matches_from([
+                "lla",
+                "--show-symlinks",
+                "--dereference",
+                "--no-symlink-target",
+            ])
+            .unwrap();
+        let args = Args::from_matches(&matches, &config).unwrap();
+
+        assert!(args.show_symlinks);
+        assert!(args.dereference_symlinks);
+        assert!(!args.show_symlink_target);
+    }
 }
