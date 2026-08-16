@@ -1257,13 +1257,20 @@ impl Plugin for CodeSnippetExtractorPlugin {
 
     fn decorate_batch(
         &mut self,
-        entries: Vec<proto::DecoratedEntry>,
+        mut entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
+        let mut counts = HashMap::<&str, usize>::new();
+        for snippet in self.snippets.values() {
+            *counts.entry(&snippet.source_file).or_default() += 1;
+        }
+        for entry in &mut entries {
+            if let Some(count) = counts.get(entry.path.as_str()).copied() {
+                let display = count.to_string();
+                entry.insert_field("snippet_count", value::integer(count as i64), display);
+            }
+        }
         entries
-            .into_iter()
-            .map(|entry| self.decorate_entry(entry))
-            .collect()
     }
 
     fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {

@@ -348,10 +348,63 @@ pub mod response {
     }
 }
 
+/// Builds the runtime action inventory from an embedded v3 manifest.
+///
+/// The export macros validate the manifest at compile time, making it the
+/// single source of truth for action descriptions, examples, and usage.
+pub fn manifest_action_infos(manifest_source: &str) -> Vec<proto::ActionInfo> {
+    use interface::manifest::PluginManifest;
+
+    let manifest: PluginManifest = toml::from_str(manifest_source)
+        .expect("exported plugin.toml must remain parseable at runtime");
+    manifest
+        .actions
+        .iter()
+        .map(|action| proto::ActionInfo {
+            name: action.id.clone(),
+            usage: action_usage(action),
+            description: action.description.clone(),
+            examples: action.examples.clone(),
+        })
+        .collect()
+}
+
+fn action_usage(action: &interface::manifest::ActionDescriptor) -> String {
+    use interface::manifest::ActionArgumentType;
+
+    let mut arguments = action.arguments.iter().collect::<Vec<_>>();
+    arguments.sort_by_key(|argument| (argument.position.is_none(), argument.position));
+    let arguments = arguments
+        .into_iter()
+        .map(|argument| {
+            let value = match argument.argument_type {
+                ActionArgumentType::Boolean if argument.option.is_some() => String::new(),
+                _ if argument.repeatable => format!("<{}>...", argument.name),
+                _ => format!("<{}>", argument.name),
+            };
+            let token = match argument.option.as_deref() {
+                Some(option) if value.is_empty() => option.to_string(),
+                Some(option) => format!("{option} {value}"),
+                None => value,
+            };
+            if argument.required {
+                token
+            } else {
+                format!("[{token}]")
+            }
+        })
+        .collect::<Vec<_>>();
+    if arguments.is_empty() {
+        action.id.clone()
+    } else {
+        format!("{} {}", action.id, arguments.join(" "))
+    }
+}
+
 /// High-level API implemented by native plugins.
 ///
 /// Plugins override `decorate_entry`, `decorate_batch`, `format_field`,
-/// `registered_actions`, and `run_action` as needed. Metadata comes from the
+/// `format_batch`, `registered_actions`, and `run_action` as needed. Metadata comes from the
 /// embedded manifest, so plugin implementations never encode or decode wire
 /// messages themselves.
 pub trait Plugin: Default + Send + 'static {
@@ -372,6 +425,17 @@ pub trait Plugin: Default + Send + 'static {
 
     fn format_field(&mut self, _entry: proto::DecoratedEntry, _format: String) -> Option<String> {
         None
+    }
+
+    fn format_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        format: &str,
+    ) -> Vec<Option<String>> {
+        entries
+            .into_iter()
+            .map(|entry| self.format_field(entry, format.to_string()))
+            .collect()
     }
 
     fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
@@ -429,6 +493,31 @@ pub fn dispatch<P: Plugin>(plugin: &mut P, bytes: &[u8]) -> Vec<u8> {
                         .and_then(|entry| plugin.format_field(entry, request.format)),
                 },
             )),
+        },
+        Some(plugin_message::Message::FormatBatch(batch)) => proto::PluginMessage {
+            message: if batch.entries.len() > lla_plugin_interface::MAX_BATCH_ENTRIES {
+                Some(plugin_message::Message::StructuredErrorResponse(
+                    proto::PluginError {
+                        code: "batch-limit-exceeded".to_string(),
+                        message: format!(
+                            "batch has {} entries; maximum is {}",
+                            batch.entries.len(),
+                            lla_plugin_interface::MAX_BATCH_ENTRIES
+                        ),
+                        details: HashMap::new(),
+                    },
+                ))
+            } else {
+                Some(plugin_message::Message::FormatBatchResponse(
+                    proto::BatchFormatResponse {
+                        fields: plugin
+                            .format_batch(batch.entries, &batch.format)
+                            .into_iter()
+                            .map(|field| proto::FormattedFieldResponse { field })
+                            .collect(),
+                    },
+                ))
+            },
         },
         Some(plugin_message::Message::Action(action)) => proto::PluginMessage {
             message: Some(plugin_message::Message::ActionResponse(
@@ -539,6 +628,7 @@ mod tests {
     #[derive(Default)]
     struct BatchPlugin {
         batch_calls: usize,
+        format_batch_calls: usize,
     }
 
     impl Plugin for BatchPlugin {
@@ -557,6 +647,18 @@ mod tests {
                 entry.custom_fields.insert("mode".into(), "batch".into());
             }
             entries
+        }
+
+        fn format_batch(
+            &mut self,
+            entries: Vec<proto::DecoratedEntry>,
+            _format: &str,
+        ) -> Vec<Option<String>> {
+            self.format_batch_calls += 1;
+            entries
+                .into_iter()
+                .map(|entry| Some(format!("formatted:{}", entry.path)))
+                .collect()
         }
     }
 
@@ -586,6 +688,35 @@ mod tests {
             .entries
             .iter()
             .all(|entry| entry.custom_fields["mode"] == "batch"));
+    }
+
+    #[test]
+    fn format_batch_override_executes_once() {
+        let entries = (0..8)
+            .map(|index| proto::DecoratedEntry {
+                path: format!("file-{index}"),
+                ..Default::default()
+            })
+            .collect();
+        let request = proto::PluginMessage {
+            message: Some(Message::FormatBatch(proto::BatchFormatRequest {
+                entries,
+                format: "default".into(),
+            })),
+        }
+        .encode_to_vec();
+        let mut plugin = BatchPlugin::default();
+        let response =
+            proto::PluginMessage::decode(dispatch(&mut plugin, &request).as_slice()).unwrap();
+        assert_eq!(plugin.format_batch_calls, 1);
+        let Some(Message::FormatBatchResponse(response)) = response.message else {
+            panic!("expected format batch response");
+        };
+        assert_eq!(response.fields.len(), 8);
+        assert_eq!(
+            response.fields[0].field.as_deref(),
+            Some("formatted:file-0")
+        );
     }
 
     #[test]

@@ -64,7 +64,7 @@ pub struct DecoratedEntry {
 pub struct PluginMessage {
     #[prost(
         oneof = "plugin_message::Message",
-        tags = "5, 6, 7, 8, 9, 105, 106, 107, 108, 109, 110, 111"
+        tags = "5, 6, 7, 8, 9, 10, 105, 106, 107, 108, 109, 110, 111, 112"
     )]
     pub message: ::core::option::Option<plugin_message::Message>,
 }
@@ -83,6 +83,8 @@ pub mod plugin_message {
         ListActions(bool),
         #[prost(message, tag = "9")]
         DecorateBatch(super::BatchDecorateRequest),
+        #[prost(message, tag = "10")]
+        FormatBatch(super::BatchFormatRequest),
         #[prost(message, tag = "105")]
         DecoratedResponse(super::DecoratedEntry),
         #[prost(message, tag = "106")]
@@ -97,6 +99,8 @@ pub mod plugin_message {
         DecorateBatchResponse(super::BatchDecorateResponse),
         #[prost(message, tag = "111")]
         StructuredErrorResponse(super::PluginError),
+        #[prost(message, tag = "112")]
+        FormatBatchResponse(super::BatchFormatResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -165,6 +169,20 @@ pub struct FormatFieldRequest {
     pub entry: ::core::option::Option<DecoratedEntry>,
     #[prost(string, tag = "2")]
     pub format: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchFormatRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<DecoratedEntry>,
+    #[prost(string, tag = "2")]
+    pub format: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchFormatResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub fields: ::prost::alloc::vec::Vec<FormattedFieldResponse>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

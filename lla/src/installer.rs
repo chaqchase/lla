@@ -2365,7 +2365,48 @@ impl PluginInstaller {
         }
 
         let start_time = Instant::now();
-        let mut child = Command::new("cargo")
+        let mut build_command = if wasm_component {
+            let target_status = Command::new("rustup")
+                .args(["target", "add", "wasm32-wasip2", "--toolchain", "stable"])
+                .status()
+                .map_err(|error| {
+                    LlaError::Plugin(format!(
+                        "rustup is required to build WASM component plugins: {error}"
+                    ))
+                })?;
+            if !target_status.success() {
+                return Err(LlaError::Plugin(
+                    "failed to install the wasm32-wasip2 Rust target".to_string(),
+                ));
+            }
+            let rustc = Command::new("rustup")
+                .args(["which", "rustc", "--toolchain", "stable"])
+                .output()
+                .map_err(|error| {
+                    LlaError::Plugin(format!("failed to locate rustup's stable rustc: {error}"))
+                })?;
+            if !rustc.status.success() {
+                return Err(LlaError::Plugin(
+                    "failed to locate rustup's stable rustc".to_string(),
+                ));
+            }
+            let rustc = String::from_utf8(rustc.stdout)
+                .map_err(|error| LlaError::Plugin(error.to_string()))?;
+            let mut command = Command::new("rustup");
+            command
+                .args(["run", "stable", "cargo"])
+                .env("RUSTC", rustc.trim());
+            command
+        } else {
+            Command::new("cargo")
+        };
+        #[cfg(target_os = "macos")]
+        if !wasm_component {
+            // rustc's Mach-O stripping can produce malformed LINKEDIT string pools
+            // for cdylibs. This matches the release packaging path.
+            build_command.env("CARGO_PROFILE_RELEASE_STRIP", "none");
+        }
+        let mut child = build_command
             .args(&build_args)
             .current_dir(&build_dir)
             .stderr(std::process::Stdio::piped())

@@ -451,13 +451,16 @@ impl Plugin for FileTaggerPlugin {
 
     fn decorate_batch(
         &mut self,
-        entries: Vec<proto::DecoratedEntry>,
+        mut entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
+        for entry in &mut entries {
+            if let Some(tags) = self.tags.get(&entry.path).filter(|tags| !tags.is_empty()) {
+                let display = tags.join(", ");
+                entry.insert_field("tags", value::string(&display), display);
+            }
+        }
         entries
-            .into_iter()
-            .map(|entry| self.decorate_entry(entry))
-            .collect()
     }
 
     fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {

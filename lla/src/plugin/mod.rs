@@ -396,6 +396,7 @@ pub struct PluginManager {
     shadowed_plugins: Vec<(String, PathBuf)>,
     pub enabled_plugins: HashSet<String>,
     config: Config,
+    formatted_fields: HashMap<(String, String, String), Vec<String>>,
 }
 
 impl PluginManager {
@@ -408,6 +409,7 @@ impl PluginManager {
             shadowed_plugins: Vec::new(),
             enabled_plugins,
             config,
+            formatted_fields: HashMap::new(),
         }
     }
 
@@ -1708,27 +1710,114 @@ impl PluginManager {
             return Vec::new();
         }
 
+        let cache_key = (
+            entry.path.clone(),
+            plugin_format.to_string(),
+            self.decoration_cache_scope(),
+        );
+        if let Some(fields) = self.formatted_fields.get(&cache_key) {
+            return fields.clone();
+        }
+
         let mut result = Vec::with_capacity(self.enabled_plugins.len());
-        let enabled_names: Vec<_> = self.enabled_plugins.iter().cloned().collect();
+        let mut enabled_names: Vec<_> = self.enabled_plugins.iter().cloned().collect();
+        enabled_names.sort();
         for name in enabled_names {
             if self.supports_format(&name, plugin_format) {
+                if let Some(field) = self.format_field_for_plugin(&name, entry, plugin_format) {
+                    result.push(field);
+                }
+            }
+        }
+        self.formatted_fields.insert(cache_key, result.clone());
+        result
+    }
+
+    pub fn prepare_format_fields(&mut self, entries: &[proto::DecoratedEntry], format: &str) {
+        let Some(plugin_format) = normalize_plugin_format(format) else {
+            return;
+        };
+        if entries.is_empty() || self.enabled_plugins.is_empty() {
+            return;
+        }
+
+        let cache_scope = self.decoration_cache_scope();
+        for entry in entries {
+            self.formatted_fields.insert(
+                (
+                    entry.path.clone(),
+                    plugin_format.to_string(),
+                    cache_scope.clone(),
+                ),
+                Vec::new(),
+            );
+        }
+
+        let mut enabled_names: Vec<_> = self.enabled_plugins.iter().cloned().collect();
+        enabled_names.sort();
+        for name in enabled_names {
+            if !self.supports_format(&name, plugin_format) {
+                continue;
+            }
+            for chunk in entries.chunks(MAX_BATCH_ENTRIES) {
                 let request = PluginMessage {
-                    message: Some(Message::FormatField(proto::FormatFieldRequest {
-                        entry: Some(entry.clone()),
+                    message: Some(Message::FormatBatch(proto::BatchFormatRequest {
+                        entries: chunk.to_vec(),
                         format: plugin_format.to_string(),
                     })),
                 };
-
-                if let Ok(response) = self.send_request(&name, request) {
-                    if let Some(Message::FieldResponse(field_response)) = response.message {
-                        if let Some(field) = field_response.field {
-                            result.push(field);
+                let fields = self.send_request(&name, request).ok().and_then(|response| {
+                    match response.message {
+                        Some(Message::FormatBatchResponse(response))
+                            if response.fields.len() == chunk.len() =>
+                        {
+                            Some(response.fields)
                         }
+                        _ => None,
+                    }
+                });
+
+                for (entry, field) in chunk.iter().zip(fields.unwrap_or_else(|| {
+                    chunk
+                        .iter()
+                        .map(|entry| proto::FormattedFieldResponse {
+                            field: self.format_field_for_plugin(&name, entry, plugin_format),
+                        })
+                        .collect()
+                })) {
+                    if let Some(field) = field.field {
+                        self.formatted_fields
+                            .entry((
+                                entry.path.clone(),
+                                plugin_format.to_string(),
+                                cache_scope.clone(),
+                            ))
+                            .or_default()
+                            .push(field);
                     }
                 }
             }
         }
-        result
+    }
+
+    fn format_field_for_plugin(
+        &self,
+        plugin_name: &str,
+        entry: &proto::DecoratedEntry,
+        format: &str,
+    ) -> Option<String> {
+        let request = PluginMessage {
+            message: Some(Message::FormatField(proto::FormatFieldRequest {
+                entry: Some(entry.clone()),
+                format: format.to_string(),
+            })),
+        };
+        self.send_request(plugin_name, request)
+            .ok()
+            .and_then(|response| match response.message {
+                Some(Message::FieldResponse(response)) => response.field,
+                _ => None,
+            })
     }
 
     pub fn clean_plugins(&mut self, plugins_dir: &Path) -> Result<()> {

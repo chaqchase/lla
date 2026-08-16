@@ -22,6 +22,7 @@ impl FileFormatter for DefaultFormatter {
         plugin_manager: &mut PluginManager,
         _depth: Option<usize>,
     ) -> Result<String> {
+        plugin_manager.prepare_format_fields(files, "default");
         Ok(files
             .iter()
             .map(|file| {

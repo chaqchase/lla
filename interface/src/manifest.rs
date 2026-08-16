@@ -488,9 +488,13 @@ sortable = true
             assert!(manifest.supports_host_api(crate::PLUGIN_API_VERSION));
 
             let source = fs::read_to_string(plugin_dir.join("src/lib.rs")).unwrap();
+            let expected_export = match manifest.plugin.runtime {
+                PluginRuntime::Native => "export_plugin!(",
+                PluginRuntime::WasmComponent => "export_component!(",
+            };
             assert!(
-                source.contains("export_plugin!("),
-                "{} does not export the shared v3 plugin ABI",
+                source.contains(expected_export),
+                "{} does not export its declared v3 runtime",
                 manifest.plugin.name
             );
             for legacy_api in [

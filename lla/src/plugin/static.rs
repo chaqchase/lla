@@ -83,6 +83,8 @@ impl PluginManager {
 
     pub fn decorate_entries(&mut self, _entries: &mut [proto::DecoratedEntry], _format: &str) {}
 
+    pub fn prepare_format_fields(&mut self, _entries: &[proto::DecoratedEntry], _format: &str) {}
+
     pub fn format_fields(&mut self, _entry: &proto::DecoratedEntry, _format: &str) -> Vec<String> {
         Vec::new()
     }

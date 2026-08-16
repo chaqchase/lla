@@ -9,6 +9,7 @@ use lla_plugin_utils::{
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin,
 };
+use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -347,19 +348,11 @@ impl HackerNewsPlugin {
         let ids = self.fetch_story_ids(topic)?;
         let ids: Vec<u64> = ids.into_iter().take(story_count).collect();
 
-        let mut items = Vec::with_capacity(ids.len());
-        for (i, id) in ids.iter().enumerate() {
-            pb.set_message(format!(
-                "Fetching {} ({}/{})...",
-                topic.name(),
-                i + 1,
-                ids.len()
-            ));
-
-            if let Ok(item) = self.fetch_item(*id) {
-                items.push(item);
-            }
-        }
+        pb.set_message(format!("Fetching {} stories...", ids.len()));
+        let items = ids
+            .par_iter()
+            .filter_map(|id| self.fetch_item(*id).ok())
+            .collect::<Vec<_>>();
 
         pb.finish_and_clear();
 

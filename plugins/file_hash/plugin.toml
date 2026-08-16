@@ -6,8 +6,8 @@ name = "file_hash"
 version = "0.6.0"
 api_min = 3
 api_max = 3
-runtime = "native"
-entrypoint = "file_hash"
+runtime = "wasm-component"
+entrypoint = "file_hash.wasm"
 description = "Calculate file hashes"
 license = "MIT"
 
@@ -33,6 +33,6 @@ filterable = true
 id = "help"
 description = "Show help information"
 examples = ["lla plugin run file_hash help"]
-interactive = true
+interactive = false
 arguments = []
-output = { type = "none" }
+output = { type = "text" }

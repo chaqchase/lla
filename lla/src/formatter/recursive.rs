@@ -79,6 +79,7 @@ impl FileFormatter for RecursiveFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "recursive");
 
         let mut groups: BTreeMap<String, Vec<&DecoratedEntry>> = BTreeMap::new();
 

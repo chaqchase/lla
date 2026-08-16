@@ -693,6 +693,7 @@ impl FileFormatter for GitFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "git");
 
         let theme = color::get_theme();
         let hash_color = Self::get_theme_color(&theme.colors.symlink);

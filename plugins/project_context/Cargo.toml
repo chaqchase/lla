@@ -12,6 +12,7 @@ lla_plugin_sdk = { path = "../../sdk" }
 lla_plugin_utils = { path = "../../utils" }
 lazy_static = "1.4"
 parking_lot = "0.12"
+serde.workspace = true
 
 [dev-dependencies]
 tempfile = "3.2"

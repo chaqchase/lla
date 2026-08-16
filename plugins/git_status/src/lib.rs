@@ -8,7 +8,7 @@ use lla_plugin_utils::{
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::Path, process::Command};
+use std::{collections::HashMap, path::Path, process::Command, time::Duration};
 
 lazy_static! {
     static ref SPINNER: RwLock<Spinner> = RwLock::new(Spinner::new());
@@ -96,6 +96,14 @@ impl PluginConfig for GitConfig {}
 
 pub struct GitStatusPlugin {
     base: BasePlugin<GitConfig>,
+    repo_cache: lla_plugin_utils::PersistentCache<RepoStaticInfo>,
+    status_cache: lla_plugin_utils::PersistentCache<Vec<(String, String)>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RepoStaticInfo {
+    branch: String,
+    commit: String,
 }
 
 impl GitStatusPlugin {
@@ -103,6 +111,18 @@ impl GitStatusPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            repo_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "repository-cache.toml",
+                1,
+                2_000,
+            ),
+            status_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "status-cache.toml",
+                2,
+                2_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[GitStatusPlugin] Failed to save config: {}", e);
@@ -110,45 +130,34 @@ impl GitStatusPlugin {
         plugin
     }
 
-    fn is_git_repo(path: &Path) -> bool {
-        let mut current_dir = Some(path);
+    fn git_root(path: &Path) -> Option<std::path::PathBuf> {
+        let start = if path.is_dir() { path } else { path.parent()? };
+        let mut current_dir = Some(start);
         while let Some(dir) = current_dir {
             if dir.join(".git").exists() {
-                return true;
+                return Some(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()));
             }
             current_dir = dir.parent();
         }
-        false
+        None
     }
 
-    fn get_git_info(path: &Path) -> Option<(String, String, String)> {
-        if !Self::is_git_repo(path) {
-            return None;
+    fn static_info(&mut self, root: &Path) -> Option<RepoStaticInfo> {
+        let key = lla_plugin_utils::canonical_cache_key(root);
+        let fingerprint = git_head_fingerprint(root)?;
+        if let Some(info) = self.repo_cache.get(&key, &fingerprint) {
+            return Some(info);
         }
-
-        let path_str = path.to_string_lossy();
-        let parent = path.parent().unwrap_or(path);
-
-        let status_output = Command::new("git")
-            .args(["status", "--porcelain", "--ignored"])
-            .arg(&*path_str)
-            .current_dir(parent)
-            .output()
-            .ok()?;
-
         let branch_output = Command::new("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(parent)
+            .current_dir(root)
             .output()
             .ok()?;
-
         let commit_output = Command::new("git")
             .args(["log", "-1", "--format=%h %s"])
-            .current_dir(parent)
+            .current_dir(root)
             .output()
             .ok()?;
-
-        let status = String::from_utf8(status_output.stdout).ok()?;
         let branch = String::from_utf8(branch_output.stdout)
             .ok()?
             .trim()
@@ -157,8 +166,73 @@ impl GitStatusPlugin {
             .ok()?
             .trim()
             .to_string();
+        let info = RepoStaticInfo { branch, commit };
+        self.repo_cache.insert(key, fingerprint, info.clone());
+        Some(info)
+    }
 
-        Some((status, branch, commit))
+    fn repository_statuses(&mut self, root: &Path) -> Option<Vec<(String, String)>> {
+        let key = lla_plugin_utils::canonical_cache_key(root);
+        let fingerprint = git_worktree_fingerprint(root)?;
+        if let Some(statuses) =
+            self.status_cache
+                .get_fresh_matching(&key, Some(&fingerprint), Duration::from_secs(2))
+        {
+            return Some(statuses);
+        }
+        let statuses = read_repository_statuses(root)?;
+        self.status_cache.insert(key, fingerprint, statuses.clone());
+        Some(statuses)
+    }
+
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let mut repositories = std::collections::BTreeMap::<std::path::PathBuf, Vec<usize>>::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(root) = Self::git_root(Path::new(&entry.path)) {
+                repositories.entry(root).or_default().push(index);
+            }
+        }
+
+        for (root, indices) in repositories {
+            let Some(static_info) = self.static_info(&root) else {
+                continue;
+            };
+            let Some(statuses) = self.repository_statuses(&root) else {
+                continue;
+            };
+            for index in indices {
+                let path = Path::new(&entries[index].path);
+                let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+                let relative = absolute
+                    .strip_prefix(&root)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let prefix = format!("{relative}/");
+                let relevant = statuses
+                    .iter()
+                    .filter(|(_, status_path)| {
+                        relative.is_empty()
+                            || status_path == &relative
+                            || status_path.starts_with(&prefix)
+                    })
+                    .map(|(status, path)| format!("{status} {path}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                decorate_git_entry(
+                    &mut entries[index],
+                    &relevant,
+                    &static_info.branch,
+                    &static_info.commit,
+                );
+            }
+        }
+        let _ = self.repo_cache.persist();
+        let _ = self.status_cache.persist();
+        entries
     }
 
     fn format_git_status(status: &str) -> (String, usize, usize, usize, usize) {
@@ -208,7 +282,7 @@ impl GitStatusPlugin {
                     conflicts += 1;
                     formatted_entries.push("conflict");
                 }
-                (' ', '?') => {
+                ('?', '?') => {
                     untracked += 1;
                     formatted_entries.push("untracked");
                 }
@@ -362,11 +436,10 @@ impl GitStatusPlugin {
 
 impl Plugin for GitStatusPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        let spinner = SPINNER.write();
-        spinner.set_status("Checking Git status...".to_string());
-        let entry = decorate_git_entry(entry);
-        spinner.finish();
-        entry
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -376,7 +449,7 @@ impl Plugin for GitStatusPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         let spinner = SPINNER.write();
         spinner.set_status("Checking Git status...".to_string());
-        let entries = entries.into_iter().map(decorate_git_entry).collect();
+        let entries = self.decorate_batch_entries(entries);
         spinner.finish();
         entries
     }
@@ -401,31 +474,97 @@ impl Plugin for GitStatusPlugin {
     }
 }
 
-fn decorate_git_entry(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-    if let Some((status, branch, commit)) = GitStatusPlugin::get_git_info(entry.path.as_ref()) {
-        let (summary, staged, modified, untracked, conflicts) =
-            GitStatusPlugin::format_git_status(&status);
-        entry.insert_field("git_status", value::string(&summary), summary);
-        entry.insert_field("git_branch", value::string(&branch), branch);
-        entry.custom_fields.insert("git_commit".to_string(), commit);
-        entry.insert_field(
-            "git_staged",
-            value::integer(staged as i64),
-            staged.to_string(),
-        );
-        entry.insert_field(
-            "git_modified",
-            value::integer(modified as i64),
-            modified.to_string(),
-        );
-        entry
-            .custom_fields
-            .insert("git_untracked".to_string(), untracked.to_string());
-        entry
-            .custom_fields
-            .insert("git_conflicts".to_string(), conflicts.to_string());
-    }
+fn decorate_git_entry(entry: &mut proto::DecoratedEntry, status: &str, branch: &str, commit: &str) {
+    let (summary, staged, modified, untracked, conflicts) =
+        GitStatusPlugin::format_git_status(status);
+    entry.insert_field("git_status", value::string(&summary), summary);
+    entry.insert_field("git_branch", value::string(branch), branch);
     entry
+        .custom_fields
+        .insert("git_commit".to_string(), commit.to_string());
+    entry.insert_field(
+        "git_staged",
+        value::integer(staged as i64),
+        staged.to_string(),
+    );
+    entry.insert_field(
+        "git_modified",
+        value::integer(modified as i64),
+        modified.to_string(),
+    );
+    entry
+        .custom_fields
+        .insert("git_untracked".to_string(), untracked.to_string());
+    entry
+        .custom_fields
+        .insert("git_conflicts".to_string(), conflicts.to_string());
+}
+
+fn read_repository_statuses(root: &Path) -> Option<Vec<(String, String)>> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| parse_status_z(&output.stdout))
+}
+
+fn git_worktree_fingerprint(root: &Path) -> Option<String> {
+    let git_dir = git_directory(root)?;
+    let head = git_head_fingerprint(root)?;
+    let index = lla_plugin_utils::file_fingerprint(&git_dir.join("index")).unwrap_or_default();
+    let root_metadata = lla_plugin_utils::file_fingerprint(root).unwrap_or_default();
+    Some(format!("{head}:{index}:{root_metadata}"))
+}
+
+fn parse_status_z(bytes: &[u8]) -> Vec<(String, String)> {
+    let mut records = Vec::new();
+    let mut fields = bytes
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    while let Some(field) = fields.next() {
+        if field.len() < 4 {
+            continue;
+        }
+        let status = String::from_utf8_lossy(&field[..2]).into_owned();
+        let path = String::from_utf8_lossy(&field[3..]).into_owned();
+        if matches!(field[0], b'R' | b'C') {
+            let _ = fields.next();
+        }
+        records.push((status, path));
+    }
+    records
+}
+
+fn git_head_fingerprint(root: &Path) -> Option<String> {
+    let git_dir = git_directory(root)?;
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let target = head
+        .trim()
+        .strip_prefix("ref: ")
+        .and_then(|reference| std::fs::read_to_string(git_dir.join(reference)).ok())
+        .unwrap_or_default();
+    let packed =
+        lla_plugin_utils::file_fingerprint(&git_dir.join("packed-refs")).unwrap_or_default();
+    Some(format!("{}:{}:{packed}", head.trim(), target.trim()))
+}
+
+fn git_directory(root: &Path) -> Option<std::path::PathBuf> {
+    let dot_git = root.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    let source = std::fs::read_to_string(dot_git).ok()?;
+    let relative = source.trim().strip_prefix("gitdir: ")?;
+    let candidate = Path::new(relative);
+    Some(if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        root.join(candidate)
+    })
 }
 
 impl Default for GitStatusPlugin {
@@ -447,3 +586,28 @@ impl ConfigurablePlugin for GitStatusPlugin {
 }
 
 lla_plugin_sdk::export_plugin!(GitStatusPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_zero_delimited_statuses_and_rename_pairs() {
+        let statuses = parse_status_z(b" M src/lib.rs\0?? new.txt\0R  new.rs\0old.rs\0");
+        assert_eq!(
+            statuses,
+            vec![
+                (" M".to_string(), "src/lib.rs".to_string()),
+                ("??".to_string(), "new.txt".to_string()),
+                ("R ".to_string(), "new.rs".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn status_summary_counts_untracked_entries() {
+        let (summary, _, _, untracked, _) = GitStatusPlugin::format_git_status("?? new.txt");
+        assert_eq!(summary, "untracked");
+        assert_eq!(untracked, 1);
+    }
+}

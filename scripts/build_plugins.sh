@@ -96,11 +96,19 @@ mkdir -p "$STAGING_DIR"
 
 # Collect plugin crate names from plugins/*/Cargo.toml (Bash 3 compatible)
 PLUGIN_CRATES=()
+NATIVE_PLUGIN_CRATES=()
+WASM_PLUGIN_CRATES=()
 for f in plugins/*/Cargo.toml; do
   if [[ -f "$f" ]]; then
     name=$(awk -F ' = ' '/^name *=/ {gsub(/"/, "", $2); print $2; exit}' "$f" || true)
     if [[ -n "$name" ]]; then
       PLUGIN_CRATES+=("$name")
+      runtime=$(awk -F ' = ' '/^runtime *=/ {gsub(/"/, "", $2); print $2; exit}' "plugins/$name/plugin.toml" || true)
+      case "$runtime" in
+        native|"") NATIVE_PLUGIN_CRATES+=("$name") ;;
+        wasm-component) WASM_PLUGIN_CRATES+=("$name") ;;
+        *) echo "Unsupported plugin runtime '$runtime' in plugins/$name/plugin.toml" 1>&2; exit 1 ;;
+      esac
     fi
   fi
 done
@@ -125,11 +133,13 @@ rustup target add "$TARGET_TRIPLE" >/dev/null 2>&1 || true
 
 # Build all plugin crates in one cargo invocation to leverage workspace caching
 BUILD_PKGS=( )
-for crate in "${PLUGIN_CRATES[@]}"; do
+for crate in "${NATIVE_PLUGIN_CRATES[@]}"; do
   BUILD_PKGS+=( -p "$crate" )
 done
 
-if [[ -n "$GLIBC_VERSION" ]]; then
+if [[ ${#NATIVE_PLUGIN_CRATES[@]} -eq 0 ]]; then
+  echo "No native plugins to build"
+elif [[ -n "$GLIBC_VERSION" ]]; then
   BUILD_TARGET="${TARGET_TRIPLE}.${GLIBC_VERSION}"
   echo "Running: cargo zigbuild --release --target $BUILD_TARGET ${BUILD_PKGS[*]}"
   cargo zigbuild --release --target "$BUILD_TARGET" "${BUILD_PKGS[@]}"
@@ -143,11 +153,26 @@ else
   cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 fi
 
+if [[ ${#WASM_PLUGIN_CRATES[@]} -gt 0 ]]; then
+  echo "Building WASM components: ${WASM_PLUGIN_CRATES[*]}"
+  rustup target add wasm32-wasip2 --toolchain stable >/dev/null
+  WASM_RUSTC=$(rustup which rustc --toolchain stable)
+  WASM_BUILD_PKGS=( )
+  for crate in "${WASM_PLUGIN_CRATES[@]}"; do
+    WASM_BUILD_PKGS+=( -p "$crate" )
+  done
+  RUSTC="$WASM_RUSTC" rustup run stable cargo build --release --target wasm32-wasip2 "${WASM_BUILD_PKGS[@]}"
+fi
+
 # Package each plugin as a v3 directory containing its manifest and native entrypoint.
 for crate in "${PLUGIN_CRATES[@]}"; do
   # Cargo turns '-' into '_' in library filenames (e.g. my-plugin -> libmy_plugin.so)
   artifact_name="${crate//-/_}"
-  if [[ "$DL_EXT" == "dll" ]]; then
+  runtime=$(awk -F ' = ' '/^runtime *=/ {gsub(/"/, "", $2); print $2; exit}' "plugins/$crate/plugin.toml" || true)
+  entrypoint=$(awk -F ' = ' '/^entrypoint *=/ {gsub(/"/, "", $2); print $2; exit}' "plugins/$crate/plugin.toml" || true)
+  if [[ "$runtime" == "wasm-component" ]]; then
+    SRC="target/wasm32-wasip2/release/$entrypoint"
+  elif [[ "$DL_EXT" == "dll" ]]; then
     SRC="target/${TARGET_TRIPLE}/release/${artifact_name}.dll"
   else
     SRC="target/${TARGET_TRIPLE}/release/lib${artifact_name}.${DL_EXT}"

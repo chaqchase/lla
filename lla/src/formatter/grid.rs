@@ -34,6 +34,7 @@ impl FileFormatter for GridFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "grid");
 
         let term_width = if self.grid_ignore {
             self.max_width

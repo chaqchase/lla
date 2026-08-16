@@ -1,9 +1,8 @@
 use lazy_static::lazy_static;
 use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
-use lla_plugin_utils::{
-    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
-};
+use lla_plugin_utils::{decode_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -46,7 +45,7 @@ lazy_static! {
     });
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 struct ProjectInfo {
     project_types: Vec<String>,
     root: PathBuf,
@@ -59,7 +58,9 @@ struct ProjectInfo {
     git_branch: Option<String>,
 }
 
-pub struct ProjectContextPlugin;
+pub struct ProjectContextPlugin {
+    cache: lla_plugin_utils::PersistentCache<ProjectInfo>,
+}
 
 impl ProjectContextPlugin {
     fn find_root(path: &Path) -> Option<PathBuf> {
@@ -207,52 +208,62 @@ impl ProjectContextPlugin {
             })
     }
 
-    fn decorate(mut entry: DecoratedEntry) -> DecoratedEntry {
-        let info = Self::info_for(&entry.path);
-        entry.custom_fields.insert(
-            "project_type".to_string(),
-            if info.project_types.is_empty() {
-                "none".to_string()
-            } else {
-                info.project_types.join("+")
-            },
-        );
-        entry.custom_fields.insert(
-            "project_root".to_string(),
-            info.root.to_string_lossy().to_string(),
-        );
-        entry
-            .custom_fields
-            .insert("project_health".to_string(), info.health);
-        entry
-            .custom_fields
-            .insert("project_issues".to_string(), info.issues.to_string());
-        entry
-            .custom_fields
-            .insert("lockfile_state".to_string(), info.lockfile_state);
-        entry.custom_fields.insert(
-            "build_artifacts".to_string(),
-            if info.build_artifacts.is_empty() {
-                "none".to_string()
-            } else {
-                info.build_artifacts.join(", ")
-            },
-        );
-        entry.custom_fields.insert(
-            "toolchains".to_string(),
-            if info.toolchains.is_empty() {
-                "none".to_string()
-            } else {
-                info.toolchains.join("; ")
-            },
-        );
-        entry
-            .custom_fields
-            .insert("repository_state".to_string(), info.repository_state);
-        if let Some(branch) = info.git_branch {
-            entry.custom_fields.insert("git_branch".to_string(), branch);
+    fn cached_info_for(&mut self, root: &Path) -> ProjectInfo {
+        let key = lla_plugin_utils::canonical_cache_key(root);
+        let fingerprint = project_fingerprint(root);
+        if let Some(info) = self.cache.get_fresh_matching(
+            &key,
+            Some(&fingerprint),
+            std::time::Duration::from_secs(2),
+        ) {
+            return info;
         }
-        entry
+        CACHE.write().remove(root);
+        let info = Self::analyze(root);
+        self.cache.insert(key, fingerprint, info.clone());
+        info
+    }
+
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let mut roots = std::collections::BTreeMap::<PathBuf, Vec<usize>>::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(root) = Self::find_root(Path::new(&entry.path)) {
+                roots.entry(root).or_default().push(index);
+            }
+        }
+        let mut assigned = std::collections::HashSet::new();
+        for (root, indices) in roots {
+            let info = self.cached_info_for(&root);
+            for index in indices {
+                decorate_proto(&mut entries[index], &info);
+                assigned.insert(index);
+            }
+        }
+        for (index, entry) in entries.iter_mut().enumerate() {
+            if assigned.contains(&index) {
+                continue;
+            }
+            let path = Path::new(&entry.path);
+            let info = ProjectInfo {
+                root: if path.is_dir() {
+                    path.to_path_buf()
+                } else {
+                    path.parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .to_path_buf()
+                },
+                health: "not-a-project".to_string(),
+                lockfile_state: "none".to_string(),
+                repository_state: "none".to_string(),
+                ..ProjectInfo::default()
+            };
+            decorate_proto(entry, &info);
+        }
+        let _ = self.cache.persist();
+        entries
     }
 
     fn format(entry: &DecoratedEntry, format: &str) -> Option<String> {
@@ -387,7 +398,10 @@ fn repository_health(root: &Path) -> (String, Option<String>, usize) {
 
 impl Plugin for ProjectContextPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -395,9 +409,9 @@ impl Plugin for ProjectContextPlugin {
         entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
-        entries
+        self.decorate_batch_entries(entries)
             .into_iter()
-            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
+            .map(promote_v3_fields)
             .collect()
     }
 
@@ -408,6 +422,10 @@ impl Plugin for ProjectContextPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        if action == "refresh" {
+            self.cache.clear();
+            let _ = self.cache.persist();
+        }
         run_cli_action(
             &action,
             arguments,
@@ -442,8 +460,96 @@ lla_plugin_sdk::export_plugin!(ProjectContextPlugin);
 
 impl Default for ProjectContextPlugin {
     fn default() -> Self {
-        Self
+        Self {
+            cache: lla_plugin_utils::PersistentCache::for_plugin(
+                env!("CARGO_PKG_NAME"),
+                "project-cache.toml",
+                1,
+                2_000,
+            ),
+        }
     }
+}
+
+fn decorate_proto(entry: &mut proto::DecoratedEntry, info: &ProjectInfo) {
+    entry.custom_fields.insert(
+        "project_type".to_string(),
+        if info.project_types.is_empty() {
+            "none".to_string()
+        } else {
+            info.project_types.join("+")
+        },
+    );
+    entry.custom_fields.insert(
+        "project_root".to_string(),
+        info.root.to_string_lossy().to_string(),
+    );
+    entry
+        .custom_fields
+        .insert("project_health".to_string(), info.health.clone());
+    entry
+        .custom_fields
+        .insert("project_issues".to_string(), info.issues.to_string());
+    entry
+        .custom_fields
+        .insert("lockfile_state".to_string(), info.lockfile_state.clone());
+    entry.custom_fields.insert(
+        "build_artifacts".to_string(),
+        if info.build_artifacts.is_empty() {
+            "none".to_string()
+        } else {
+            info.build_artifacts.join(", ")
+        },
+    );
+    entry.custom_fields.insert(
+        "toolchains".to_string(),
+        if info.toolchains.is_empty() {
+            "none".to_string()
+        } else {
+            info.toolchains.join("; ")
+        },
+    );
+    entry.custom_fields.insert(
+        "repository_state".to_string(),
+        info.repository_state.clone(),
+    );
+    if let Some(branch) = info.git_branch.as_ref() {
+        entry
+            .custom_fields
+            .insert("git_branch".to_string(), branch.clone());
+    }
+}
+
+fn project_fingerprint(root: &Path) -> String {
+    const WATCHED: &[&str] = &[
+        "Cargo.toml",
+        "Cargo.lock",
+        "package.json",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "bun.lock",
+        "pyproject.toml",
+        "requirements.txt",
+        "uv.lock",
+        "poetry.lock",
+        "go.mod",
+        "go.sum",
+        ".git/HEAD",
+        ".git/index",
+    ];
+    let source = WATCHED
+        .iter()
+        .map(|path| {
+            let path = root.join(path);
+            format!(
+                "{path:?}:{}",
+                lla_plugin_utils::file_fingerprint(&path).unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    lla_plugin_utils::text_fingerprint(&source)
 }
 
 #[cfg(test)]

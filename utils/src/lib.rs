@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod cache;
 pub mod config;
 pub mod format;
 pub mod syntax;
@@ -6,6 +7,9 @@ pub mod trash;
 pub mod ui;
 
 pub use actions::{Action, ActionHelp, ActionRegistry};
+pub use cache::{
+    canonical_cache_key, file_fingerprint, plugin_data_dir, text_fingerprint, PersistentCache,
+};
 pub use config::{ConfigManager, PluginConfig};
 pub use syntax::CodeHighlighter;
 pub use ui::{
@@ -13,10 +17,9 @@ pub use ui::{
     TextBlock, TextStyle,
 };
 
-use lla_plugin_interface::manifest::{
-    ActionArgument, ActionArgumentType, ActionDescriptor, PluginManifest,
-};
+use lla_plugin_interface::manifest::{ActionArgument, PluginManifest};
 use lla_plugin_interface::proto;
+pub use lla_plugin_sdk::manifest_action_infos;
 use lla_plugin_sdk::{response, ActionArguments, ActionError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -201,56 +204,6 @@ pub fn run_cli_action(
     match typed_action_arguments_as_strings(action_id, &arguments, manifest_source) {
         Ok(arguments) => response::from_result(handler(&arguments)),
         Err(error) => response::error(error),
-    }
-}
-
-/// Builds the runtime handler inventory from the embedded v3 manifest.
-///
-/// The manifest is validated by the export macro at compile time. Reading it
-/// here keeps action descriptions, examples, and usage in one source of truth
-/// while still letting `plugin doctor` compare declared IDs with handlers.
-pub fn manifest_action_infos(manifest_source: &str) -> Vec<proto::ActionInfo> {
-    let manifest: PluginManifest = toml::from_str(manifest_source)
-        .expect("exported plugin.toml must remain parseable at runtime");
-    manifest
-        .actions
-        .iter()
-        .map(|action| proto::ActionInfo {
-            name: action.id.clone(),
-            usage: action_usage(action),
-            description: action.description.clone(),
-            examples: action.examples.clone(),
-        })
-        .collect()
-}
-
-fn action_usage(action: &ActionDescriptor) -> String {
-    let mut arguments = action.arguments.iter().collect::<Vec<_>>();
-    arguments.sort_by_key(|argument| (argument.position.is_none(), argument.position));
-    let arguments = arguments
-        .into_iter()
-        .map(|argument| {
-            let value = match argument.argument_type {
-                ActionArgumentType::Boolean if argument.option.is_some() => String::new(),
-                _ if argument.repeatable => format!("<{}>...", argument.name),
-                _ => format!("<{}>", argument.name),
-            };
-            let token = match argument.option.as_deref() {
-                Some(option) if value.is_empty() => option.to_string(),
-                Some(option) => format!("{option} {value}"),
-                None => value,
-            };
-            if argument.required {
-                token
-            } else {
-                format!("[{token}]")
-            }
-        })
-        .collect::<Vec<_>>();
-    if arguments.is_empty() {
-        action.id.clone()
-    } else {
-        format!("{} {}", action.id, arguments.join(" "))
     }
 }
 

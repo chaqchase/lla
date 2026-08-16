@@ -3,7 +3,7 @@ use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt
 use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
-    decode_decorated_entry, map_decorated_entry, run_cli_action,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         TextBlock,
@@ -17,18 +17,11 @@ use std::{
     collections::HashMap,
     fs::File,
     io::Read,
-    path::{Path, PathBuf},
-    time::SystemTime,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Clone)]
-struct FileInfo {
-    path: PathBuf,
-    modified: SystemTime,
-}
-
 lazy_static! {
-    static ref CACHE: RwLock<HashMap<String, Vec<FileInfo>>> = RwLock::new(HashMap::new());
     static ref SPINNER: RwLock<Spinner> = RwLock::new(Spinner::new());
     static ref ACTION_REGISTRY: RwLock<ActionRegistry> = RwLock::new({
         let mut registry = ActionRegistry::new();
@@ -42,7 +35,6 @@ lazy_static! {
             |_| {
                 let spinner = SPINNER.write();
                 spinner.set_status("Clearing cache...".to_string());
-                CACHE.write().clear();
                 spinner.finish();
                 println!(
                     "{}",
@@ -141,6 +133,7 @@ impl PluginConfig for DuplicateConfig {}
 
 pub struct DuplicateFileDetectorPlugin {
     base: BasePlugin<DuplicateConfig>,
+    hash_cache: lla_plugin_utils::PersistentCache<String>,
 }
 
 impl DuplicateFileDetectorPlugin {
@@ -148,6 +141,12 @@ impl DuplicateFileDetectorPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            hash_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "hash-cache.toml",
+                1,
+                50_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[DuplicateFileDetectorPlugin] Failed to save config: {}", e);
@@ -170,64 +169,45 @@ impl DuplicateFileDetectorPlugin {
         Some(format!("{:x}", hasher.finalize()))
     }
 
-    fn process_entry(&self, mut entry: DecoratedEntry) -> DecoratedEntry {
-        if !entry.metadata.is_file {
-            return entry;
+    fn hash_for(&mut self, path: &Path) -> Option<String> {
+        let key = lla_plugin_utils::canonical_cache_key(path);
+        let fingerprint = lla_plugin_utils::file_fingerprint(path).ok()?;
+        if let Some(hash) = self.hash_cache.get(&key, &fingerprint) {
+            return Some(hash);
         }
+        let hash = Self::get_file_hash(path)?;
+        self.hash_cache.insert(key, fingerprint, hash.clone());
+        Some(hash)
+    }
 
+    fn process_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
         let spinner = SPINNER.write();
         spinner.set_status("Checking for duplicates...".to_string());
 
-        if let Some(hash) = Self::get_file_hash(&entry.path) {
-            let mut cache = CACHE.write();
-            let entries = cache.entry(hash).or_default();
-
-            let modified = entry
-                .path
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .unwrap_or_else(SystemTime::now);
-
-            if !entries.iter().any(|f| f.path == entry.path) {
-                entries.push(FileInfo {
-                    path: entry.path.clone(),
-                    modified,
-                });
+        let mut by_size = HashMap::<u64, Vec<usize>>::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(metadata) = entry.metadata.as_ref().filter(|metadata| metadata.is_file) {
+                by_size.entry(metadata.size).or_default().push(index);
             }
+        }
 
-            if entries.len() > 1 {
-                let oldest = entries.iter().min_by_key(|f| f.modified).unwrap();
-
-                if oldest.path == entry.path {
-                    entry
-                        .custom_fields
-                        .insert("has_duplicates".to_string(), "true".to_string());
-
-                    let duplicate_paths: Vec<String> = entries
-                        .iter()
-                        .filter(|f| f.path != oldest.path)
-                        .map(|f| f.path.to_string_lossy().to_string())
-                        .collect();
-
-                    entry
-                        .custom_fields
-                        .insert("duplicate_paths".to_string(), duplicate_paths.join(", "));
-                } else {
-                    entry
-                        .custom_fields
-                        .insert("is_duplicate".to_string(), "true".to_string());
-
-                    entry.custom_fields.insert(
-                        "original_path".to_string(),
-                        oldest.path.to_string_lossy().to_string(),
-                    );
+        let mut by_hash = HashMap::<String, Vec<usize>>::new();
+        for candidates in by_size.into_values().filter(|indices| indices.len() > 1) {
+            for index in candidates {
+                if let Some(hash) = self.hash_for(Path::new(&entries[index].path)) {
+                    by_hash.entry(hash).or_default().push(index);
                 }
             }
         }
 
+        mark_duplicate_groups(&mut entries, by_hash);
+
+        let _ = self.hash_cache.persist();
         spinner.finish();
-        entry
+        entries
     }
 
     fn format_duplicate_info(&self, entry: &DecoratedEntry, format: &str) -> Option<String> {
@@ -338,9 +318,10 @@ impl DuplicateFileDetectorPlugin {
 
 impl Plugin for DuplicateFileDetectorPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        promote_duplicate_fields(map_decorated_entry(entry, |entry| {
-            self.process_entry(entry)
-        }))
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -348,13 +329,9 @@ impl Plugin for DuplicateFileDetectorPlugin {
         entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
-        entries
+        self.process_batch(entries)
             .into_iter()
-            .map(|entry| {
-                promote_duplicate_fields(map_decorated_entry(entry, |entry| {
-                    self.process_entry(entry)
-                }))
-            })
+            .map(promote_duplicate_fields)
             .collect()
     }
 
@@ -365,6 +342,10 @@ impl Plugin for DuplicateFileDetectorPlugin {
     }
 
     fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        if action == "clear-cache" {
+            self.hash_cache.clear();
+            let _ = self.hash_cache.persist();
+        }
         run_cli_action(
             &action,
             arguments,
@@ -375,6 +356,58 @@ impl Plugin for DuplicateFileDetectorPlugin {
 
     fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
         lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
+    }
+}
+
+fn modified_ns(path: &Path) -> u128 {
+    path.metadata()
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        })
+}
+
+fn mark_duplicate_groups(
+    entries: &mut [proto::DecoratedEntry],
+    by_hash: HashMap<String, Vec<usize>>,
+) {
+    for duplicates in by_hash.into_values().filter(|indices| indices.len() > 1) {
+        let original = duplicates
+            .iter()
+            .copied()
+            .min_by_key(|index| modified_ns(Path::new(&entries[*index].path)))
+            .unwrap_or(duplicates[0]);
+        let original_path = entries[original].path.clone();
+        let duplicate_paths = duplicates
+            .iter()
+            .copied()
+            .filter(|index| *index != original)
+            .map(|index| entries[index].path.clone())
+            .collect::<Vec<_>>();
+
+        for index in duplicates {
+            if index == original {
+                entries[index]
+                    .custom_fields
+                    .insert("has_duplicates".to_string(), "true".to_string());
+                entries[index]
+                    .custom_fields
+                    .insert("duplicate_paths".to_string(), duplicate_paths.join(", "));
+            } else {
+                entries[index]
+                    .custom_fields
+                    .insert("is_duplicate".to_string(), "true".to_string());
+                entries[index]
+                    .custom_fields
+                    .insert("original_path".to_string(), original_path.clone());
+            }
+        }
     }
 }
 
@@ -409,3 +442,36 @@ impl ConfigurablePlugin for DuplicateFileDetectorPlugin {
 }
 
 lla_plugin_sdk::export_plugin!(DuplicateFileDetectorPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_marks_the_original_and_every_duplicate() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("first.txt");
+        let second = root.path().join("second.txt");
+        std::fs::write(&first, "same").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::fs::write(&second, "same").unwrap();
+        let mut entries = vec![
+            proto::DecoratedEntry {
+                path: first.to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+            proto::DecoratedEntry {
+                path: second.to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+        ];
+        mark_duplicate_groups(
+            &mut entries,
+            HashMap::from([("hash".to_string(), vec![0, 1])]),
+        );
+
+        assert_eq!(entries[0].custom_fields["has_duplicates"], "true");
+        assert_eq!(entries[1].custom_fields["is_duplicate"], "true");
+        assert_eq!(entries[1].custom_fields["original_path"], entries[0].path);
+    }
+}

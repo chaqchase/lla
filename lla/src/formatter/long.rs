@@ -77,6 +77,7 @@ impl FileFormatter for LongFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "long");
 
         let mut widths = vec![0usize; self.columns.len()];
         let mut rendered_rows: Vec<Vec<String>> = Vec::with_capacity(files.len());

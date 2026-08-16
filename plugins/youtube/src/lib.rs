@@ -70,6 +70,7 @@ impl PluginConfig for YouTubeConfig {}
 pub struct YouTubePlugin {
     base: BasePlugin<YouTubeConfig>,
     http: Client,
+    suggestion_cache: std::cell::RefCell<lla_plugin_utils::PersistentCache<Vec<String>>>,
 }
 
 impl YouTubePlugin {
@@ -82,6 +83,14 @@ impl YouTubePlugin {
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
             http: client,
+            suggestion_cache: std::cell::RefCell::new(
+                lla_plugin_utils::PersistentCache::for_plugin(
+                    plugin_name,
+                    "suggestion-cache.toml",
+                    1,
+                    2_000,
+                ),
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[YouTubePlugin] Failed to save config: {}", e);
@@ -145,6 +154,14 @@ impl YouTubePlugin {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
+        let cache_key = query.trim().to_lowercase();
+        if let Some(suggestions) = self
+            .suggestion_cache
+            .borrow_mut()
+            .get_fresh(&cache_key, Duration::from_secs(60 * 60))
+        {
+            return Ok(suggestions);
+        }
 
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -169,6 +186,9 @@ impl YouTubePlugin {
                 .filter_map(|s| s.as_str().map(|s| s.to_string()))
                 .take(10)
                 .collect();
+            let mut cache = self.suggestion_cache.borrow_mut();
+            cache.insert(cache_key, "suggestions-v1", results.clone());
+            let _ = cache.persist();
             Ok(results)
         } else {
             Ok(Vec::new())

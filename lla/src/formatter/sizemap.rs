@@ -198,6 +198,7 @@ impl FileFormatter for SizeMapFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "sizemap");
 
         let term_width = terminal_size()
             .map(|(Width(w), _)| w as usize)

@@ -35,5 +35,75 @@ for manifest in plugins/*/plugin.toml; do
   fi
 done
 
+# Package verification runs WASM components with exactly their declared
+# permissions without persisting release-test grants in the archive.
+GRANTS_PATH="$PACKAGE_DIR/plugin-grants.toml"
+REMOVE_GRANTS=false
+if [[ ! -f "$GRANTS_PATH" ]]; then
+  python3 - "$PACKAGE_DIR" "$GRANTS_PATH" <<'PY'
+import json
+import pathlib
+import sys
+import tomllib
+
+package_dir = pathlib.Path(sys.argv[1])
+grants_path = pathlib.Path(sys.argv[2])
+lines = ["schema_version = 1", ""]
+for manifest_path in sorted(package_dir.glob("*/plugin.toml")):
+    manifest = tomllib.loads(manifest_path.read_text())
+    if manifest["plugin"].get("runtime", "native") != "wasm-component":
+        continue
+    plugin = manifest["plugin"]
+    permissions = manifest.get("permissions", {})
+    plugin_id = json.dumps(plugin["id"])
+    lines.extend([
+        f"[plugins.{plugin_id}]",
+        f"version = {json.dumps(plugin['version'])}",
+        "",
+        f"[plugins.{plugin_id}.permissions]",
+        "filesystem = " + json.dumps(permissions.get("filesystem", [])),
+        "network = " + json.dumps(permissions.get("network", [])),
+        "process = " + str(permissions.get("process", False)).lower(),
+        "clipboard = " + str(permissions.get("clipboard", False)).lower(),
+        "open_url = " + str(permissions.get("open_url", False)).lower(),
+        "",
+    ])
+grants_path.write_text("\n".join(lines))
+PY
+  REMOVE_GRANTS=true
+fi
+
+cleanup_grants() {
+  if [[ "$REMOVE_GRANTS" == true ]]; then
+    rm -f "$GRANTS_PATH"
+  fi
+}
+trap cleanup_grants EXIT
+
 cargo build -p lla
-target/debug/lla --plugins-dir "$PACKAGE_DIR" plugin doctor
+TEST_HOME=$(mktemp -d)
+cleanup_all() {
+  cleanup_grants
+  rm -rf "$TEST_HOME"
+}
+trap cleanup_all EXIT
+
+HOME="$TEST_HOME" target/debug/lla --plugins-dir "$PACKAGE_DIR" plugin doctor
+
+if [[ -f "$PACKAGE_DIR/file_hash/file_hash.wasm" ]]; then
+  HOME="$TEST_HOME" target/debug/lla --plugins-dir "$PACKAGE_DIR" \
+    plugin run file_hash help --output json >/dev/null
+  HASH_FIXTURE="$TEST_HOME/hash-fixture"
+  mkdir -p "$HASH_FIXTURE"
+  printf 'abc' > "$HASH_FIXTURE/abc.txt"
+  HOME="$TEST_HOME" target/debug/lla --plugins-dir "$PACKAGE_DIR" \
+    --enable-plugin file_hash --json "$HASH_FIXTURE" | python3 -c '
+import json
+import sys
+
+entries = json.load(sys.stdin)
+fields = entries[0]["plugin"]
+assert fields["sha1"] == "a9993e364706816aba3e25717850c26c9cd0d89d"
+assert fields["sha256"] == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+'
+fi

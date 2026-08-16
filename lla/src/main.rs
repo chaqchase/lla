@@ -41,7 +41,9 @@ fn run() -> Result<()> {
         if !DYNAMIC_PLUGINS_AVAILABLE {
             return Err(LlaError::Plugin(DYNAMIC_PLUGINS_UNAVAILABLE.to_string()));
         }
-        let mut plugin_manager = PluginManager::new(config.clone());
+        let mut plugin_config = config.clone();
+        plugin_config.plugins_dir.clone_from(&args.plugins_dir);
+        let mut plugin_manager = PluginManager::new(plugin_config);
         return plugin_manager.clean_plugins(&args.plugins_dir);
     }
 
@@ -79,7 +81,9 @@ fn load_config() -> Result<(Config, Option<error::LlaError>)> {
 }
 
 fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManager> {
-    let mut plugin_manager = PluginManager::new(config.clone());
+    let mut plugin_config = config.clone();
+    plugin_config.plugins_dir.clone_from(&args.plugins_dir);
+    let mut plugin_manager = PluginManager::new(plugin_config);
     let plugin_paths = config.plugin_search_paths(Some(&args.plugins_dir));
     match &args.command {
         Some(Command::ListPlugins | Command::Use) => {

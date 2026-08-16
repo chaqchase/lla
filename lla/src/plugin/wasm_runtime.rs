@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{
     DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView,
 };
@@ -103,6 +103,7 @@ impl WasmPlugin {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.epoch_interruption(true);
+        configure_compilation_cache(&mut config);
         let engine = Engine::new(&config)
             .map_err(|error| LlaError::Plugin(format!("failed to initialize Wasmtime: {error}")))?;
         let component = Component::from_file(&engine, path).map_err(|error| {
@@ -205,6 +206,23 @@ impl WasmPlugin {
     }
 }
 
+fn configure_compilation_cache(config: &mut Config) {
+    let Some(directory) = compilation_cache_dir() else {
+        return;
+    };
+    let mut cache_config = CacheConfig::new();
+    cache_config.with_directory(directory);
+    if let Ok(cache) = Cache::new(cache_config) {
+        config.cache(Some(cache));
+    }
+}
+
+fn compilation_cache_dir() -> Option<PathBuf> {
+    std::env::var_os("LLA_WASMTIME_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| dirs::cache_dir().map(|directory| directory.join("lla").join("wasmtime")))
+}
+
 fn build_store(
     engine: &Engine,
     manifest: &PluginManifest,
@@ -235,17 +253,20 @@ fn build_store(
         let accepts_user_paths = filesystem
             .iter()
             .any(|scope| scope.ends_with(":user-path") || scope == "write:selected-destination");
-        let mut roots = std::collections::BTreeMap::<PathBuf, PreopenAccess>::new();
+        let mut roots = std::collections::BTreeMap::<(PathBuf, PathBuf), PreopenAccess>::new();
         for requested in request_paths(request, accepts_user_paths) {
             let access = PreopenAccess::for_request(requested.kind, filesystem);
             if !access.directory_read {
                 continue;
             }
-            let root = canonical_preopen_root(&requested.path, access.tree)?;
-            roots.entry(root).or_default().merge(access);
+            let (host_root, guest_root) = preopen_roots(&requested.path, access.tree)?;
+            roots
+                .entry((host_root, guest_root))
+                .or_default()
+                .merge(access);
         }
-        for (root, access) in roots {
-            let guest = root.to_string_lossy().to_string();
+        for ((host_root, guest_root), access) in roots {
+            let guest = guest_root.to_string_lossy().to_string();
             let mut dir_perms = DirPerms::READ;
             if access.directory_mutate {
                 dir_perms |= DirPerms::MUTATE;
@@ -257,11 +278,11 @@ fn build_store(
             if access.file_write {
                 file_perms |= FilePerms::WRITE;
             }
-            wasi.preopened_dir(&root, &guest, dir_perms, file_perms)
+            wasi.preopened_dir(&host_root, &guest, dir_perms, file_perms)
                 .map_err(|error| {
                     LlaError::Plugin(format!(
                         "failed to preopen approved path {}: {error}",
-                        root.display()
+                        host_root.display()
                     ))
                 })?;
         }
@@ -400,7 +421,12 @@ fn collect_value_paths(value: proto::TypedValue, paths: &mut Vec<RequestedPath>)
     }
 }
 
+#[cfg(test)]
 fn canonical_preopen_root(path: &Path, tree_access: bool) -> LlaResult<PathBuf> {
+    preopen_roots(path, tree_access).map(|(host_root, _)| host_root)
+}
+
+fn preopen_roots(path: &Path, tree_access: bool) -> LlaResult<(PathBuf, PathBuf)> {
     if path
         .components()
         .any(|component| component == PathComponent::ParentDir)
@@ -410,13 +436,14 @@ fn canonical_preopen_root(path: &Path, tree_access: bool) -> LlaResult<PathBuf> 
             path.display()
         )));
     }
-    let absolute = if path.is_absolute() {
+    let is_absolute = path.is_absolute();
+    let absolute = if is_absolute {
         path.to_path_buf()
     } else {
         std::env::current_dir()?.join(path)
     };
     let metadata = std::fs::symlink_metadata(&absolute).ok();
-    let root = if tree_access
+    let host_candidate = if tree_access
         && metadata
             .as_ref()
             .is_some_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
@@ -428,12 +455,27 @@ fn canonical_preopen_root(path: &Path, tree_access: bool) -> LlaResult<PathBuf> 
             .ok_or_else(|| LlaError::Plugin("granted path has no parent".to_string()))?
             .to_path_buf()
     };
-    root.canonicalize().map_err(|error| {
+    let host_root = host_candidate.canonicalize().map_err(|error| {
         LlaError::Plugin(format!(
             "failed to canonicalize granted directory {}: {error}",
-            root.display()
+            host_candidate.display()
         ))
-    })
+    })?;
+    let guest_root = if is_absolute {
+        host_candidate
+    } else if tree_access
+        && metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+    {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
+    };
+    Ok((host_root, guest_root))
 }
 
 #[cfg(test)]
@@ -455,6 +497,27 @@ mod tests {
                 root.path().canonicalize().unwrap()
             );
         }
+    }
+
+    #[test]
+    fn preopen_roots_preserve_the_guest_path_alias() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("entry.txt");
+        std::fs::write(&file, b"test").unwrap();
+        let (host_root, guest_root) = preopen_roots(&file, false).unwrap();
+
+        assert_eq!(host_root, root.path().canonicalize().unwrap());
+        assert_eq!(guest_root, root.path());
+    }
+
+    #[test]
+    fn preopen_roots_preserve_relative_guest_paths() {
+        let current_dir = std::env::current_dir().unwrap();
+        let relative = Path::new("Cargo.toml");
+        let (host_root, guest_root) = preopen_roots(relative, false).unwrap();
+
+        assert_eq!(host_root, current_dir.canonicalize().unwrap());
+        assert_eq!(guest_root, Path::new("."));
     }
 
     #[test]

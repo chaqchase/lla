@@ -140,6 +140,12 @@ pub struct OutdatedCask {
     pub installed_versions: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CatalogCache {
+    formulae: Vec<Formula>,
+    casks: Vec<Cask>,
+}
+
 pub struct BrewPlugin {
     base: BasePlugin<BrewConfig>,
     http: Client,
@@ -147,6 +153,7 @@ pub struct BrewPlugin {
     catalog_formulae: Option<Vec<Formula>>,
     catalog_casks: Option<Vec<Cask>>,
     catalog_fetched_at: Option<Instant>,
+    catalog_cache: lla_plugin_utils::PersistentCache<CatalogCache>,
 }
 
 impl BrewPlugin {
@@ -166,6 +173,12 @@ impl BrewPlugin {
             catalog_formulae: None,
             catalog_casks: None,
             catalog_fetched_at: None,
+            catalog_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "catalog-cache.toml",
+                1,
+                2,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[BrewPlugin] Failed to save config: {}", e);
@@ -253,6 +266,17 @@ impl BrewPlugin {
         if !force && self.catalog_formulae.is_some() && self.catalog_casks.is_some() && !stale {
             return Ok(());
         }
+        if !force {
+            if let Some(catalog) = self
+                .catalog_cache
+                .get_fresh("homebrew-catalog", Duration::from_secs(60 * 60))
+            {
+                self.catalog_formulae = Some(catalog.formulae);
+                self.catalog_casks = Some(catalog.casks);
+                self.catalog_fetched_at = Some(Instant::now());
+                return Ok(());
+            }
+        }
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
@@ -263,24 +287,44 @@ impl BrewPlugin {
         pb.set_message("Fetching Homebrew catalog (formulae + casks)...");
         pb.enable_steady_tick(Duration::from_millis(80));
 
-        let formulae: Vec<Formula> = self
-            .http
-            .get(FORMULA_API_URL)
-            .send()
-            .map_err(|e| format!("Failed to fetch formula catalog: {}", e))?
-            .json()
-            .map_err(|e| format!("Failed to parse formula catalog: {}", e))?;
+        let (formulae, casks) = std::thread::scope(|scope| {
+            let formulae = scope.spawn(|| -> Result<Vec<Formula>, String> {
+                self.http
+                    .get(FORMULA_API_URL)
+                    .send()
+                    .map_err(|e| format!("Failed to fetch formula catalog: {}", e))?
+                    .json()
+                    .map_err(|e| format!("Failed to parse formula catalog: {}", e))
+            });
+            let casks = scope.spawn(|| -> Result<Vec<Cask>, String> {
+                self.http
+                    .get(CASK_API_URL)
+                    .send()
+                    .map_err(|e| format!("Failed to fetch cask catalog: {}", e))?
+                    .json()
+                    .map_err(|e| format!("Failed to parse cask catalog: {}", e))
+            });
 
-        let casks: Vec<Cask> = self
-            .http
-            .get(CASK_API_URL)
-            .send()
-            .map_err(|e| format!("Failed to fetch cask catalog: {}", e))?
-            .json()
-            .map_err(|e| format!("Failed to parse cask catalog: {}", e))?;
+            let formulae = formulae
+                .join()
+                .map_err(|_| "Formula catalog worker panicked".to_string())??;
+            let casks = casks
+                .join()
+                .map_err(|_| "Cask catalog worker panicked".to_string())??;
+            Ok::<_, String>((formulae, casks))
+        })?;
 
         pb.finish_and_clear();
 
+        self.catalog_cache.insert(
+            "homebrew-catalog",
+            "formulae-v1+casks-v1",
+            CatalogCache {
+                formulae: formulae.clone(),
+                casks: casks.clone(),
+            },
+        );
+        let _ = self.catalog_cache.persist();
         self.catalog_formulae = Some(formulae);
         self.catalog_casks = Some(casks);
         self.catalog_fetched_at = Some(Instant::now());
@@ -709,21 +753,9 @@ impl BrewPlugin {
         pb.set_message("Searching packages...");
         pb.enable_steady_tick(Duration::from_millis(100));
 
-        // Fetch formulae
-        let formulae: Vec<Formula> = self
-            .http
-            .get(FORMULA_API_URL)
-            .send()
-            .and_then(|r| r.json())
-            .unwrap_or_default();
-
-        // Fetch casks
-        let casks: Vec<Cask> = self
-            .http
-            .get(CASK_API_URL)
-            .send()
-            .and_then(|r| r.json())
-            .unwrap_or_default();
+        self.ensure_catalog_loaded(false)?;
+        let formulae = self.catalog_formulae.clone().unwrap_or_default();
+        let casks = self.catalog_casks.clone().unwrap_or_default();
 
         pb.finish_and_clear();
 

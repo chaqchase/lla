@@ -9,8 +9,8 @@ use lla_plugin_utils::{
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
-    path::Path,
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -95,6 +95,14 @@ impl PluginConfig for CommitConfig {}
 
 pub struct LastGitCommitPlugin {
     base: BasePlugin<CommitConfig>,
+    commit_cache: lla_plugin_utils::PersistentCache<Option<CommitInfo>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CommitInfo {
+    hash: String,
+    author: String,
+    time: String,
 }
 
 impl LastGitCommitPlugin {
@@ -102,6 +110,12 @@ impl LastGitCommitPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            commit_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "commit-cache.toml",
+                1,
+                50_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[LastGitCommitPlugin] Failed to save config: {}", e);
@@ -109,35 +123,71 @@ impl LastGitCommitPlugin {
         plugin
     }
 
-    fn get_last_commit_info(path: &Path) -> Option<(String, String, String)> {
-        let output = Command::new("git")
-            .args([
-                "log",
-                "-1",
-                "--format=format:{ \"hash\": \"%h\", \"author\": \"%an\", \"time\": \"%at\" }",
-                "--",
-                path.to_str()?,
-            ])
-            .output()
-            .ok()?;
+    fn git_root(path: &Path) -> Option<PathBuf> {
+        let start = if path.is_dir() { path } else { path.parent()? };
+        start
+            .ancestors()
+            .find(|directory| directory.join(".git").exists())
+            .map(|directory| {
+                directory
+                    .canonicalize()
+                    .unwrap_or_else(|_| directory.to_path_buf())
+            })
+    }
 
-        let output_str = String::from_utf8(output.stdout).ok()?;
-        let trimmed = output_str.trim();
-
-        if trimmed.is_empty() {
-            return None;
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let mut repositories = BTreeMap::<PathBuf, Vec<(usize, String, String)>>::new();
+        for (index, entry) in entries.iter_mut().enumerate() {
+            let path = Path::new(&entry.path);
+            let Some(root) = Self::git_root(path) else {
+                continue;
+            };
+            let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let relative = absolute
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let cache_key = format!("{}\0{relative}", root.to_string_lossy());
+            repositories
+                .entry(root)
+                .or_default()
+                .push((index, relative, cache_key));
         }
 
-        match serde_json::from_str::<serde_json::Value>(trimmed) {
-            Ok(json) => {
-                let hash = json.get("hash").and_then(|v| v.as_str())?.to_string();
-                let author = json.get("author").and_then(|v| v.as_str())?.to_string();
-                let time = json.get("time").and_then(|v| v.as_str())?.to_string();
-
-                Some((hash, author, time))
+        for (root, requested) in repositories {
+            let Some(fingerprint) = git_head_fingerprint(&root) else {
+                continue;
+            };
+            let mut misses = Vec::new();
+            for (index, relative, cache_key) in &requested {
+                match self.commit_cache.get(cache_key, &fingerprint) {
+                    Some(Some(info)) => decorate_commit_entry(&mut entries[*index], &info),
+                    Some(None) => {}
+                    None => misses.push((*index, relative.clone(), cache_key.clone())),
+                }
             }
-            Err(_) => None,
+            if misses.is_empty() {
+                continue;
+            }
+            let paths = misses
+                .iter()
+                .map(|(_, relative, _)| relative.clone())
+                .collect::<Vec<_>>();
+            let found = batched_git_log(&root, &paths);
+            for (index, relative, cache_key) in misses {
+                let info = found.get(&relative).cloned();
+                if let Some(info) = info.as_ref() {
+                    decorate_commit_entry(&mut entries[index], info);
+                }
+                self.commit_cache.insert(cache_key, &fingerprint, info);
+            }
         }
+        let _ = self.commit_cache.persist();
+        entries
     }
 
     fn format_relative_time(value: &str) -> String {
@@ -237,11 +287,10 @@ impl LastGitCommitPlugin {
 
 impl Plugin for LastGitCommitPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        let spinner = SPINNER.write();
-        spinner.set_status("Checking last commit...".to_string());
-        let entry = decorate_commit_entry(entry);
-        spinner.finish();
-        entry
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -251,7 +300,7 @@ impl Plugin for LastGitCommitPlugin {
     ) -> Vec<proto::DecoratedEntry> {
         let spinner = SPINNER.write();
         spinner.set_status("Checking last commit...".to_string());
-        let entries = entries.into_iter().map(decorate_commit_entry).collect();
+        let entries = self.decorate_batch_entries(entries);
         spinner.finish();
         entries
     }
@@ -276,16 +325,104 @@ impl Plugin for LastGitCommitPlugin {
     }
 }
 
-fn decorate_commit_entry(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-    if let Some((hash, author, time)) =
-        LastGitCommitPlugin::get_last_commit_info(entry.path.as_ref())
-    {
-        entry.insert_field("commit_hash", value::string(&hash), hash);
-        entry.insert_field("commit_author", value::string(&author), author);
-        let timestamp = time.parse::<u64>().unwrap_or_default();
-        entry.insert_field("commit_time", value::timestamp(timestamp), time);
+fn decorate_commit_entry(entry: &mut proto::DecoratedEntry, info: &CommitInfo) {
+    entry.insert_field("commit_hash", value::string(&info.hash), info.hash.clone());
+    entry.insert_field(
+        "commit_author",
+        value::string(&info.author),
+        info.author.clone(),
+    );
+    let timestamp = info.time.parse::<u64>().unwrap_or_default();
+    entry.insert_field(
+        "commit_time",
+        value::timestamp(timestamp),
+        info.time.clone(),
+    );
+}
+
+fn batched_git_log(root: &Path, requested: &[String]) -> HashMap<String, CommitInfo> {
+    let mut command = Command::new("git");
+    command
+        .current_dir(root)
+        .args([
+            "log",
+            "--format=commit%x09%h%x09%an%x09%at",
+            "--name-only",
+            "--no-renames",
+            "--",
+        ])
+        .args(
+            requested
+                .iter()
+                .map(|path| if path.is_empty() { "." } else { path }),
+        );
+    let Ok(output) = command.output() else {
+        return HashMap::new();
+    };
+    if !output.status.success() {
+        return HashMap::new();
     }
-    entry
+    let mut found = HashMap::new();
+    let mut current = None;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(metadata) = line.strip_prefix("commit\t") {
+            let mut fields = metadata.splitn(3, '\t');
+            current = match (fields.next(), fields.next(), fields.next()) {
+                (Some(hash), Some(author), Some(time)) => Some(CommitInfo {
+                    hash: hash.to_string(),
+                    author: author.to_string(),
+                    time: time.to_string(),
+                }),
+                _ => None,
+            };
+            continue;
+        }
+        let changed = line.trim();
+        if changed.is_empty() {
+            continue;
+        }
+        let Some(info) = current.as_ref() else {
+            continue;
+        };
+        for requested_path in requested {
+            if found.contains_key(requested_path) {
+                continue;
+            }
+            let prefix = format!("{requested_path}/");
+            if requested_path.is_empty()
+                || changed == requested_path
+                || changed.starts_with(&prefix)
+            {
+                found.insert(requested_path.clone(), info.clone());
+            }
+        }
+    }
+    found
+}
+
+fn git_head_fingerprint(root: &Path) -> Option<String> {
+    let dot_git = root.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        let source = std::fs::read_to_string(dot_git).ok()?;
+        let relative = source.trim().strip_prefix("gitdir: ")?;
+        let candidate = Path::new(relative);
+        if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            root.join(candidate)
+        }
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let target = head
+        .trim()
+        .strip_prefix("ref: ")
+        .and_then(|reference| std::fs::read_to_string(git_dir.join(reference)).ok())
+        .unwrap_or_default();
+    let packed =
+        lla_plugin_utils::file_fingerprint(&git_dir.join("packed-refs")).unwrap_or_default();
+    Some(format!("{}:{}:{packed}", head.trim(), target.trim()))
 }
 
 impl Default for LastGitCommitPlugin {
@@ -327,5 +464,36 @@ mod tests {
             LastGitCommitPlugin::format_relative_time("legacy"),
             "legacy"
         );
+    }
+
+    #[test]
+    fn one_history_walk_resolves_each_requested_path() {
+        let root = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(root.path())
+                .status()
+                .unwrap()
+                .success()
+        };
+        if !run(&["init", "--quiet"]) {
+            return;
+        }
+        run(&["config", "user.email", "tests@example.com"]);
+        run(&["config", "user.name", "lla tests"]);
+        std::fs::write(root.path().join("first.txt"), "first").unwrap();
+        run(&["add", "first.txt"]);
+        run(&["commit", "--quiet", "-m", "first"]);
+        std::fs::write(root.path().join("second.txt"), "second").unwrap();
+        run(&["add", "second.txt"]);
+        run(&["commit", "--quiet", "-m", "second"]);
+
+        let found = batched_git_log(
+            root.path(),
+            &["first.txt".to_string(), "second.txt".to_string()],
+        );
+        assert_eq!(found.len(), 2);
+        assert_ne!(found["first.txt"].hash, found["second.txt"].hash);
     }
 }

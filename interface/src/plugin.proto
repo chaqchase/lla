@@ -38,6 +38,7 @@ message PluginMessage {
         ActionRequest action = 7;
         bool list_actions = 8;
         BatchDecorateRequest decorate_batch = 9;
+        BatchFormatRequest format_batch = 10;
         DecoratedEntry decorated_response = 105;
         FormattedFieldResponse field_response = 106;
         ActionResponse action_response = 107;
@@ -45,6 +46,7 @@ message PluginMessage {
         ListActionsResponse list_actions_response = 109;
         BatchDecorateResponse decorate_batch_response = 110;
         PluginError structured_error_response = 111;
+        BatchFormatResponse format_batch_response = 112;
     }
 }
 
@@ -87,6 +89,15 @@ message BatchDecorateResponse {
 message FormatFieldRequest {
     DecoratedEntry entry = 1;
     string format = 2;
+}
+
+message BatchFormatRequest {
+    repeated DecoratedEntry entries = 1;
+    string format = 2;
+}
+
+message BatchFormatResponse {
+    repeated FormattedFieldResponse fields = 1;
 }
 
 message ActionRequest {

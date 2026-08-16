@@ -8,10 +8,11 @@ use lla_plugin_sdk::{
 };
 use lla_plugin_utils::{
     config::PluginConfig,
-    decode_decorated_entry, map_decorated_entry,
+    decode_decorated_entry,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin,
 };
+use rayon::prelude::*;
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -98,6 +99,7 @@ impl PluginConfig for SearchConfig {}
 
 pub struct KeywordSearchPlugin {
     base: BasePlugin<SearchConfig>,
+    search_cache: lla_plugin_utils::PersistentCache<Option<Vec<KeywordMatch>>>,
 }
 
 impl KeywordSearchPlugin {
@@ -105,6 +107,12 @@ impl KeywordSearchPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            search_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "search-cache.toml",
+                1,
+                50_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[KeywordSearchPlugin] Failed to save config: {}", e);
@@ -216,64 +224,139 @@ impl KeywordSearchPlugin {
         output
     }
 
-    fn search_file(&self, path: &std::path::Path) -> Option<Vec<KeywordMatch>> {
-        let config = self.base.config();
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let config = self.base.config().clone();
+        let config_fingerprint =
+            lla_plugin_utils::text_fingerprint(&toml::to_string(&config).unwrap_or_default());
+        let patterns = compile_patterns(&config);
+        let mut matches = vec![None; entries.len()];
+        let mut misses = Vec::new();
 
-        if let Some(ext) = path.extension() {
-            if !config
-                .file_extensions
-                .contains(&ext.to_string_lossy().to_string())
+        for (index, entry) in entries.iter().enumerate() {
+            if !entry
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.is_file)
             {
-                return None;
+                continue;
+            }
+            let path = std::path::PathBuf::from(&entry.path);
+            let Ok(file_fingerprint) = lla_plugin_utils::file_fingerprint(&path) else {
+                continue;
+            };
+            let fingerprint = format!("{file_fingerprint}:{config_fingerprint}");
+            let key = lla_plugin_utils::canonical_cache_key(&path);
+            if let Some(cached) = self.search_cache.get(&key, &fingerprint) {
+                matches[index] = cached;
+            } else {
+                misses.push((index, path, key, fingerprint));
             }
         }
 
-        let file = File::open(path).ok()?;
-        let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
+        let searched = misses
+            .par_iter()
+            .map(|(_, path, _, _)| search_file_with(path, &config, &patterns))
+            .collect::<Vec<_>>();
+        for ((index, _, key, fingerprint), searched) in misses.into_iter().zip(searched.into_iter())
+        {
+            matches[index] = searched.clone();
+            self.search_cache.insert(key, fingerprint, searched);
+        }
 
-        let mut matches = Vec::new();
-        let patterns: Vec<_> = config
-            .keywords
-            .iter()
-            .map(|k| {
-                RegexBuilder::new(&regex::escape(k))
-                    .case_insensitive(!config.case_sensitive)
-                    .build()
-                    .ok()
-            })
-            .collect();
+        for (entry, matches) in entries.iter_mut().zip(matches) {
+            if let Some(matches) = matches {
+                let display = toml::to_string(&matches).unwrap_or_default();
+                entry.insert_field("keyword_matches", value::string(&display), display);
+            }
+        }
+        let _ = self.search_cache.persist();
+        entries
+    }
 
-        for (index, line) in lines.iter().enumerate() {
-            for (pattern_index, pattern) in patterns.iter().enumerate() {
-                if let Some(pattern) = pattern {
-                    if pattern.is_match(line) {
-                        let context_start = index.saturating_sub(config.context_lines);
-                        let context_end = (index + config.context_lines + 1).min(lines.len());
+    fn search_selected_files(&self, paths: &[std::path::PathBuf]) -> Vec<KeywordMatch> {
+        let config = self.base.config().clone();
+        let patterns = compile_patterns(&config);
+        paths
+            .par_iter()
+            .filter_map(|path| search_file_with(path, &config, &patterns))
+            .flatten()
+            .collect()
+    }
 
-                        matches.push(KeywordMatch {
-                            keyword: config.keywords[pattern_index].clone(),
-                            line_number: index + 1,
-                            line: line.clone(),
-                            context_before: lines[context_start..index].to_vec(),
-                            context_after: lines[index + 1..context_end].to_vec(),
-                        });
+    fn file_is_supported(config: &SearchConfig, path: &std::path::Path) -> bool {
+        path.extension().is_none_or(|ext| {
+            config
+                .file_extensions
+                .contains(&ext.to_string_lossy().to_string())
+        })
+    }
+}
 
-                        if matches.len() >= config.max_matches {
-                            return Some(matches);
-                        }
-                    }
+fn compile_patterns(config: &SearchConfig) -> Vec<(String, regex::Regex)> {
+    config
+        .keywords
+        .iter()
+        .filter_map(|keyword| {
+            let pattern = if config.use_regex {
+                keyword.clone()
+            } else {
+                regex::escape(keyword)
+            };
+            RegexBuilder::new(&pattern)
+                .case_insensitive(!config.case_sensitive)
+                .build()
+                .map(|pattern| (keyword.clone(), pattern))
+                .ok()
+        })
+        .collect()
+}
+
+fn search_file_with(
+    path: &std::path::Path,
+    config: &SearchConfig,
+    patterns: &[(String, regex::Regex)],
+) -> Option<Vec<KeywordMatch>> {
+    if !KeywordSearchPlugin::file_is_supported(config, path) {
+        return None;
+    }
+
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
+
+    let mut matches = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        for (keyword, pattern) in patterns {
+            if pattern.is_match(line) {
+                let context_start = index.saturating_sub(config.context_lines);
+                let context_end = (index + config.context_lines + 1).min(lines.len());
+
+                matches.push(KeywordMatch {
+                    keyword: keyword.clone(),
+                    line_number: index + 1,
+                    line: line.clone(),
+                    context_before: lines[context_start..index].to_vec(),
+                    context_after: lines[index + 1..context_end].to_vec(),
+                });
+
+                if matches.len() >= config.max_matches {
+                    return Some(matches);
                 }
             }
         }
-
-        if matches.is_empty() {
-            None
-        } else {
-            Some(matches)
-        }
     }
 
+    if matches.is_empty() {
+        None
+    } else {
+        Some(matches)
+    }
+}
+
+impl KeywordSearchPlugin {
     fn interactive_search(
         &self,
         matches: Vec<KeywordMatch>,
@@ -550,24 +633,10 @@ impl KeywordSearchPlugin {
 
 impl Plugin for KeywordSearchPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        let mut entry = map_decorated_entry(entry, |mut entry| {
-            if let Some(matches) = entry
-                .path
-                .is_file()
-                .then(|| self.search_file(&entry.path))
-                .flatten()
-            {
-                entry.custom_fields.insert(
-                    "keyword_matches".to_string(),
-                    toml::to_string(&matches).unwrap_or_default(),
-                );
-            }
-            entry
-        });
-        if let Some(display) = entry.custom_fields.get("keyword_matches").cloned() {
-            entry.insert_field("keyword_matches", value::string(&display), display);
-        }
-        entry
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -575,10 +644,7 @@ impl Plugin for KeywordSearchPlugin {
         entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
-        entries
-            .into_iter()
-            .map(|entry| self.decorate_entry(entry))
-            .collect()
+        self.decorate_batch_entries(entries)
     }
 
     fn format_field(&mut self, entry: proto::DecoratedEntry, _format: String) -> Option<String> {
@@ -654,13 +720,11 @@ impl Plugin for KeywordSearchPlugin {
                         return Err("No files selected".to_string());
                     }
 
-                    let mut all_matches = Vec::new();
-                    for &idx in &selection {
-                        let path = std::path::Path::new(&files[idx]);
-                        if let Some(matches) = self.search_file(path) {
-                            all_matches.extend(matches);
-                        }
-                    }
+                    let selected_paths = selection
+                        .iter()
+                        .map(|index| std::path::PathBuf::from(&files[*index]))
+                        .collect::<Vec<_>>();
+                    let all_matches = self.search_selected_files(&selected_paths);
 
                     if all_matches.is_empty() {
                         println!(

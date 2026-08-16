@@ -3,7 +3,7 @@ use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt
 use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
-    decode_decorated_entry, map_decorated_entry, run_cli_action,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         TextBlock,
@@ -11,6 +11,7 @@ use lla_plugin_utils::{
     ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -568,6 +569,7 @@ impl PluginState {
 
 pub struct CodeComplexityEstimatorPlugin {
     base: BasePlugin<ComplexityConfig>,
+    analysis_cache: lla_plugin_utils::PersistentCache<Option<ComplexityMetrics>>,
 }
 
 impl CodeComplexityEstimatorPlugin {
@@ -575,6 +577,12 @@ impl CodeComplexityEstimatorPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            analysis_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "analysis-cache.toml",
+                1,
+                50_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!(
@@ -596,47 +604,89 @@ impl CodeComplexityEstimatorPlugin {
                     .format_metrics(&metrics, format == "long")
             })
     }
+
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let config_fingerprint = {
+            let state = PLUGIN_STATE.read();
+            lla_plugin_utils::text_fingerprint(&toml::to_string(&state.config).unwrap_or_default())
+        };
+        let mut metrics = vec![None; entries.len()];
+        let mut misses = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if !entry
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.is_file)
+            {
+                continue;
+            }
+            let path = std::path::PathBuf::from(&entry.path);
+            let Ok(file_fingerprint) = lla_plugin_utils::file_fingerprint(&path) else {
+                continue;
+            };
+            let fingerprint = format!("{file_fingerprint}:{config_fingerprint}");
+            let key = lla_plugin_utils::canonical_cache_key(&path);
+            if let Some(cached) = self.analysis_cache.get(&key, &fingerprint) {
+                metrics[index] = cached;
+            } else {
+                misses.push((index, path, key, fingerprint));
+            }
+        }
+
+        let analyzed = misses
+            .par_iter()
+            .map(|(_, path, _, _)| PLUGIN_STATE.read().analyze_file(path))
+            .collect::<Vec<_>>();
+        for ((index, _path, key, fingerprint), analyzed) in
+            misses.into_iter().zip(analyzed.into_iter())
+        {
+            metrics[index] = analyzed.clone();
+            self.analysis_cache
+                .insert(key, fingerprint, analyzed.clone());
+        }
+
+        for (entry, metrics) in entries.iter_mut().zip(metrics) {
+            if let Some(metrics) = metrics {
+                let display = toml::to_string(&metrics).unwrap_or_default();
+                entry.insert_field("complexity_metrics", value::string(&display), display);
+                let path = std::path::PathBuf::from(&entry.path);
+                if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+                    let language = {
+                        let state = PLUGIN_STATE.read();
+                        state
+                            .config
+                            .languages
+                            .iter()
+                            .find(|(_, rules)| {
+                                rules.extensions.iter().any(|item| item == extension)
+                            })
+                            .map(|(language, _)| language.clone())
+                    };
+                    if let Some(language) = language {
+                        PLUGIN_STATE
+                            .write()
+                            .stats
+                            .entry(language)
+                            .or_default()
+                            .push((path, metrics));
+                    }
+                }
+            }
+        }
+        let _ = self.analysis_cache.persist();
+        entries
+    }
 }
 
 impl Plugin for CodeComplexityEstimatorPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        let mut entry = map_decorated_entry(entry, |mut entry| {
-            if entry.path.is_file() {
-                let metrics = PLUGIN_STATE.read().analyze_file(&entry.path);
-                if let Some(metrics) = metrics {
-                    entry.custom_fields.insert(
-                        "complexity_metrics".to_string(),
-                        toml::to_string(&metrics).unwrap_or_default(),
-                    );
-                    if let Some(ext) = entry
-                        .path
-                        .extension()
-                        .and_then(|extension| extension.to_str())
-                    {
-                        let language = PLUGIN_STATE
-                            .read()
-                            .config
-                            .languages
-                            .iter()
-                            .find(|(_, rules)| rules.extensions.iter().any(|item| item == ext))
-                            .map(|(language, _)| language.clone());
-                        if let Some(language) = language {
-                            PLUGIN_STATE
-                                .write()
-                                .stats
-                                .entry(language)
-                                .or_default()
-                                .push((entry.path.clone(), metrics));
-                        }
-                    }
-                }
-            }
-            entry
-        });
-        if let Some(display) = entry.custom_fields.get("complexity_metrics").cloned() {
-            entry.insert_field("complexity_metrics", value::string(&display), display);
-        }
-        entry
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -644,10 +694,7 @@ impl Plugin for CodeComplexityEstimatorPlugin {
         entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
-        entries
-            .into_iter()
-            .map(|entry| self.decorate_entry(entry))
-            .collect()
+        self.decorate_batch_entries(entries)
     }
 
     fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {

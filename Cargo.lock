@@ -195,7 +195,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -290,7 +290,7 @@ dependencies = [
  "parking_lot",
  "prost",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -299,6 +299,8 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd9de9f2205d5ef3fd67e685b0df337994ddd4495e2a28d185500d0e1edfea47"
 dependencies = [
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -405,8 +407,9 @@ dependencies = [
  "lla_plugin_utils",
  "parking_lot",
  "prost",
+ "rayon",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -429,7 +432,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syntect",
- "toml",
+ "toml 0.8.19",
  "uuid",
 ]
 
@@ -825,6 +828,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories-next"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "339ee130d97a610ea5a5872d2bbb130fdf68884ff09d3028b81bec8a1ac23bbc"
+dependencies = [
+ "cfg-if",
+ "dirs-sys-next",
+]
+
+[[package]]
 name = "dirs"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,6 +859,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs-sys-next"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
+]
+
+[[package]]
 name = "dirs_meta"
 version = "0.6.0"
 dependencies = [
@@ -858,6 +882,7 @@ dependencies = [
  "prost",
  "rayon",
  "serde",
+ "tempfile",
  "walkdir",
 ]
 
@@ -885,6 +910,7 @@ dependencies = [
  "prost",
  "serde",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -976,16 +1002,12 @@ dependencies = [
 name = "file_hash"
 version = "0.6.0"
 dependencies = [
- "bytes",
- "colored",
- "lazy_static",
  "lla_plugin_sdk",
- "lla_plugin_utils",
- "parking_lot",
- "prost",
  "serde",
  "sha1",
  "sha2",
+ "tempfile",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1030,7 +1052,7 @@ dependencies = [
  "lla_plugin_utils",
  "parking_lot",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1104,7 +1126,7 @@ dependencies = [
  "lla_plugin_utils",
  "prost",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1130,7 +1152,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "toml",
+ "toml 0.8.19",
  "walkdir",
 ]
 
@@ -1293,13 +1315,25 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi 5.3.0",
+ "wasip2",
+]
+
+[[package]]
+name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
  "libc",
- "r-efi",
+ "r-efi 6.0.0",
  "rand_core 0.10.1",
 ]
 
@@ -1327,6 +1361,7 @@ dependencies = [
  "parking_lot",
  "prost",
  "serde",
+ "tempfile",
 ]
 
 [[package]]
@@ -1363,7 +1398,7 @@ dependencies = [
  "lla_plugin_utils",
  "prost",
  "serde",
- "toml",
+ "toml 0.8.19",
  "uuid",
 ]
 
@@ -1385,7 +1420,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
  "url",
 ]
 
@@ -1442,10 +1477,11 @@ dependencies = [
  "lla_plugin_sdk",
  "lla_plugin_utils",
  "prost",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1897,6 +1933,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
+name = "jobserver"
+version = "0.1.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33"
+dependencies = [
+ "getrandom 0.3.4",
+ "libc",
+]
+
+[[package]]
 name = "jpeg-decoder"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1929,7 +1975,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1958,11 +2004,12 @@ dependencies = [
  "lla_plugin_utils",
  "parking_lot",
  "prost",
+ "rayon",
  "regex",
  "serde",
  "strip-ansi-escapes 0.2.0",
  "syntect",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -1995,6 +2042,7 @@ dependencies = [
  "prost",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2111,7 +2159,7 @@ dependencies = [
  "tar",
  "tempfile",
  "terminal_size",
- "toml",
+ "toml 0.8.19",
  "unicode-normalization",
  "unicode-width 0.1.14",
  "ureq",
@@ -2133,7 +2181,7 @@ dependencies = [
  "prost-build",
  "protoc-bin-vendored",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -2143,8 +2191,8 @@ dependencies = [
  "lla_plugin_interface",
  "lla_plugin_sdk_macros",
  "prost",
- "toml",
- "wit-bindgen",
+ "toml 0.8.19",
+ "wit-bindgen 0.60.0",
 ]
 
 [[package]]
@@ -2173,7 +2221,7 @@ dependencies = [
  "serde_json",
  "syntect",
  "tempfile",
- "toml",
+ "toml 0.8.19",
  "users",
 ]
 
@@ -2225,6 +2273,8 @@ dependencies = [
  "lla_plugin_sdk",
  "lla_plugin_utils",
  "parking_lot",
+ "rayon",
+ "serde",
  "serde_json",
  "tempfile",
 ]
@@ -2312,7 +2362,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -2712,6 +2762,7 @@ dependencies = [
  "lla_plugin_sdk",
  "lla_plugin_utils",
  "parking_lot",
+ "serde",
  "tempfile",
 ]
 
@@ -2875,6 +2926,12 @@ dependencies = [
 
 [[package]]
 name = "r-efi"
+version = "5.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+
+[[package]]
+name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
@@ -3025,7 +3082,7 @@ dependencies = [
  "lla_plugin_utils",
  "prost",
  "serde",
- "toml",
+ "toml 0.8.19",
  "url",
 ]
 
@@ -3319,6 +3376,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3472,7 +3538,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "serde",
- "toml",
+ "toml 0.8.19",
 ]
 
 [[package]]
@@ -3839,9 +3905,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1ed1f98e3fdc28d6d910e6737ae6ab1a93bf1985935a1193e68f93eeb68d24e"
 dependencies = [
  "serde",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 0.6.8",
+ "toml_datetime 0.6.8",
  "toml_edit",
+]
+
+[[package]]
+name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap 2.14.0",
+ "serde_core",
+ "serde_spanned 1.1.1",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
 ]
 
 [[package]]
@@ -3854,6 +3935,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.22.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3861,10 +3951,25 @@ checksum = "4ae48d6208a266e853d946088ed816055e556cc6028c5e8e2b84d9fa5dd7c7f5"
 dependencies = [
  "indexmap 2.14.0",
  "serde",
- "serde_spanned",
- "toml_datetime",
- "winnow",
+ "serde_spanned 0.6.8",
+ "toml_datetime 0.6.8",
+ "winnow 0.6.20",
 ]
+
+[[package]]
+name = "toml_parser"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+dependencies = [
+ "winnow 1.0.4",
+]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.1+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tower-service"
@@ -4088,6 +4193,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
+name = "wasip2"
+version = "1.0.3+wasi-0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
+dependencies = [
+ "wit-bindgen 0.57.1",
+]
+
+[[package]]
 name = "wasm-bindgen"
 version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4252,6 +4366,7 @@ dependencies = [
  "target-lexicon",
  "wasmparser 0.252.0",
  "wasmtime-environ",
+ "wasmtime-internal-cache",
  "wasmtime-internal-component-macro",
  "wasmtime-internal-component-util",
  "wasmtime-internal-core",
@@ -4293,6 +4408,26 @@ dependencies = [
  "wasmprinter",
  "wasmtime-internal-component-util",
  "wasmtime-internal-core",
+]
+
+[[package]]
+name = "wasmtime-internal-cache"
+version = "47.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65db2eb1bfc5371a3b4107dbf539d0b93d05016fc29625b1648146b47db02071"
+dependencies = [
+ "base64 0.22.1",
+ "directories-next",
+ "log",
+ "postcard",
+ "rustix 1.1.4",
+ "serde",
+ "serde_derive",
+ "sha2",
+ "toml 0.9.12+spec-1.1.0",
+ "wasmtime-environ",
+ "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]
@@ -4806,6 +4941,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+
+[[package]]
+name = "winnow"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+
+[[package]]
 name = "winreg"
 version = "0.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4824,6 +4971,12 @@ dependencies = [
  "bitflags 2.13.1",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "wit-bindgen"
+version = "0.57.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wit-bindgen"
@@ -5020,7 +5173,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "toml",
+ "toml 0.8.19",
  "url",
 ]
 
@@ -5118,4 +5271,32 @@ dependencies = [
  "indexmap 2.14.0",
  "num_enum",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.15+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb81183ddd97d0c74cedf1d50d85c8d08c1b8b68ee863bdee9e706eedba1a237"
+dependencies = [
+ "cc",
+ "pkg-config",
 ]

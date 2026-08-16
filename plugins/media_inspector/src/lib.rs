@@ -1,9 +1,9 @@
 use lazy_static::lazy_static;
 use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
-use lla_plugin_utils::{
-    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
-};
+use lla_plugin_utils::{decode_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry};
 use parking_lot::RwLock;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
@@ -44,7 +44,7 @@ lazy_static! {
     });
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 struct MediaInfo {
     mime_type: String,
     kind: String,
@@ -56,7 +56,9 @@ struct MediaInfo {
     exif: Option<String>,
 }
 
-pub struct MediaInspectorPlugin;
+pub struct MediaInspectorPlugin {
+    cache: lla_plugin_utils::PersistentCache<MediaInfo>,
+}
 
 impl MediaInspectorPlugin {
     fn inspect_path(path: &Path) -> MediaInfo {
@@ -89,43 +91,41 @@ impl MediaInspectorPlugin {
         info
     }
 
-    fn decorate(mut entry: DecoratedEntry) -> DecoratedEntry {
-        let info = Self::inspect_path(&entry.path);
-        entry
-            .custom_fields
-            .insert("mime_type".to_string(), info.mime_type);
-        entry
-            .custom_fields
-            .insert("media_kind".to_string(), info.kind);
-        if let Some(width) = info.width {
-            entry
-                .custom_fields
-                .insert("media_width".to_string(), width.to_string());
+    fn inspect_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let mut info = vec![None; entries.len()];
+        let mut misses = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            let path = std::path::PathBuf::from(&entry.path);
+            let Ok(fingerprint) = lla_plugin_utils::file_fingerprint(&path) else {
+                continue;
+            };
+            let key = lla_plugin_utils::canonical_cache_key(&path);
+            if let Some(cached) = self.cache.get(&key, &fingerprint) {
+                info[index] = Some(cached);
+            } else {
+                misses.push((index, path, key, fingerprint));
+            }
         }
-        if let Some(height) = info.height {
-            entry
-                .custom_fields
-                .insert("media_height".to_string(), height.to_string());
+        let inspected = misses
+            .par_iter()
+            .map(|(_, path, _, _)| Self::inspect_path(path))
+            .collect::<Vec<_>>();
+        for ((index, _, key, fingerprint), inspected) in
+            misses.into_iter().zip(inspected.into_iter())
+        {
+            info[index] = Some(inspected.clone());
+            self.cache.insert(key, fingerprint, inspected);
         }
-        if let Some(duration) = info.duration_ms {
-            entry
-                .custom_fields
-                .insert("duration_ms".to_string(), duration.to_string());
+        for (entry, info) in entries.iter_mut().zip(info) {
+            if let Some(info) = info {
+                decorate_proto(entry, info);
+            }
         }
-        if !info.codecs.is_empty() {
-            entry
-                .custom_fields
-                .insert("codecs".to_string(), info.codecs.join(", "));
-        }
-        if let Some(bitrate) = info.bitrate_bps {
-            entry
-                .custom_fields
-                .insert("bitrate_bps".to_string(), bitrate.to_string());
-        }
-        if let Some(exif) = info.exif {
-            entry.custom_fields.insert("exif".to_string(), exif);
-        }
-        entry
+        let _ = self.cache.persist();
+        entries
     }
 
     fn format(entry: &DecoratedEntry, format: &str) -> Option<String> {
@@ -492,6 +492,9 @@ fn json_u64(value: Option<&Value>) -> Option<u64> {
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    if !tool_available(program) {
+        return None;
+    }
     let output = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -505,18 +508,33 @@ fn command_output(program: &str, args: &[&str]) -> Option<String> {
 }
 
 fn tool_available(tool: &str) -> bool {
-    Command::new(tool)
+    static AVAILABILITY: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(cache) = AVAILABILITY.lock() {
+        if let Some(available) = cache.get(tool).copied() {
+            return available;
+        }
+    }
+    let available = Command::new(tool)
         .arg("-version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok()
+        .is_ok();
+    if let Ok(mut cache) = AVAILABILITY.lock() {
+        cache.insert(tool.to_string(), available);
+    }
+    available
 }
 
 impl Plugin for MediaInspectorPlugin {
     fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
-        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 
     fn decorate_batch(
@@ -524,9 +542,9 @@ impl Plugin for MediaInspectorPlugin {
         entries: Vec<proto::DecoratedEntry>,
         _format: &str,
     ) -> Vec<proto::DecoratedEntry> {
-        entries
+        self.inspect_batch(entries)
             .into_iter()
-            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
+            .map(promote_v3_fields)
             .collect()
     }
 
@@ -550,6 +568,56 @@ impl Plugin for MediaInspectorPlugin {
     }
 }
 
+impl Default for MediaInspectorPlugin {
+    fn default() -> Self {
+        Self {
+            cache: lla_plugin_utils::PersistentCache::for_plugin(
+                env!("CARGO_PKG_NAME"),
+                "metadata-cache.toml",
+                1,
+                50_000,
+            ),
+        }
+    }
+}
+
+fn decorate_proto(entry: &mut proto::DecoratedEntry, info: MediaInfo) {
+    entry
+        .custom_fields
+        .insert("mime_type".to_string(), info.mime_type);
+    entry
+        .custom_fields
+        .insert("media_kind".to_string(), info.kind);
+    if let Some(width) = info.width {
+        entry
+            .custom_fields
+            .insert("media_width".to_string(), width.to_string());
+    }
+    if let Some(height) = info.height {
+        entry
+            .custom_fields
+            .insert("media_height".to_string(), height.to_string());
+    }
+    if let Some(duration) = info.duration_ms {
+        entry
+            .custom_fields
+            .insert("duration_ms".to_string(), duration.to_string());
+    }
+    if !info.codecs.is_empty() {
+        entry
+            .custom_fields
+            .insert("codecs".to_string(), info.codecs.join(", "));
+    }
+    if let Some(bitrate) = info.bitrate_bps {
+        entry
+            .custom_fields
+            .insert("bitrate_bps".to_string(), bitrate.to_string());
+    }
+    if let Some(exif) = info.exif {
+        entry.custom_fields.insert("exif".to_string(), exif);
+    }
+}
+
 fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
     for name in ["mime_type", "media_kind", "codecs", "exif"] {
         entry.promote_string_field(name);
@@ -561,12 +629,6 @@ fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry 
 }
 
 lla_plugin_sdk::export_plugin!(MediaInspectorPlugin);
-
-impl Default for MediaInspectorPlugin {
-    fn default() -> Self {
-        Self
-    }
-}
 
 #[cfg(test)]
 mod tests {

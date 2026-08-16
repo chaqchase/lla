@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Plugin Platform v3 with public `lla_plugin_sdk` and `lla_plugin_sdk_macros` crates, embedded manifest contracts, a Component Model WIT world, and overridable native batch decoration.
+- Native batch formatting plus bounded persistent plugin caches with metadata-, repository-, configuration-, and TTL-based invalidation.
 - Typed action arguments and structured `none`, `text`, `value`, and `table` results with host-rendered human, JSON, NDJSON, and CSV output through `lla plugin run`.
 - An embedded Wasmtime/WASI Preview 2 runtime on 64-bit Linux and macOS, including memory, response, batch, and execution-time limits.
 - Persisted `plugin-grants.toml` approvals, permission-expansion prompts, exact-domain WASI HTTP, default-denied raw sockets, and gated clipboard and URL-opening calls.
@@ -28,7 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native plugins now export only `_plugin_create_v3`; API v1/v2 libraries are detected without invoking their code and reported as disabled.
 - `plugin.toml` schema 3 is the source of truth for actions, fields, output contracts, runtime entrypoints, and permissions. Packaged and compiled manifests must match exactly.
 - All bundled plugins and prebuilt-package manifests target API v3 and version 0.6.0.
+- File hashing, duplicate detection, Git status/history, directory metadata, complexity, keyword, media, and project-context decoration now batch shared work; network-backed package and suggestion plugins reuse TTL caches and issue independent requests concurrently.
 - `lla plugin <plugin> <action>` remains available in 0.6.x but emits a deprecation warning in favor of `lla plugin run`.
+
+### Fixed
+
+- Local source installation on macOS disables native-plugin stripping, preventing malformed Mach-O `LINKEDIT` string pools.
+- Code-complexity batch decoration no longer deadlocks while recording report statistics.
+- Git status no longer enumerates ignored files that cannot contribute to its displayed status, avoiding oversized caches for repositories with large build directories.
 
 ### Security
 

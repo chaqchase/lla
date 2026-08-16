@@ -16,6 +16,7 @@ prost = "0.12"
 bytes = "1.5"
 lazy_static = "1.4"
 parking_lot = "0.12"
+rayon.workspace = true
 dialoguer = "0.11.0"
 console = "0.15.7"
 syntect = "5.1"

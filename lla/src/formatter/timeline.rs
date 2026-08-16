@@ -115,6 +115,7 @@ impl FileFormatter for TimelineFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "timeline");
 
         let mut groups: BTreeMap<TimeGroup, Vec<&DecoratedEntry>> = BTreeMap::new();
 

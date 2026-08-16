@@ -269,6 +269,7 @@ impl FileFormatter for TableFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "table");
 
         let headers: Vec<String> = self
             .columns
