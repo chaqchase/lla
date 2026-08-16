@@ -5,6 +5,9 @@ This repository uses regular CI for pull requests and a short two-action release
 1. Open a generated release-prep PR that updates every version surface.
 2. Merge it; the release workflow creates the matching `vX.Y.Z` tag and publishes.
 
+The canonical maintainer checklist is in
+[`docs/maintainers/releasing.md`](../../docs/maintainers/releasing.md).
+
 ## CI (`ci.yml`)
 
 - Triggered on pushes and pull requests to `main` when Rust sources, manifests, proto files, scripts, workflow files, package metadata, or toolchain files change.
@@ -21,7 +24,8 @@ This repository uses regular CI for pull requests and a short two-action release
 - Opens a PR with a conventional commit such as `chore: prepare release v0.5.5`.
 - Updates:
   - root workspace version in `Cargo.toml`
-  - explicit internal dependency versions in `lla/Cargo.toml` and `lla_plugin_utils/Cargo.toml`
+  - explicit internal dependency versions across `lla`, `lla_plugin_sdk`,
+    `lla_plugin_sdk_macros`, and `lla_plugin_utils`
   - every `plugins/*/Cargo.toml` package version
   - `Cargo.lock`
   - `CHANGELOG.md`, by promoting `## [Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` and leaving a fresh empty `## [Unreleased]` section
@@ -42,16 +46,18 @@ This repository uses regular CI for pull requests and a short two-action release
   - `cargo test --workspace`
 - Builds and verifies all release assets before publishing:
   - full-featured CLI binaries: `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`
-  - core-only static musl binaries: `lla-linux-{amd64,arm64}-musl`
+  - full-featured static musl binaries with Wasmtime: `lla-linux-{amd64,arm64}-musl`
   - plugin archives: `plugins-*.tar.gz` and `plugins-*.zip`
   - Linux packages: `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`
   - `themes.zip`
   - final `SHA256SUMS`
 - GNU/Linux CLI and plugin artifacts are built with pinned Zig tooling and must not require glibc newer than 2.28.
-- Musl binaries must have no ELF interpreter or dynamic dependencies and pass core CLI smoke tests in amd64 and arm64 Alpine containers.
+- Musl binaries must have no ELF interpreter or dynamic dependencies and pass CLI plus plugin-runtime smoke tests in amd64 and arm64 Alpine containers.
 - amd64 and arm64 APK packages contain static musl binaries; the i686 APK remains a legacy GNU-based package.
 - Publishes crates.io packages in dependency order:
   - `lla_plugin_interface`
+  - `lla_plugin_sdk_macros`
+  - `lla_plugin_sdk`
   - `lla_plugin_utils`
   - `lla`
 - Runs `cargo publish --dry-run` immediately before each crate publish; dependent crates are dry-run only after their internal dependencies are visible on crates.io.
@@ -68,7 +74,8 @@ This repository uses regular CI for pull requests and a short two-action release
 ## Required Secrets
 
 - `GITHUB_TOKEN`: provided by GitHub Actions.
-- `CRATES_IO_TOKEN`: required for publishing `lla_plugin_interface`, `lla_plugin_utils`, and `lla`.
+- `CRATES_IO_TOKEN`: required for publishing the interface, SDK macro, SDK,
+  utilities, and CLI crates.
 
 ## Helper Scripts
 

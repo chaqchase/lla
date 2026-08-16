@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::{
@@ -8,6 +8,7 @@ use lla_plugin_utils::{
     },
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -397,4 +398,4 @@ impl ConfigurablePlugin for DuplicateFileDetectorPlugin {
 
 impl ProtobufHandler for DuplicateFileDetectorPlugin {}
 
-lla_plugin_interface::declare_plugin!(DuplicateFileDetectorPlugin);
+lla_plugin_sdk::export_plugin!(DuplicateFileDetectorPlugin);

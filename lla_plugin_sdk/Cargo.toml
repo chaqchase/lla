@@ -1,0 +1,24 @@
+[package]
+name = "lla_plugin_sdk"
+description = "High-level SDK for lla API v3 plugins"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/lla_plugin_sdk"
+keywords = ["cli", "plugin", "sdk"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+lla_plugin_interface.workspace = true
+lla_plugin_sdk_macros = { path = "../lla_plugin_sdk_macros", version = "0.6.0" }
+prost.workspace = true
+wit-bindgen = { version = "0.60.0", optional = true }
+
+[features]
+component = ["dep:wit-bindgen"]
+
+[dev-dependencies]
+toml.workspace = true

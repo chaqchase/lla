@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.categorizer"
 name = "categorizer"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "categorizer"
 description = "Categorize files from extensions and metadata"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["add-category", "add-subcategory", "list-categories", "help"]
 machine_output = true
 
 [permissions]
@@ -29,3 +30,35 @@ name = "subcategory"
 type = "string"
 sortable = true
 filterable = true
+
+[[actions]]
+id = "add-category"
+description = "Run the add-category action"
+examples = ["lla plugin run categorizer add-category"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "add-subcategory"
+description = "Run the add-subcategory action"
+examples = ["lla plugin run categorizer add-subcategory"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list-categories"
+description = "Run the list-categories action"
+examples = ["lla plugin run categorizer list-categories"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run categorizer help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

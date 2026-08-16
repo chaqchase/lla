@@ -1,12 +1,12 @@
 [package]
 name = "google_meet"
 description = "Google Meet plugin for creating meeting rooms and managing links"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
 colored = "2.0.0"
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 dirs = "5.0.1"
 serde = { version = "1.0.200", features = ["derive"] }

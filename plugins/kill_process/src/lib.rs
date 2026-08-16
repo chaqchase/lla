@@ -6,12 +6,13 @@ use dialoguer::{
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -871,7 +872,7 @@ impl ConfigurablePlugin for KillProcessPlugin {
 
 impl ProtobufHandler for KillProcessPlugin {}
 
-lla_plugin_interface::declare_plugin!(KillProcessPlugin);
+lla_plugin_sdk::export_plugin!(KillProcessPlugin);
 
 impl Default for KillProcessPlugin {
     fn default() -> Self {

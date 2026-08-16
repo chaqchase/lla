@@ -2,11 +2,12 @@ mod config;
 mod strategies;
 use colored::Colorize;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     ui::components::{BoxComponent, BoxStyle, HelpFormatter},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use std::{ops::Deref, path::PathBuf};
 use strategies::{
@@ -295,4 +296,4 @@ impl ConfigurablePlugin for FileOrganizerPlugin {
 
 impl ProtobufHandler for FileOrganizerPlugin {}
 
-lla_plugin_interface::declare_plugin!(FileOrganizerPlugin);
+lla_plugin_sdk::export_plugin!(FileOrganizerPlugin);

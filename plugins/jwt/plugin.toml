@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.jwt"
 name = "jwt"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "jwt"
 description = "Decode and inspect JSON Web Tokens"
@@ -11,7 +13,46 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["decode", "search", "history", "preferences", "help"]
 
 [permissions]
 clipboard = true
+
+[[actions]]
+id = "decode"
+description = "Run the decode action"
+examples = ["lla plugin run jwt decode"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Run the search action"
+examples = ["lla plugin run jwt search"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Run the history action"
+examples = ["lla plugin run jwt history"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Run the preferences action"
+examples = ["lla plugin run jwt preferences"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run jwt help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

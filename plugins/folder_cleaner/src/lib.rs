@@ -13,11 +13,12 @@ use executor::{
     orphaned_quarantine_items, quarantine_items, restore_run, save_plan,
 };
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use model::{CleanupPlan, OperationKind, PlanAction, ScanReport};
 use parking_lot::RwLock;
 use planner::build_plan;
@@ -1115,7 +1116,7 @@ impl Plugin for FolderCleanerPlugin {
 
 impl ProtobufHandler for FolderCleanerPlugin {}
 
-lla_plugin_interface::declare_plugin!(FolderCleanerPlugin);
+lla_plugin_sdk::export_plugin!(FolderCleanerPlugin);
 
 #[cfg(test)]
 mod tests {

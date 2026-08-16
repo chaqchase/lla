@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.google-meet"
 name = "google_meet"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "google_meet"
 description = "Create and manage Google Meet links"
@@ -11,9 +13,56 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["create", "create-with-profile", "history", "profiles", "preferences", "help"]
 
 [permissions]
 network = ["meet.google.com"]
 clipboard = true
 open_url = true
+
+[[actions]]
+id = "create"
+description = "Run the create action"
+examples = ["lla plugin run google_meet create"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "create-with-profile"
+description = "Run the create-with-profile action"
+examples = ["lla plugin run google_meet create-with-profile"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Run the history action"
+examples = ["lla plugin run google_meet history"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "profiles"
+description = "Run the profiles action"
+examples = ["lla plugin run google_meet profiles"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Run the preferences action"
+examples = ["lla plugin run google_meet preferences"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run google_meet help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

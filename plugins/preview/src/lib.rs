@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use std::{
     fs::File,
@@ -454,7 +455,7 @@ impl Plugin for PreviewPlugin {
 
 impl ProtobufHandler for PreviewPlugin {}
 
-lla_plugin_interface::declare_plugin!(PreviewPlugin);
+lla_plugin_sdk::export_plugin!(PreviewPlugin);
 
 impl Default for PreviewPlugin {
     fn default() -> Self {

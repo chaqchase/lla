@@ -3,12 +3,13 @@ use colored::Colorize;
 use dialoguer::{MultiSelect, Select};
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -722,7 +723,7 @@ impl Plugin for KeywordSearchPlugin {
                         response
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "search".to_string(),
@@ -766,4 +767,4 @@ impl ConfigurablePlugin for KeywordSearchPlugin {
 
 impl ProtobufHandler for KeywordSearchPlugin {}
 
-lla_plugin_interface::declare_plugin!(KeywordSearchPlugin);
+lla_plugin_sdk::export_plugin!(KeywordSearchPlugin);

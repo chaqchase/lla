@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.code-complexity"
 name = "code_complexity"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "code_complexity"
 description = "Analyze source-code complexity"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["set-thresholds", "show-report", "help"]
 machine_output = true
 
 [permissions]
@@ -22,3 +23,27 @@ filesystem = ["read:selection"]
 name = "complexity_metrics"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "set-thresholds"
+description = "Run the set-thresholds action"
+examples = ["lla plugin run code_complexity set-thresholds"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "show-report"
+description = "Run the show-report action"
+examples = ["lla plugin run code_complexity show-report"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run code_complexity help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

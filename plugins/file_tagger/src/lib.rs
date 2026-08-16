@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::{
@@ -8,6 +8,7 @@ use lla_plugin_utils::{
     },
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -377,7 +378,7 @@ impl FileTaggerPlugin {
 
     fn format_tags(
         &self,
-        entry: &lla_plugin_interface::DecoratedEntry,
+        entry: &lla_plugin_utils::DecoratedEntry,
         format: &str,
     ) -> Option<String> {
         let tags = entry.custom_fields.get("tags")?;
@@ -488,4 +489,4 @@ impl ConfigurablePlugin for FileTaggerPlugin {
 
 impl ProtobufHandler for FileTaggerPlugin {}
 
-lla_plugin_interface::declare_plugin!(FileTaggerPlugin);
+lla_plugin_sdk::export_plugin!(FileTaggerPlugin);

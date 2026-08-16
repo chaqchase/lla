@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-copier"
 name = "file_copier"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_copier"
 description = "Interactively copy files and directories"
@@ -11,8 +13,55 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["add", "copy-all", "copy-partial", "clear", "show", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:selected-destination"]
 clipboard = true
+
+[[actions]]
+id = "add"
+description = "Run the add action"
+examples = ["lla plugin run file_copier add"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "copy-all"
+description = "Run the copy-all action"
+examples = ["lla plugin run file_copier copy-all"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "copy-partial"
+description = "Run the copy-partial action"
+examples = ["lla plugin run file_copier copy-partial"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "clear"
+description = "Run the clear action"
+examples = ["lla plugin run file_copier clear"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "show"
+description = "Run the show action"
+examples = ["lla plugin run file_copier show"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run file_copier help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

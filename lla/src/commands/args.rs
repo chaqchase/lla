@@ -76,6 +76,8 @@ pub enum Command {
     InitConfig { defaults_only: bool },
     Config(Option<ConfigAction>),
     PluginAction(String, String, Vec<String>),
+    PluginRun(String, String, PluginOutputFormat, Vec<String>),
+    PluginMigratePrebuilt,
     PluginDoctor,
     PluginInfo(String),
     PluginPermissions(String),
@@ -89,6 +91,25 @@ pub enum Command {
     ThemeInstall(String),
     ThemePreview(String),
     Upgrade(UpgradeCommand),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluginOutputFormat {
+    Human,
+    Json,
+    Ndjson,
+    Csv,
+}
+
+impl PluginOutputFormat {
+    fn parse(value: &str) -> Self {
+        match value {
+            "json" => Self::Json,
+            "ndjson" => Self::Ndjson,
+            "csv" => Self::Csv,
+            _ => Self::Human,
+        }
+    }
 }
 
 pub enum InstallSource {
@@ -571,7 +592,37 @@ impl Args {
             )
             .subcommand(
                 SubCommand::with_name("plugin")
-                    .about("Run actions or inspect Plugin Platform v2 packages")
+                    .about("Run actions or inspect Plugin Platform v3 packages")
+                    .subcommand(
+                        SubCommand::with_name("run")
+                            .about("Run a typed plugin action")
+                            .arg(Arg::with_name("plugin").required(true).index(1))
+                            .arg(Arg::with_name("action").required(true).index(2))
+                            .arg(
+                                Arg::with_name("output")
+                                    .long("output")
+                                    .takes_value(true)
+                                    .possible_values(["human", "json", "ndjson", "csv"])
+                                    .default_value("human"),
+                            )
+                            .arg(
+                                Arg::with_name("action_arguments")
+                                    .index(3)
+                                    .multiple(true)
+                                    .allow_hyphen_values(true)
+                                    .last(true),
+                            ),
+                    )
+                    .subcommand(
+                        SubCommand::with_name("migrate")
+                            .about("Migrate official v1/v2 plugins to API v3")
+                            .arg(
+                                Arg::with_name("prebuilt")
+                                    .long("prebuilt")
+                                    .required(true)
+                                    .help("Use the official 0.6.0 prebuilt plugin bundle"),
+                            ),
+                    )
                     .arg(
                         Arg::with_name("plugin_name")
                             .help("Plugin name, or doctor/info/permissions")
@@ -1030,47 +1081,59 @@ impl Args {
                 install_path,
             }))
         } else if let Some(plugin_matches) = matches.subcommand_matches("plugin") {
-            // Support both positional and flag-based syntax
-            let plugin_name = plugin_matches
-                .value_of("plugin_name")
-                .or_else(|| plugin_matches.value_of("name"));
+            if let Some(run) = plugin_matches.subcommand_matches("run") {
+                let plugin = run.value_of("plugin").unwrap().to_string();
+                let action = run.value_of("action").unwrap().to_string();
+                let output = PluginOutputFormat::parse(run.value_of("output").unwrap_or("human"));
+                let arguments = run
+                    .values_of("action_arguments")
+                    .map(|values| values.map(String::from).collect())
+                    .unwrap_or_default();
+                Some(Command::PluginRun(plugin, action, output, arguments))
+            } else if plugin_matches.subcommand_matches("migrate").is_some() {
+                Some(Command::PluginMigratePrebuilt)
+            } else {
+                // Support both positional and flag-based syntax
+                let plugin_name = plugin_matches
+                    .value_of("plugin_name")
+                    .or_else(|| plugin_matches.value_of("name"));
 
-            let action = plugin_matches
-                .value_of("plugin_action")
-                .or_else(|| plugin_matches.value_of("action"));
+                let action = plugin_matches
+                    .value_of("plugin_action")
+                    .or_else(|| plugin_matches.value_of("action"));
 
-            match (plugin_name, action) {
-                (Some("info"), Some(name)) => Some(Command::PluginInfo(name.to_string())),
-                (Some("permissions"), Some(name)) => {
-                    Some(Command::PluginPermissions(name.to_string()))
-                }
-                (Some(name), Some(act)) => {
-                    let args = plugin_matches
-                        .values_of("plugin_args")
-                        .or_else(|| plugin_matches.values_of("args"))
-                        .map(|v| v.map(String::from).collect())
-                        .unwrap_or_default();
-                    Some(Command::PluginAction(
-                        name.to_string(),
-                        act.to_string(),
-                        args,
-                    ))
-                }
-                (Some(name), None) => {
-                    if name == "doctor" {
-                        Some(Command::PluginDoctor)
-                    } else {
-                        // No action provided - defer to command handler (menu/help fallback)
+                match (plugin_name, action) {
+                    (Some("info"), Some(name)) => Some(Command::PluginInfo(name.to_string())),
+                    (Some("permissions"), Some(name)) => {
+                        Some(Command::PluginPermissions(name.to_string()))
+                    }
+                    (Some(name), Some(act)) => {
+                        let args = plugin_matches
+                            .values_of("plugin_args")
+                            .or_else(|| plugin_matches.values_of("args"))
+                            .map(|v| v.map(String::from).collect())
+                            .unwrap_or_default();
                         Some(Command::PluginAction(
                             name.to_string(),
-                            "__default__".to_string(),
-                            vec![],
+                            act.to_string(),
+                            args,
                         ))
                     }
-                }
-                (None, _) => {
-                    return Err(LlaError::Plugin(
-                        "Plugin name is required.\n\n\
+                    (Some(name), None) => {
+                        if name == "doctor" {
+                            Some(Command::PluginDoctor)
+                        } else {
+                            // No action provided - defer to command handler (menu/help fallback)
+                            Some(Command::PluginAction(
+                                name.to_string(),
+                                "__default__".to_string(),
+                                vec![],
+                            ))
+                        }
+                    }
+                    (None, _) => {
+                        return Err(LlaError::Plugin(
+                            "Plugin name is required.\n\n\
                         Usage:\n  \
                         lla plugin <name> <action> [args...]\n  \
                         lla plugin --name <name> --action <action> [--args ...]\n\n\
@@ -1078,8 +1141,9 @@ impl Args {
                         lla plugin git_status help\n  \
                         lla plugin file_tagger add-tag README.md important\n\n\
                         Run 'lla list-plugins' to see available plugins."
-                            .to_string(),
-                    ));
+                                .to_string(),
+                        ));
+                    }
                 }
             }
         } else if let Some(jump_matches) = matches.subcommand_matches("jump") {

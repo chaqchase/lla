@@ -1,11 +1,12 @@
 use colored::Colorize;
 use dialoguer::Confirm;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -531,7 +532,7 @@ impl Plugin for FlushDnsPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "flush".to_string(),
@@ -593,4 +594,4 @@ impl ConfigurablePlugin for FlushDnsPlugin {
 
 impl ProtobufHandler for FlushDnsPlugin {}
 
-lla_plugin_interface::declare_plugin!(FlushDnsPlugin);
+lla_plugin_sdk::export_plugin!(FlushDnsPlugin);

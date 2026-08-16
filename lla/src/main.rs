@@ -87,6 +87,7 @@ fn initialize_plugin_manager(args: &Args, config: &Config) -> Result<PluginManag
         }
         Some(
             Command::PluginAction(name, _, _)
+            | Command::PluginRun(name, _, _, _)
             | Command::PluginInfo(name)
             | Command::PluginPermissions(name),
         ) => {

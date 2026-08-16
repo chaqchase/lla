@@ -3,13 +3,14 @@ use dialoguer::{Input, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
     ui::interactive_suggest,
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1450,7 +1451,7 @@ impl Plugin for BrewPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "list".to_string(),
@@ -1548,7 +1549,7 @@ impl ConfigurablePlugin for BrewPlugin {
 
 impl ProtobufHandler for BrewPlugin {}
 
-lla_plugin_interface::declare_plugin!(BrewPlugin);
+lla_plugin_sdk::export_plugin!(BrewPlugin);
 
 #[derive(Debug, Clone)]
 struct CatalogHit {

@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.remove-paywall"
 name = "remove_paywall"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "remove_paywall"
 description = "Create archival and reader links for URLs"
@@ -11,9 +13,96 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["remove", "clipboard", "choose", "try-all", "services", "history", "12ft", "archive", "freedium", "menu", "help"]
 
 [permissions]
 network = ["archive.is", "12ft.io", "removepaywall.com", "freedium.cfd", "webcache.googleusercontent.com"]
 clipboard = true
 open_url = true
+
+[[actions]]
+id = "remove"
+description = "Run the remove action"
+examples = ["lla plugin run remove_paywall remove"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "clipboard"
+description = "Run the clipboard action"
+examples = ["lla plugin run remove_paywall clipboard"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "choose"
+description = "Run the choose action"
+examples = ["lla plugin run remove_paywall choose"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "try-all"
+description = "Run the try-all action"
+examples = ["lla plugin run remove_paywall try-all"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "services"
+description = "Run the services action"
+examples = ["lla plugin run remove_paywall services"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Run the history action"
+examples = ["lla plugin run remove_paywall history"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "12ft"
+description = "Run the 12ft action"
+examples = ["lla plugin run remove_paywall 12ft"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "archive"
+description = "Run the archive action"
+examples = ["lla plugin run remove_paywall archive"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "freedium"
+description = "Run the freedium action"
+examples = ["lla plugin run remove_paywall freedium"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "menu"
+description = "Run the menu action"
+examples = ["lla plugin run remove_paywall menu"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run remove_paywall help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

@@ -1,6 +1,6 @@
 [package]
 name = "kill_process"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 description = "A plugin for lla that allows killing processes with an interactive interface"
 
@@ -8,7 +8,7 @@ description = "A plugin for lla that allows killing processes with an interactiv
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

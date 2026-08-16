@@ -1,13 +1,14 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ui::interactive_suggest,
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -624,7 +625,7 @@ impl Plugin for GoogleSearchPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "search".to_string(),
@@ -688,4 +689,4 @@ impl ConfigurablePlugin for GoogleSearchPlugin {
 
 impl ProtobufHandler for GoogleSearchPlugin {}
 
-lla_plugin_interface::declare_plugin!(GoogleSearchPlugin);
+lla_plugin_sdk::export_plugin!(GoogleSearchPlugin);

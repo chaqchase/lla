@@ -1,12 +1,13 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -754,7 +755,7 @@ impl Plugin for GoogleMeetPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "create".to_string(),
@@ -824,4 +825,4 @@ impl ConfigurablePlugin for GoogleMeetPlugin {
 
 impl ProtobufHandler for GoogleMeetPlugin {}
 
-lla_plugin_interface::declare_plugin!(GoogleMeetPlugin);
+lla_plugin_sdk::export_plugin!(GoogleMeetPlugin);

@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use std::{
     collections::HashMap,
@@ -414,7 +415,7 @@ impl Plugin for ProjectContextPlugin {
 
 impl ProtobufHandler for ProjectContextPlugin {}
 
-lla_plugin_interface::declare_plugin!(ProjectContextPlugin);
+lla_plugin_sdk::export_plugin!(ProjectContextPlugin);
 
 impl Default for ProjectContextPlugin {
     fn default() -> Self {

@@ -1,4 +1,4 @@
-use lla_plugin_interface::ActionInfo;
+use crate::ActionInfo;
 use std::collections::HashMap;
 
 type ActionHandler = dyn Fn(&[String]) -> Result<(), String> + Send + Sync;

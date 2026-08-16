@@ -1,13 +1,14 @@
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     trash::{remove_path, TrashStore},
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{fs, ops::Deref, path::PathBuf};
@@ -332,7 +333,7 @@ impl ConfigurablePlugin for FileRemoverPlugin {
 
 impl ProtobufHandler for FileRemoverPlugin {}
 
-lla_plugin_interface::declare_plugin!(FileRemoverPlugin);
+lla_plugin_sdk::export_plugin!(FileRemoverPlugin);
 
 impl Default for FileRemoverPlugin {
     fn default() -> Self {

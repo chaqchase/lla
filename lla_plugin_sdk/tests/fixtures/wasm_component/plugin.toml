@@ -1,0 +1,14 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.fixture-wasm"
+name = "fixture_wasm"
+version = "0.0.0"
+api_min = 3
+api_max = 3
+runtime = "wasm-component"
+entrypoint = "fixture_wasm.wasm"
+
+[capabilities]
+decorates_entries = true
+formats = ["default"]

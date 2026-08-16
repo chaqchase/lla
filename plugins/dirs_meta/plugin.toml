@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.dirs-meta"
 name = "dirs_meta"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "dirs_meta"
 description = "Calculate directory counts and sizes"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["clear-cache", "stats", "help"]
 machine_output = true
 
 [permissions]
@@ -35,3 +36,27 @@ name = "dir_total_size"
 type = "bytes"
 sortable = true
 filterable = true
+
+[[actions]]
+id = "clear-cache"
+description = "Run the clear-cache action"
+examples = ["lla plugin run dirs_meta clear-cache"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "stats"
+description = "Run the stats action"
+examples = ["lla plugin run dirs_meta stats"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run dirs_meta help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

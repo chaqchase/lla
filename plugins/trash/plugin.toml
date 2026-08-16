@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.trash"
 name = "trash"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "trash"
 description = "Cross-platform recoverable deletion with restore support"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["put", "list", "restore", "empty", "help"]
 machine_output = true
 
 [permissions]
@@ -27,3 +28,43 @@ filterable = true
 name = "trash_state"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "put"
+description = "Run the put action"
+examples = ["lla plugin run trash put"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list"
+description = "Run the list action"
+examples = ["lla plugin run trash list"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "restore"
+description = "Run the restore action"
+examples = ["lla plugin run trash restore"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "empty"
+description = "Run the empty action"
+examples = ["lla plugin run trash empty"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run trash help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

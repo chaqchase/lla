@@ -1,0 +1,18 @@
+[package]
+name = "lla_plugin_sdk_macros"
+description = "Export macros for the lla plugin SDK"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/lla_plugin_sdk_macros"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+lla_plugin_interface = { path = "../lla_plugin_interface", version = "0.6.0" }
+quote = "1"
+syn = { version = "2", features = ["full"] }

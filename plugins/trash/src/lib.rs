@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{trash::TrashStore, ActionRegistry, ProtobufHandler};
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use std::path::Path;
 
@@ -192,7 +193,7 @@ impl Plugin for TrashPlugin {
 
 impl ProtobufHandler for TrashPlugin {}
 
-lla_plugin_interface::declare_plugin!(TrashPlugin);
+lla_plugin_sdk::export_plugin!(TrashPlugin);
 
 impl Default for TrashPlugin {
     fn default() -> Self {

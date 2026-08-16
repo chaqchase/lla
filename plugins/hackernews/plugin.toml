@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.hackernews"
 name = "hackernews"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "hackernews"
 description = "Browse Hacker News stories and discussions"
@@ -11,9 +13,104 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["top", "best", "new", "ask", "show", "jobs", "open", "comments", "copy", "browse", "menu", "help"]
 
 [permissions]
 network = ["hacker-news.firebaseio.com", "news.ycombinator.com"]
 clipboard = true
 open_url = true
+
+[[actions]]
+id = "top"
+description = "Run the top action"
+examples = ["lla plugin run hackernews top"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "best"
+description = "Run the best action"
+examples = ["lla plugin run hackernews best"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "new"
+description = "Run the new action"
+examples = ["lla plugin run hackernews new"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "ask"
+description = "Run the ask action"
+examples = ["lla plugin run hackernews ask"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "show"
+description = "Run the show action"
+examples = ["lla plugin run hackernews show"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "jobs"
+description = "Run the jobs action"
+examples = ["lla plugin run hackernews jobs"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "open"
+description = "Run the open action"
+examples = ["lla plugin run hackernews open"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "comments"
+description = "Run the comments action"
+examples = ["lla plugin run hackernews comments"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "copy"
+description = "Run the copy action"
+examples = ["lla plugin run hackernews copy"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "browse"
+description = "Run the browse action"
+examples = ["lla plugin run hackernews browse"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "menu"
+description = "Run the menu action"
+examples = ["lla plugin run hackernews menu"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run hackernews help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path};
 
 pub const MANIFEST_FILE_NAME: &str = "plugin.toml";
+pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
 const FILESYSTEM_PERMISSION_SCOPES: &[&str] = &[
     "metadata:selection",
     "metadata:tree",
@@ -17,8 +18,9 @@ const FILESYSTEM_PERMISSION_SCOPES: &[&str] = &[
     "delete:quarantine",
 ];
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PluginManifest {
+    pub schema_version: u32,
     pub plugin: PluginDescriptor,
     #[serde(default)]
     pub capabilities: PluginCapabilities,
@@ -26,6 +28,8 @@ pub struct PluginManifest {
     pub permissions: PluginPermissions,
     #[serde(default)]
     pub fields: Vec<FieldDescriptor>,
+    #[serde(default)]
+    pub actions: Vec<ActionDescriptor>,
 }
 
 impl PluginManifest {
@@ -39,6 +43,12 @@ impl PluginManifest {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != MANIFEST_SCHEMA_VERSION {
+            return Err(format!(
+                "unsupported plugin manifest schema {}; expected {}",
+                self.schema_version, MANIFEST_SCHEMA_VERSION
+            ));
+        }
         validate_identifier("plugin.id", &self.plugin.id)?;
         validate_identifier("plugin.name", &self.plugin.name)?;
         if self.plugin.version.trim().is_empty() {
@@ -61,7 +71,6 @@ impl PluginManifest {
         }
 
         validate_unique_nonempty("capabilities.formats", &self.capabilities.formats)?;
-        validate_unique_nonempty("capabilities.actions", &self.capabilities.actions)?;
         validate_unique_nonempty("permissions.filesystem", &self.permissions.filesystem)?;
         validate_unique_nonempty("permissions.network", &self.permissions.network)?;
         for scope in &self.permissions.filesystem {
@@ -70,8 +79,8 @@ impl PluginManifest {
             }
         }
         for domain in &self.permissions.network {
-            if domain != "*"
-                && (domain.starts_with('.')
+            if domain == "*"
+                || (domain.starts_with('.')
                     || domain.ends_with('.')
                     || domain.contains("..")
                     || !domain.chars().all(|character| {
@@ -88,6 +97,16 @@ impl PluginManifest {
             if !fields.insert(field.name.as_str()) {
                 return Err(format!("duplicate field name '{}'", field.name));
             }
+        }
+        let mut actions = HashSet::new();
+        for action in &self.actions {
+            action.validate()?;
+            if !actions.insert(action.id.as_str()) {
+                return Err(format!("duplicate action id '{}'", action.id));
+            }
+        }
+        if self.plugin.runtime == PluginRuntime::WasmComponent && self.permissions.process {
+            return Err("WASM plugins cannot request process permission in API v3".to_string());
         }
         Ok(())
     }
@@ -147,7 +166,7 @@ pub struct PluginDescriptor {
 pub enum PluginRuntime {
     #[default]
     Native,
-    WasmWasi,
+    WasmComponent,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,9 +176,212 @@ pub struct PluginCapabilities {
     #[serde(default)]
     pub formats: Vec<String>,
     #[serde(default)]
-    pub actions: Vec<String>,
-    #[serde(default)]
     pub machine_output: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ActionDescriptor {
+    pub id: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub examples: Vec<String>,
+    #[serde(default)]
+    pub interactive: bool,
+    #[serde(default)]
+    pub arguments: Vec<ActionArgument>,
+    #[serde(default)]
+    pub output: ActionOutputSchema,
+}
+
+impl ActionDescriptor {
+    fn validate(&self) -> Result<(), String> {
+        validate_identifier("action id", &self.id)?;
+        if self.description.trim().is_empty() {
+            return Err(format!("action '{}' needs a description", self.id));
+        }
+        validate_unique_nonempty("action examples", &self.examples)?;
+        let mut names = HashSet::new();
+        let mut positions = HashSet::new();
+        let mut options = HashSet::new();
+        for argument in &self.arguments {
+            validate_identifier("action argument name", &argument.name)?;
+            if !names.insert(argument.name.as_str()) {
+                return Err(format!(
+                    "duplicate argument '{}' in action '{}'",
+                    argument.name, self.id
+                ));
+            }
+            if let Some(position) = argument.position {
+                if !positions.insert(position) {
+                    return Err(format!(
+                        "duplicate positional index {position} in action '{}'",
+                        self.id
+                    ));
+                }
+            }
+            if let Some(option) = &argument.option {
+                if !option.starts_with("--") || option.len() < 3 || !options.insert(option.as_str())
+                {
+                    return Err(format!(
+                        "invalid or duplicate option '{option}' in action '{}'",
+                        self.id
+                    ));
+                }
+            }
+            if argument.position.is_none() && argument.option.is_none() {
+                return Err(format!(
+                    "argument '{}' in action '{}' needs position or option",
+                    argument.name, self.id
+                ));
+            }
+            argument.validate(&self.id)?;
+        }
+        self.output.validate(&self.id)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ActionArgument {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub argument_type: ActionArgumentType,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub default: Option<ManifestValue>,
+    #[serde(default)]
+    pub repeatable: bool,
+    #[serde(default)]
+    pub choices: Vec<ManifestValue>,
+    #[serde(default)]
+    pub min: Option<f64>,
+    #[serde(default)]
+    pub max: Option<f64>,
+    #[serde(default)]
+    pub position: Option<u32>,
+    #[serde(default)]
+    pub option: Option<String>,
+}
+
+impl ActionArgument {
+    fn validate(&self, action: &str) -> Result<(), String> {
+        if self.required && self.default.is_some() {
+            return Err(format!(
+                "required argument '{}' in action '{action}' cannot have a default",
+                self.name
+            ));
+        }
+        if self.min.zip(self.max).is_some_and(|(min, max)| min > max) {
+            return Err(format!(
+                "argument '{}' in action '{action}' has min greater than max",
+                self.name
+            ));
+        }
+        if (self.min.is_some() || self.max.is_some())
+            && !matches!(
+                self.argument_type,
+                ActionArgumentType::Integer | ActionArgumentType::Float
+            )
+        {
+            return Err(format!(
+                "argument '{}' in action '{action}' uses a numeric range with a non-numeric type",
+                self.name
+            ));
+        }
+        for value in self.default.iter().chain(self.choices.iter()) {
+            if !value.matches(self.argument_type) {
+                return Err(format!(
+                    "argument '{}' in action '{action}' contains a value with the wrong type",
+                    self.name
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ActionArgumentType {
+    String,
+    Integer,
+    Float,
+    Boolean,
+    Path,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ManifestValue {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+}
+
+impl ManifestValue {
+    fn matches(&self, expected: ActionArgumentType) -> bool {
+        matches!(
+            (self, expected),
+            (
+                Self::String(_),
+                ActionArgumentType::String | ActionArgumentType::Path
+            ) | (Self::Integer(_), ActionArgumentType::Integer)
+                | (Self::Float(_), ActionArgumentType::Float)
+                | (Self::Integer(_), ActionArgumentType::Float)
+                | (Self::Boolean(_), ActionArgumentType::Boolean)
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ActionOutputSchema {
+    #[default]
+    None,
+    Text,
+    Value {
+        #[serde(default)]
+        schema: BTreeMap<String, toml::Value>,
+    },
+    Table {
+        columns: Vec<TableColumn>,
+    },
+}
+
+impl ActionOutputSchema {
+    fn validate(&self, action: &str) -> Result<(), String> {
+        if let Self::Table { columns } = self {
+            if columns.is_empty() {
+                return Err(format!(
+                    "table output for action '{action}' needs at least one column"
+                ));
+            }
+            let mut names = HashSet::new();
+            for column in columns {
+                validate_identifier("table column", &column.name)?;
+                if !names.insert(column.name.as_str()) {
+                    return Err(format!(
+                        "duplicate table column '{}' in action '{action}'",
+                        column.name
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TableColumn {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub field_type: FieldType,
+    #[serde(default)]
+    pub description: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -209,12 +431,14 @@ mod tests {
     fn parses_and_validates_manifest() {
         let manifest: PluginManifest = toml::from_str(
             r#"
+schema_version = 3
+
 [plugin]
 id = "dev.lla.example"
 name = "example"
 version = "1.0.0"
-api_min = 2
-api_max = 2
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "libexample.so"
 
@@ -231,12 +455,12 @@ sortable = true
         .unwrap();
 
         manifest.validate().unwrap();
-        assert!(manifest.supports_host_api(2));
-        assert!(!manifest.supports_host_api(3));
+        assert!(manifest.supports_host_api(3));
+        assert!(!manifest.supports_host_api(2));
     }
 
     #[test]
-    fn every_workspace_plugin_has_a_valid_v2_manifest() {
+    fn every_workspace_plugin_has_a_valid_v3_manifest() {
         let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugins");
         if !plugins_dir.is_dir() {
             return;
@@ -255,12 +479,12 @@ sortable = true
                 manifest.plugin.name,
                 plugin_dir.file_name().unwrap().to_string_lossy()
             );
-            assert!(manifest.supports_host_api(crate::CURRENT_PLUGIN_API_VERSION));
+            assert!(manifest.supports_host_api(crate::PLUGIN_API_VERSION));
 
             let source = fs::read_to_string(plugin_dir.join("src/lib.rs")).unwrap();
             assert!(
-                source.contains("declare_plugin!("),
-                "{} does not export the shared v1/v2 plugin ABI",
+                source.contains("export_plugin!("),
+                "{} does not export the shared v3 plugin ABI",
                 manifest.plugin.name
             );
             if source.contains("arboard::Clipboard") {
@@ -296,12 +520,14 @@ sortable = true
     fn rejects_entrypoints_outside_the_package() {
         let mut manifest: PluginManifest = toml::from_str(
             r#"
+schema_version = 3
+
 [plugin]
 id = "dev.lla.example"
 name = "example"
 version = "1.0.0"
-api_min = 2
-api_max = 2
+api_min = 3
+api_max = 3
 entrypoint = "example"
 "#,
         )
@@ -317,16 +543,21 @@ entrypoint = "example"
     fn rejects_duplicate_capabilities_and_fields() {
         let manifest: PluginManifest = toml::from_str(
             r#"
+schema_version = 3
+
 [plugin]
 id = "dev.lla.example"
 name = "example"
 version = "1.0.0"
-api_min = 2
-api_max = 2
+api_min = 3
+api_max = 3
 entrypoint = "example"
 
-[capabilities]
-actions = ["help", "help"]
+[[actions]]
+id = "help"
+
+[[actions]]
+id = "help"
 
 [[fields]]
 name = "score"
@@ -346,12 +577,14 @@ type = "integer"
     fn rejects_unknown_or_url_shaped_permissions() {
         let mut manifest: PluginManifest = toml::from_str(
             r#"
+schema_version = 3
+
 [plugin]
 id = "dev.lla.example"
 name = "example"
 version = "1.0.0"
-api_min = 2
-api_max = 2
+api_min = 3
+api_max = 3
 entrypoint = "example"
 
 [permissions]

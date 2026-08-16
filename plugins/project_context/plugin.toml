@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.project-context"
 name = "project_context"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "project_context"
 description = "Detect project type, toolchains, dependency locks, artifacts, and repository health"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["inspect", "refresh", "help"]
 machine_output = true
 
 [permissions]
@@ -66,3 +67,27 @@ filterable = true
 name = "git_branch"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Run the inspect action"
+examples = ["lla plugin run project_context inspect"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "refresh"
+description = "Run the refresh action"
+examples = ["lla plugin run project_context refresh"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run project_context help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

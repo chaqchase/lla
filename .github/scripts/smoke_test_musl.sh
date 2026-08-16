@@ -47,19 +47,8 @@ grep -q 'example.txt' "$fixture_dir/archive.txt"
 "$binary" config show-effective >/dev/null
 "$binary" theme preview default >/dev/null
 
-plugin_output="$fixture_dir/plugin-error.txt"
-assert_plugin_unavailable() {
-  if "$binary" "$@" >"$plugin_output" 2>&1; then
-    echo "Static musl plugin command unexpectedly succeeded: $*" 1>&2
-    exit 1
-  fi
-  grep -qF \
-    'Dynamic plugins are unavailable in the static musl build; use a GNU build for plugin support.' \
-    "$plugin_output"
-}
+"$binary" list-plugins >/dev/null
+"$binary" plugin doctor >"$fixture_dir/plugin-doctor.txt"
+grep -q 'Plugin Platform v3 diagnostics' "$fixture_dir/plugin-doctor.txt"
 
-assert_plugin_unavailable install --prebuilt
-assert_plugin_unavailable list-plugins
-assert_plugin_unavailable "$fixture_dir/files" --enable-plugin missing_plugin
-
-echo "Static musl smoke tests passed"
+echo "Static musl + Wasmtime smoke tests passed"

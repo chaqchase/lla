@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
@@ -313,7 +314,7 @@ impl Plugin for SecurityAuditPlugin {
 
 impl ProtobufHandler for SecurityAuditPlugin {}
 
-lla_plugin_interface::declare_plugin!(SecurityAuditPlugin);
+lla_plugin_sdk::export_plugin!(SecurityAuditPlugin);
 
 impl Default for SecurityAuditPlugin {
     fn default() -> Self {

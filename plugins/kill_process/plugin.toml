@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.kill-process"
 name = "kill_process"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "kill_process"
 description = "Inspect and terminate operating-system processes"
@@ -11,7 +13,70 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["list", "kill", "force-kill", "kill-by-name", "force-kill-by-name", "kill-by-pid", "force-kill-by-pid", "help"]
 
 [permissions]
 process = true
+
+[[actions]]
+id = "list"
+description = "Run the list action"
+examples = ["lla plugin run kill_process list"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "kill"
+description = "Run the kill action"
+examples = ["lla plugin run kill_process kill"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill"
+description = "Run the force-kill action"
+examples = ["lla plugin run kill_process force-kill"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "kill-by-name"
+description = "Run the kill-by-name action"
+examples = ["lla plugin run kill_process kill-by-name"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill-by-name"
+description = "Run the force-kill-by-name action"
+examples = ["lla plugin run kill_process force-kill-by-name"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "kill-by-pid"
+description = "Run the kill-by-pid action"
+examples = ["lla plugin run kill_process kill-by-pid"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill-by-pid"
+description = "Run the force-kill-by-pid action"
+examples = ["lla plugin run kill_process force-kill-by-pid"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run kill_process help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

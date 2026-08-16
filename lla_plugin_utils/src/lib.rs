@@ -13,7 +13,138 @@ pub use ui::{
     TextBlock, TextStyle,
 };
 
-use lla_plugin_interface::{proto, DecoratedEntry, PluginRequest, PluginResponse};
+use lla_plugin_interface::proto;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+pub use lla_plugin_interface::ActionInfo;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DecoratedEntry {
+    pub path: PathBuf,
+    pub metadata: EntryMetadata,
+    pub custom_fields: HashMap<String, String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct EntryMetadata {
+    pub size: u64,
+    pub modified: u64,
+    pub accessed: u64,
+    pub created: u64,
+    pub is_dir: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    pub permissions: u32,
+    pub uid: u32,
+    pub gid: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum PluginRequest {
+    GetName,
+    GetVersion,
+    GetDescription,
+    GetSupportedFormats,
+    Decorate(DecoratedEntry),
+    FormatField(DecoratedEntry, String),
+    PerformAction(String, Vec<String>),
+    GetAvailableActions,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum PluginResponse {
+    Name(String),
+    Version(String),
+    Description(String),
+    SupportedFormats(Vec<String>),
+    Decorated(DecoratedEntry),
+    FormattedField(Option<String>),
+    ActionResult(Result<(), String>),
+    AvailableActions(Vec<ActionInfo>),
+    Error(String),
+}
+
+impl From<EntryMetadata> for proto::EntryMetadata {
+    fn from(meta: EntryMetadata) -> Self {
+        Self {
+            size: meta.size,
+            modified: meta.modified,
+            accessed: meta.accessed,
+            created: meta.created,
+            is_dir: meta.is_dir,
+            is_file: meta.is_file,
+            is_symlink: meta.is_symlink,
+            permissions: meta.permissions,
+            uid: meta.uid,
+            gid: meta.gid,
+        }
+    }
+}
+
+impl From<proto::EntryMetadata> for EntryMetadata {
+    fn from(meta: proto::EntryMetadata) -> Self {
+        Self {
+            size: meta.size,
+            modified: meta.modified,
+            accessed: meta.accessed,
+            created: meta.created,
+            is_dir: meta.is_dir,
+            is_file: meta.is_file,
+            is_symlink: meta.is_symlink,
+            permissions: meta.permissions,
+            uid: meta.uid,
+            gid: meta.gid,
+        }
+    }
+}
+
+impl From<DecoratedEntry> for proto::DecoratedEntry {
+    fn from(entry: DecoratedEntry) -> Self {
+        Self {
+            path: entry.path.to_string_lossy().to_string(),
+            metadata: Some(entry.metadata.into()),
+            custom_fields: entry.custom_fields,
+            typed_fields: HashMap::new(),
+        }
+    }
+}
+
+fn value_as_strings(value: proto::TypedValue) -> Vec<String> {
+    use proto::typed_value::Value;
+    match value.value {
+        Some(Value::StringValue(value) | Value::PathValue(value)) => vec![value],
+        Some(Value::IntegerValue(value)) => vec![value.to_string()],
+        Some(Value::FloatValue(value)) => vec![value.to_string()],
+        Some(Value::BooleanValue(value)) => vec![value.to_string()],
+        Some(Value::BytesValue(value) | Value::TimestampValue(value)) => vec![value.to_string()],
+        Some(Value::ListValue(values)) => values
+            .values
+            .into_iter()
+            .flat_map(value_as_strings)
+            .collect(),
+        Some(Value::ObjectValue(_)) | Some(Value::NullValue(_)) | None => Vec::new(),
+    }
+}
+
+fn action_arguments_as_strings(
+    arguments: std::collections::HashMap<String, proto::TypedValue>,
+) -> Vec<String> {
+    if let Some(arguments) = arguments.get("args").cloned() {
+        return value_as_strings(arguments);
+    }
+    let mut arguments = arguments.into_iter().collect::<Vec<_>>();
+    arguments.sort_by(|(left, _), (right, _)| {
+        let left_index = left.parse::<usize>().unwrap_or(usize::MAX);
+        let right_index = right.parse::<usize>().unwrap_or(usize::MAX);
+        left_index.cmp(&right_index).then_with(|| left.cmp(right))
+    });
+    arguments
+        .into_iter()
+        .flat_map(|(_, value)| value_as_strings(value))
+        .collect()
+}
 
 fn decode_decorated_entry(entry: proto::DecoratedEntry) -> Result<DecoratedEntry, String> {
     let metadata = entry
@@ -95,9 +226,10 @@ pub trait ProtobufHandler {
                     req.format,
                 ))
             }
-            Some(proto::plugin_message::Message::Action(req)) => {
-                Ok(PluginRequest::PerformAction(req.action, req.args))
-            }
+            Some(proto::plugin_message::Message::Action(req)) => Ok(PluginRequest::PerformAction(
+                req.action,
+                action_arguments_as_strings(req.arguments),
+            )),
             Some(proto::plugin_message::Message::ListActions(_)) => {
                 Ok(PluginRequest::GetAvailableActions)
             }
@@ -132,10 +264,16 @@ pub trait ProtobufHandler {
                 Ok(()) => proto::plugin_message::Message::ActionResponse(proto::ActionResponse {
                     success: true,
                     error: None,
+                    output: Some(proto::ActionOutput {
+                        output: Some(proto::action_output::Output::None(true)),
+                    }),
+                    structured_error: None,
                 }),
                 Err(e) => proto::plugin_message::Message::ActionResponse(proto::ActionResponse {
                     success: false,
                     error: Some(e),
+                    output: None,
+                    structured_error: None,
                 }),
             },
             PluginResponse::AvailableActions(actions) => {
@@ -212,6 +350,6 @@ macro_rules! create_plugin {
 
         impl $crate::ProtobufHandler for $plugin {}
 
-        lla_plugin_interface::declare_plugin!($plugin);
+        lla_plugin_sdk::export_plugin!($plugin);
     };
 }

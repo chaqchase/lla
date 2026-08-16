@@ -1,12 +1,13 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use url::Url;
@@ -982,7 +983,7 @@ impl Plugin for RemovePaywallPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "remove".to_string(),
@@ -1083,4 +1084,4 @@ impl ConfigurablePlugin for RemovePaywallPlugin {
 
 impl ProtobufHandler for RemovePaywallPlugin {}
 
-lla_plugin_interface::declare_plugin!(RemovePaywallPlugin);
+lla_plugin_sdk::export_plugin!(RemovePaywallPlugin);

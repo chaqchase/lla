@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-16
+
+### Added
+
+- Plugin Platform v3 with public `lla_plugin_sdk` and `lla_plugin_sdk_macros` crates, embedded manifest contracts, a Component Model WIT world, and overridable native batch decoration.
+- Typed action arguments and structured `none`, `text`, `value`, and `table` results with host-rendered human, JSON, NDJSON, and CSV output through `lla plugin run`.
+- An embedded Wasmtime/WASI Preview 2 runtime on 64-bit Linux and macOS, including memory, response, batch, and execution-time limits.
+- Persisted `plugin-grants.toml` approvals, permission-expansion prompts, exact-domain WASI HTTP, default-denied raw sockets, and gated clipboard and URL-opening calls.
+- `lla plugin migrate --prebuilt` with timestamped legacy backups, third-party plugin reporting, and failed-migration restoration.
+
+### Changed
+
+- Native plugins now export only `_plugin_create_v3`; API v1/v2 libraries are detected without invoking their code and reported as disabled.
+- `plugin.toml` schema 3 is the source of truth for actions, fields, output contracts, runtime entrypoints, and permissions. Packaged and compiled manifests must match exactly.
+- All bundled plugins and prebuilt-package manifests target API v3 and version 0.6.0.
+- `lla plugin <plugin> <action>` remains available in 0.6.x but emits a deprecation warning in favor of `lla plugin run`.
+
+### Security
+
+- WASM plugins run with default-denied capabilities, exact network-domain allowlists, stable host error codes for traps and timeouts, a 128 MiB memory limit, and a 16 MiB response limit.
+- WASM packages requesting subprocess execution are rejected, and WASM packages return an explicit unsupported-runtime error on i686.
+
 ## [0.5.12] - 2026-08-15
 
 ### Added

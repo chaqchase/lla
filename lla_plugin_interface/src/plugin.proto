@@ -43,19 +43,35 @@ message PluginMessage {
         string error_response = 108;
         ListActionsResponse list_actions_response = 109;
         BatchDecorateResponse decorate_batch_response = 110;
+        PluginError structured_error_response = 111;
     }
 }
 
 message TypedValue {
     oneof value {
-        string string_value = 1;
-        sint64 integer_value = 2;
-        double float_value = 3;
-        bool boolean_value = 4;
-        uint64 bytes_value = 5;
-        uint64 timestamp_value = 6;
-        string path_value = 7;
+        NullValue null_value = 1;
+        string string_value = 2;
+        sint64 integer_value = 3;
+        double float_value = 4;
+        bool boolean_value = 5;
+        uint64 bytes_value = 6;
+        uint64 timestamp_value = 7;
+        string path_value = 8;
+        ListValue list_value = 9;
+        ObjectValue object_value = 10;
     }
+}
+
+enum NullValue {
+    NULL_VALUE = 0;
+}
+
+message ListValue {
+    repeated TypedValue values = 1;
+}
+
+message ObjectValue {
+    map<string, TypedValue> fields = 1;
 }
 
 message BatchDecorateRequest {
@@ -74,7 +90,8 @@ message FormatFieldRequest {
 
 message ActionRequest {
     string action = 1;
-    repeated string args = 2;
+    reserved 2;
+    map<string, TypedValue> arguments = 3;
 }
 
 message SupportedFormatsResponse {
@@ -88,6 +105,32 @@ message FormattedFieldResponse {
 message ActionResponse {
     bool success = 1;
     optional string error = 2;
+    ActionOutput output = 3;
+    PluginError structured_error = 4;
+}
+
+message PluginError {
+    string code = 1;
+    string message = 2;
+    map<string, TypedValue> details = 3;
+}
+
+message ActionOutput {
+    oneof output {
+        bool none = 1;
+        string text = 2;
+        TypedValue value = 3;
+        TableValue table = 4;
+    }
+}
+
+message TableValue {
+    repeated string columns = 1;
+    repeated TableRow rows = 2;
+}
+
+message TableRow {
+    repeated TypedValue cells = 1;
 }
 
 message ActionInfo {

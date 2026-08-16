@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-organizer"
 name = "file_organizer"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_organizer"
 description = "Organize files using configurable strategies"
@@ -11,7 +13,30 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["organize", "preview", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:tree", "delete:selection"]
+
+[[actions]]
+id = "organize"
+description = "Run the organize action"
+examples = ["lla plugin run file_organizer organize"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "preview"
+description = "Run the preview action"
+examples = ["lla plugin run file_organizer preview"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run file_organizer help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

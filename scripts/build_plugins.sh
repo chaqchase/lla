@@ -143,7 +143,7 @@ else
   cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 fi
 
-# Package each plugin as a v2 directory containing its manifest and native entrypoint.
+# Package each plugin as a v3 directory containing its manifest and native entrypoint.
 for crate in "${PLUGIN_CRATES[@]}"; do
   # Cargo turns '-' into '_' in library filenames (e.g. my-plugin -> libmy_plugin.so)
   artifact_name="${crate//-/_}"
@@ -161,7 +161,7 @@ for crate in "${PLUGIN_CRATES[@]}"; do
   PACKAGE_DIR="$STAGING_DIR/$crate"
   MANIFEST="plugins/$crate/plugin.toml"
   if [[ ! -f "$MANIFEST" ]]; then
-    echo "Expected v2 plugin manifest not found: $MANIFEST" 1>&2
+    echo "Expected v3 plugin manifest not found: $MANIFEST" 1>&2
     exit 1
   fi
   mkdir -p "$PACKAGE_DIR"

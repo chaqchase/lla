@@ -142,11 +142,14 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     for (k, v) in &entry.custom_fields {
         plugin.insert(k.clone(), serde_json::Value::String(v.clone()));
     }
-    for (key, value) in &entry.typed_fields {
+    fn typed_value_to_json(value: &lla_plugin_interface::proto::TypedValue) -> serde_json::Value {
         let Some(value) = &value.value else {
-            continue;
+            return serde_json::Value::Null;
         };
-        let json = match value {
+        match value {
+            lla_plugin_interface::proto::typed_value::Value::NullValue(_) => {
+                serde_json::Value::Null
+            }
             lla_plugin_interface::proto::typed_value::Value::StringValue(value)
             | lla_plugin_interface::proto::typed_value::Value::PathValue(value) => {
                 serde_json::Value::String(value.clone())
@@ -166,8 +169,22 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
             | lla_plugin_interface::proto::typed_value::Value::TimestampValue(value) => {
                 serde_json::Value::Number((*value).into())
             }
-        };
-        plugin.insert(key.clone(), json);
+            lla_plugin_interface::proto::typed_value::Value::ListValue(values) => {
+                serde_json::Value::Array(values.values.iter().map(typed_value_to_json).collect())
+            }
+            lla_plugin_interface::proto::typed_value::Value::ObjectValue(value) => {
+                serde_json::Value::Object(
+                    value
+                        .fields
+                        .iter()
+                        .map(|(key, value)| (key.clone(), typed_value_to_json(value)))
+                        .collect(),
+                )
+            }
+        }
+    }
+    for (key, value) in &entry.typed_fields {
+        plugin.insert(key.clone(), typed_value_to_json(value));
     }
 
     SerializableEntry {

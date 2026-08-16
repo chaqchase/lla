@@ -1,11 +1,12 @@
 use colored::Colorize;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, Spinner},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{cmp, collections::HashMap};
@@ -200,7 +201,7 @@ impl FileSizeVisualizerPlugin {
 
     fn format_size_info(
         &self,
-        entry: &lla_plugin_interface::DecoratedEntry,
+        entry: &lla_plugin_utils::DecoratedEntry,
         format: &str,
     ) -> Option<String> {
         entry
@@ -333,4 +334,4 @@ impl ConfigurablePlugin for FileSizeVisualizerPlugin {
 
 impl ProtobufHandler for FileSizeVisualizerPlugin {}
 
-lla_plugin_interface::declare_plugin!(FileSizeVisualizerPlugin);
+lla_plugin_sdk::export_plugin!(FileSizeVisualizerPlugin);

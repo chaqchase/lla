@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_utils::{DecoratedEntry, PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::{
@@ -543,7 +544,7 @@ impl Plugin for MediaInspectorPlugin {
 
 impl ProtobufHandler for MediaInspectorPlugin {}
 
-lla_plugin_interface::declare_plugin!(MediaInspectorPlugin);
+lla_plugin_sdk::export_plugin!(MediaInspectorPlugin);
 
 impl Default for MediaInspectorPlugin {
     fn default() -> Self {

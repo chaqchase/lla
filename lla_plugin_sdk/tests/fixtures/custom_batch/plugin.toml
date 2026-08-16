@@ -1,0 +1,14 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.fixture-batch"
+name = "fixture_batch"
+version = "0.0.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "lla_sdk_custom_batch_fixture"
+
+[capabilities]
+decorates_entries = true
+formats = ["default"]

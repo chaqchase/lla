@@ -1,12 +1,13 @@
 use colored::Colorize;
 use dialoguer::MultiSelect;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -503,7 +504,7 @@ impl ConfigurablePlugin for FileCopierPlugin {
 
 impl ProtobufHandler for FileCopierPlugin {}
 
-lla_plugin_interface::declare_plugin!(FileCopierPlugin);
+lla_plugin_sdk::export_plugin!(FileCopierPlugin);
 
 impl Default for FileCopierPlugin {
     fn default() -> Self {

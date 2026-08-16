@@ -1,4 +1,4 @@
-use lla_plugin_interface::DecoratedEntry;
+use crate::DecoratedEntry;
 use std::collections::HashMap;
 
 type FieldFormatter = dyn Fn(&DecoratedEntry) -> Option<String>;

@@ -95,8 +95,33 @@ validate_release_versions() {
     exit 1
   fi
 
+  if ! grep -Eq 'lla_plugin_sdk_macros = \{[^}]*version = "'"$version"'"' lla_plugin_sdk/Cargo.toml; then
+    log_error "lla_plugin_sdk/Cargo.toml must depend on lla_plugin_sdk_macros $version"
+    exit 1
+  fi
+
+  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' lla_plugin_sdk_macros/Cargo.toml; then
+    log_error "lla_plugin_sdk_macros/Cargo.toml must depend on lla_plugin_interface $version"
+    exit 1
+  fi
+
   if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' lla_plugin_utils/Cargo.toml; then
     log_error "lla_plugin_utils/Cargo.toml must depend on lla_plugin_interface $version"
+    exit 1
+  fi
+
+  if ! grep -Eq 'lla_plugin_sdk = \{[^}]*version = "'"$version"'"' lla_plugin_utils/Cargo.toml; then
+    log_error "lla_plugin_utils/Cargo.toml must depend on lla_plugin_sdk $version"
+    exit 1
+  fi
+
+  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' Cargo.toml; then
+    log_error "workspace dependencies must use lla_plugin_interface $version"
+    exit 1
+  fi
+
+  if ! grep -Eq 'lla_plugin_sdk = \{[^}]*version = "'"$version"'"' Cargo.toml; then
+    log_error "workspace dependencies must use lla_plugin_sdk $version"
     exit 1
   fi
 
@@ -130,11 +155,19 @@ crate_version_published() {
 validate_crates_io_state() {
   local version="$1"
   local interface_published=false
+  local macros_published=false
+  local sdk_published=false
   local utils_published=false
   local cli_published=false
 
   if crate_version_published "lla_plugin_interface" "$version"; then
     interface_published=true
+  fi
+  if crate_version_published "lla_plugin_sdk_macros" "$version"; then
+    macros_published=true
+  fi
+  if crate_version_published "lla_plugin_sdk" "$version"; then
+    sdk_published=true
   fi
   if crate_version_published "lla_plugin_utils" "$version"; then
     utils_published=true
@@ -147,8 +180,16 @@ validate_crates_io_state() {
     log_error "lla_plugin_utils $version exists on crates.io but lla_plugin_interface $version does not"
     exit 1
   fi
+  if [[ "$macros_published" == "true" && "$interface_published" != "true" ]]; then
+    log_error "lla_plugin_sdk_macros $version exists on crates.io but lla_plugin_interface $version does not"
+    exit 1
+  fi
+  if [[ "$sdk_published" == "true" && ( "$interface_published" != "true" || "$macros_published" != "true" ) ]]; then
+    log_error "lla_plugin_sdk $version exists before its internal dependencies"
+    exit 1
+  fi
 
-  if [[ "$cli_published" == "true" && ( "$interface_published" != "true" || "$utils_published" != "true" ) ]]; then
+  if [[ "$cli_published" == "true" && ( "$interface_published" != "true" || "$macros_published" != "true" || "$sdk_published" != "true" || "$utils_published" != "true" ) ]]; then
     log_error "lla $version exists on crates.io before its internal dependencies; this release cannot resume safely"
     exit 1
   fi

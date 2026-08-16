@@ -30,12 +30,26 @@ perl -0pi -e 's/(\[workspace\.package\][\s\S]*?version\s*=\s*")[^"]+(")/$1$ENV{V
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+  s/(lla_plugin_sdk = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
   s/(lla_plugin_utils = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
 ' lla/Cargo.toml
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
 ' lla_plugin_utils/Cargo.toml
+
+perl -0pi -e '
+  s/(lla_plugin_sdk_macros = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+' lla_plugin_sdk/Cargo.toml
+
+perl -0pi -e '
+  s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+' lla_plugin_sdk_macros/Cargo.toml
+
+perl -0pi -e '
+  s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+  s/(lla_plugin_sdk = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+' Cargo.toml
 
 while IFS= read -r manifest; do
   perl -0pi -e 's/(^version\s*=\s*")[^"]+(")/$1$ENV{VERSION}$2/m' "$manifest"

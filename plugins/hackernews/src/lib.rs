@@ -2,12 +2,13 @@ use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1003,7 +1004,7 @@ impl Plugin for HackerNewsPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "top".to_string(),
@@ -1107,4 +1108,4 @@ impl ConfigurablePlugin for HackerNewsPlugin {
 
 impl ProtobufHandler for HackerNewsPlugin {}
 
-lla_plugin_interface::declare_plugin!(HackerNewsPlugin);
+lla_plugin_sdk::export_plugin!(HackerNewsPlugin);

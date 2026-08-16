@@ -1,0 +1,14 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.fixture-minimal"
+name = "fixture_minimal"
+version = "0.0.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "lla_sdk_minimal_native_fixture"
+
+[capabilities]
+decorates_entries = true
+formats = ["default"]

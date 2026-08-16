@@ -5,7 +5,7 @@ use std::path::{Component, Path};
 use toml::Value;
 
 /// Verifies a package's optional checksum inventory. A present inventory must
-/// cover the runtime entrypoint and, for v2 packages, the manifest.
+/// cover the runtime entrypoint and, for v3 packages, the manifest.
 pub(crate) fn verify_package_checksums(entrypoint: &Path) -> Result<bool, String> {
     let package_dir = entrypoint
         .parent()

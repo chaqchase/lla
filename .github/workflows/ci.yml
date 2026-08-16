@@ -51,6 +51,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
+          targets: wasm32-wasip2
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -63,6 +64,13 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Compile SDK fixtures
+        run: |
+          cargo check --manifest-path lla_plugin_sdk/tests/fixtures/minimal_native/Cargo.toml
+          cargo check --manifest-path lla_plugin_sdk/tests/fixtures/custom_batch/Cargo.toml
+          cargo check --manifest-path lla_plugin_sdk/tests/fixtures/wasm_component/Cargo.toml
+          cargo build --manifest-path lla_plugin_sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
 
   build:
     name: Build
@@ -140,7 +148,7 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         run: |
           if [[ "${{ matrix.libc }}" == "musl" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --no-default-features
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
             cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}"
           else
@@ -153,11 +161,11 @@ jobs:
           mapfile -t artifacts < <(find "target/${{ matrix.target }}/release" -maxdepth 1 -type f \( -name lla -o -name '*.so' \) | sort)
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${artifacts[@]}"
 
-      - name: Verify Plugin Platform v2
+      - name: Verify Plugin Platform v3
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
-          ./scripts/verify_plugins_v2.sh dist/plugins-linux-amd64
+          ./scripts/verify_plugins_v3.sh dist/plugins-linux-amd64
 
       - name: Verify static musl linkage
         if: matrix.libc == 'musl'

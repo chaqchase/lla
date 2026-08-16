@@ -1,6 +1,6 @@
 [package]
 name = "file_organizer"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 description = "A plugin for lla that organizes files using various strategies"
 
@@ -8,7 +8,7 @@ description = "A plugin for lla that organizes files using various strategies"
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 colored = "2.0"
 lazy_static = "1.4"

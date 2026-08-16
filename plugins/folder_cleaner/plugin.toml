@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.folder-cleaner"
 name = "folder_cleaner"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "folder_cleaner"
 description = "Plan, quarantine and restore generated-folder cleanup"
@@ -11,7 +13,102 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["scan", "preview", "clean", "apply", "restore", "quarantine-list", "quarantine-empty", "history", "show-plan", "doctor", "config-wizard", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:tree", "delete:quarantine"]
+
+[[actions]]
+id = "scan"
+description = "Run the scan action"
+examples = ["lla plugin run folder_cleaner scan"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "preview"
+description = "Run the preview action"
+examples = ["lla plugin run folder_cleaner preview"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "clean"
+description = "Run the clean action"
+examples = ["lla plugin run folder_cleaner clean"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "apply"
+description = "Run the apply action"
+examples = ["lla plugin run folder_cleaner apply"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "restore"
+description = "Run the restore action"
+examples = ["lla plugin run folder_cleaner restore"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "quarantine-list"
+description = "Run the quarantine-list action"
+examples = ["lla plugin run folder_cleaner quarantine-list"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "quarantine-empty"
+description = "Run the quarantine-empty action"
+examples = ["lla plugin run folder_cleaner quarantine-empty"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Run the history action"
+examples = ["lla plugin run folder_cleaner history"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "show-plan"
+description = "Run the show-plan action"
+examples = ["lla plugin run folder_cleaner show-plan"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "doctor"
+description = "Run the doctor action"
+examples = ["lla plugin run folder_cleaner doctor"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "config-wizard"
+description = "Run the config-wizard action"
+examples = ["lla plugin run folder_cleaner config-wizard"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run folder_cleaner help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

@@ -1,6 +1,6 @@
 [package]
 name = "media_inspector"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 description = "Inspect MIME types, image metadata, and audio/video stream details"
 
@@ -8,7 +8,7 @@ description = "Inspect MIME types, image metadata, and audio/video stream detail
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 lazy_static = "1.4"
 parking_lot = "0.12"

@@ -1,12 +1,12 @@
 [package]
 name = "duplicate_file_detector"
 description = "Detects duplicate files by comparing their content hashes"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
 sha2 = "0.10.2"
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
+lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
 lla_plugin_utils = { path = "../../lla_plugin_utils" }
 colored = "2.0.0"
 prost = "0.12"

@@ -1,12 +1,13 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -978,7 +979,7 @@ impl Plugin for JwtPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "decode".to_string(),
@@ -1040,4 +1041,4 @@ impl ConfigurablePlugin for JwtPlugin {
 
 impl ProtobufHandler for JwtPlugin {}
 
-lla_plugin_interface::declare_plugin!(JwtPlugin);
+lla_plugin_sdk::export_plugin!(JwtPlugin);

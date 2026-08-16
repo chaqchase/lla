@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.git-status"
 name = "git_status"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "git_status"
 description = "Expose repository and per-entry Git status"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["help"]
 machine_output = true
 
 [permissions]
@@ -41,3 +42,11 @@ name = "git_modified"
 type = "integer"
 sortable = true
 filterable = true
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run git_status help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

@@ -1,10 +1,11 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
     ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path, process::Command};
@@ -226,7 +227,7 @@ impl GitStatusPlugin {
 
     fn format_git_info(
         &self,
-        entry: &lla_plugin_interface::DecoratedEntry,
+        entry: &lla_plugin_utils::DecoratedEntry,
         format: &str,
     ) -> Option<String> {
         let colors = &self.base.config().colors;
@@ -445,4 +446,4 @@ impl ConfigurablePlugin for GitStatusPlugin {
 
 impl ProtobufHandler for GitStatusPlugin {}
 
-lla_plugin_interface::declare_plugin!(GitStatusPlugin);
+lla_plugin_sdk::export_plugin!(GitStatusPlugin);

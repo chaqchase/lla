@@ -46,7 +46,7 @@ pub struct DecoratedEntry {
 pub struct PluginMessage {
     #[prost(
         oneof = "plugin_message::Message",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111"
     )]
     pub message: ::core::option::Option<plugin_message::Message>,
 }
@@ -93,12 +93,14 @@ pub mod plugin_message {
         ListActionsResponse(super::ListActionsResponse),
         #[prost(message, tag = "110")]
         DecorateBatchResponse(super::BatchDecorateResponse),
+        #[prost(message, tag = "111")]
+        StructuredErrorResponse(super::PluginError),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TypedValue {
-    #[prost(oneof = "typed_value::Value", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "typed_value::Value", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub value: ::core::option::Option<typed_value::Value>,
 }
 /// Nested message and enum types in `TypedValue`.
@@ -106,21 +108,39 @@ pub mod typed_value {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Value {
-        #[prost(string, tag = "1")]
+        #[prost(enumeration = "super::NullValue", tag = "1")]
+        NullValue(i32),
+        #[prost(string, tag = "2")]
         StringValue(::prost::alloc::string::String),
-        #[prost(sint64, tag = "2")]
+        #[prost(sint64, tag = "3")]
         IntegerValue(i64),
-        #[prost(double, tag = "3")]
+        #[prost(double, tag = "4")]
         FloatValue(f64),
-        #[prost(bool, tag = "4")]
+        #[prost(bool, tag = "5")]
         BooleanValue(bool),
-        #[prost(uint64, tag = "5")]
-        BytesValue(u64),
         #[prost(uint64, tag = "6")]
+        BytesValue(u64),
+        #[prost(uint64, tag = "7")]
         TimestampValue(u64),
-        #[prost(string, tag = "7")]
+        #[prost(string, tag = "8")]
         PathValue(::prost::alloc::string::String),
+        #[prost(message, tag = "9")]
+        ListValue(super::ListValue),
+        #[prost(message, tag = "10")]
+        ObjectValue(super::ObjectValue),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListValue {
+    #[prost(message, repeated, tag = "1")]
+    pub values: ::prost::alloc::vec::Vec<TypedValue>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ObjectValue {
+    #[prost(map = "string, message", tag = "1")]
+    pub fields: ::std::collections::HashMap<::prost::alloc::string::String, TypedValue>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -149,8 +169,11 @@ pub struct FormatFieldRequest {
 pub struct ActionRequest {
     #[prost(string, tag = "1")]
     pub action: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
-    pub args: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(map = "string, message", tag = "3")]
+    pub arguments: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        TypedValue,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -171,6 +194,55 @@ pub struct ActionResponse {
     pub success: bool,
     #[prost(string, optional, tag = "2")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "3")]
+    pub output: ::core::option::Option<ActionOutput>,
+    #[prost(message, optional, tag = "4")]
+    pub structured_error: ::core::option::Option<PluginError>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PluginError {
+    #[prost(string, tag = "1")]
+    pub code: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(map = "string, message", tag = "3")]
+    pub details: ::std::collections::HashMap<::prost::alloc::string::String, TypedValue>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ActionOutput {
+    #[prost(oneof = "action_output::Output", tags = "1, 2, 3, 4")]
+    pub output: ::core::option::Option<action_output::Output>,
+}
+/// Nested message and enum types in `ActionOutput`.
+pub mod action_output {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(bool, tag = "1")]
+        None(bool),
+        #[prost(string, tag = "2")]
+        Text(::prost::alloc::string::String),
+        #[prost(message, tag = "3")]
+        Value(super::TypedValue),
+        #[prost(message, tag = "4")]
+        Table(super::TableValue),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableValue {
+    #[prost(string, repeated, tag = "1")]
+    pub columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "2")]
+    pub rows: ::prost::alloc::vec::Vec<TableRow>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableRow {
+    #[prost(message, repeated, tag = "1")]
+    pub cells: ::prost::alloc::vec::Vec<TypedValue>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -189,4 +261,27 @@ pub struct ActionInfo {
 pub struct ListActionsResponse {
     #[prost(message, repeated, tag = "1")]
     pub actions: ::prost::alloc::vec::Vec<ActionInfo>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NullValue {
+    NullValue = 0,
+}
+impl NullValue {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            NullValue::NullValue => "NULL_VALUE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NULL_VALUE" => Some(Self::NullValue),
+            _ => None,
+        }
+    }
 }

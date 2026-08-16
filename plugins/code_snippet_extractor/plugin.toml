@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.code-snippet-extractor"
 name = "code_snippet_extractor"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "code_snippet_extractor"
 description = "Extract and manage tagged code snippets"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["extract", "list", "get", "search", "add-tags", "remove-tags", "help", "list-categories", "list-by-category", "set-category", "export", "import"]
 machine_output = true
 
 [permissions]
@@ -24,3 +25,99 @@ name = "snippet_count"
 type = "integer"
 sortable = true
 filterable = true
+
+[[actions]]
+id = "extract"
+description = "Run the extract action"
+examples = ["lla plugin run code_snippet_extractor extract"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list"
+description = "Run the list action"
+examples = ["lla plugin run code_snippet_extractor list"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "get"
+description = "Run the get action"
+examples = ["lla plugin run code_snippet_extractor get"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Run the search action"
+examples = ["lla plugin run code_snippet_extractor search"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "add-tags"
+description = "Run the add-tags action"
+examples = ["lla plugin run code_snippet_extractor add-tags"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "remove-tags"
+description = "Run the remove-tags action"
+examples = ["lla plugin run code_snippet_extractor remove-tags"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run code_snippet_extractor help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list-categories"
+description = "Run the list-categories action"
+examples = ["lla plugin run code_snippet_extractor list-categories"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list-by-category"
+description = "Run the list-by-category action"
+examples = ["lla plugin run code_snippet_extractor list-by-category"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "set-category"
+description = "Run the set-category action"
+examples = ["lla plugin run code_snippet_extractor set-category"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "export"
+description = "Run the export action"
+examples = ["lla plugin run code_snippet_extractor export"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "import"
+description = "Run the import action"
+examples = ["lla plugin run code_snippet_extractor import"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

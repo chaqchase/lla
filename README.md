@@ -23,6 +23,15 @@
 
 lla is a modern `ls` replacement that transforms how developers interact with their filesystem. Built with Rust's performance capabilities and designed with user experience in mind, lla combines the familiarity of `ls` with powerful features like specialized views, Git integration, and a robust plugin system with an extensible list of plugins to add more functionality.
 
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Installing and managing plugins](docs/plugins/README.md)
+- [Developing plugins with the Rust SDK](docs/plugins/developing.md)
+- [Plugin manifest reference](docs/plugins/manifest.md)
+- [Bundled plugin catalog](docs/plugins/catalog.md)
+- [Release process](docs/maintainers/releasing.md)
+
 ## Features
 
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
@@ -709,18 +718,23 @@ respect_gitignore = true
 | `--enable-plugin`  | Enable specific plugins    | `lla --enable-plugin name`                                                    |
 | `--disable-plugin` | Disable specific plugins   | `lla --disable-plugin name`                                                   |
 | `update`           | Update plugins             | `lla update` <br> `lla update file_tagger`                                    |
-| `plugin`           | Run plugin actions         | `lla plugin --name file_tagger --action add-tag --args README.md "important"` |
-| `plugin info`      | Inspect a v2 manifest      | `lla plugin info file_tagger`                                                   |
+| `plugin run`       | Run typed plugin actions   | `lla plugin run file_tagger add-tag -- README.md "important"`                  |
+| `plugin info`      | Inspect a v3 manifest      | `lla plugin info file_tagger`                                                   |
 | `plugin permissions` | Inspect declared access  | `lla plugin permissions file_tagger`                                            |
-| `plugin doctor`    | Validate v2 packages        | `lla plugin doctor`                                                             |
+| `plugin doctor`    | Validate v3 packages        | `lla plugin doctor`                                                             |
 
-Plugin Platform v2 packages place `plugin.toml` beside their native entrypoint.
+Plugin Platform v3 packages place schema-3 `plugin.toml` beside their native or
+WASM Component Model entrypoint. Run typed actions with
+`lla plugin run <plugin> <action> --output human|json|ndjson|csv -- <arguments>`.
 The manifest declares API compatibility, typed fields, capabilities, and access
 requirements before the library is loaded. `plugins_dir` remains the writable
 user location; additional package-manager-owned locations can be configured with
 `plugin_dirs = ["/path/to/plugins"]`. lla also searches the standard system
 locations for the current platform. Native permissions are declarations because
-native libraries are trusted code; sandboxed runtimes can enforce them in future.
+native libraries are trusted code; WASM permissions are enforced by the embedded
+Wasmtime/WASI Preview 2 runtime and persisted in `plugin-grants.toml`.
+See the [plugin documentation](docs/plugins/README.md) for installation,
+development, manifest, migration, and architecture guides.
 
 #### Shortcut Management
 

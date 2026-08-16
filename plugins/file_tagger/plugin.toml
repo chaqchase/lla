@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-tagger"
 name = "file_tagger"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_tagger"
 description = "Attach and query user-defined file tags"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["add-tag", "remove-tag", "list-tags", "all-tags", "files-by-tag", "help"]
 machine_output = true
 
 [permissions]
@@ -22,3 +23,51 @@ filesystem = ["metadata:selection"]
 name = "tags"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "add-tag"
+description = "Run the add-tag action"
+examples = ["lla plugin run file_tagger add-tag"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "remove-tag"
+description = "Run the remove-tag action"
+examples = ["lla plugin run file_tagger remove-tag"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list-tags"
+description = "Run the list-tags action"
+examples = ["lla plugin run file_tagger list-tags"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "all-tags"
+description = "Run the all-tags action"
+examples = ["lla plugin run file_tagger all-tags"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "files-by-tag"
+description = "Run the files-by-tag action"
+examples = ["lla plugin run file_tagger files-by-tag"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run file_tagger help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

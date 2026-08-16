@@ -1,12 +1,13 @@
 use colored::Colorize;
 use dialoguer::{Input, Select};
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::Plugin;
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
     BasePlugin, ConfigurablePlugin, ProtobufHandler,
 };
+use lla_plugin_utils::{PluginRequest, PluginResponse};
 use reqwest::blocking::Client;
 use reqwest::header;
 use serde::{Deserialize, Serialize};
@@ -791,7 +792,7 @@ impl Plugin for SpeedTestPlugin {
                         PluginResponse::ActionResult(result)
                     }
                     PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
+                        use lla_plugin_utils::ActionInfo;
                         PluginResponse::AvailableActions(vec![
                             ActionInfo {
                                 name: "test".to_string(),
@@ -859,4 +860,4 @@ impl ConfigurablePlugin for SpeedTestPlugin {
 
 impl ProtobufHandler for SpeedTestPlugin {}
 
-lla_plugin_interface::declare_plugin!(SpeedTestPlugin);
+lla_plugin_sdk::export_plugin!(SpeedTestPlugin);

@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.brew"
 name = "brew"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "brew"
 description = "Manage Homebrew packages"
@@ -11,8 +13,95 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["list", "search", "outdated", "install", "uninstall", "upgrade", "info", "cleanup", "doctor", "menu", "help"]
 
 [permissions]
 network = ["formulae.brew.sh", "github.com"]
 process = true
+
+[[actions]]
+id = "list"
+description = "Run the list action"
+examples = ["lla plugin run brew list"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Run the search action"
+examples = ["lla plugin run brew search"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "outdated"
+description = "Run the outdated action"
+examples = ["lla plugin run brew outdated"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "install"
+description = "Run the install action"
+examples = ["lla plugin run brew install"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "uninstall"
+description = "Run the uninstall action"
+examples = ["lla plugin run brew uninstall"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "upgrade"
+description = "Run the upgrade action"
+examples = ["lla plugin run brew upgrade"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "info"
+description = "Run the info action"
+examples = ["lla plugin run brew info"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "cleanup"
+description = "Run the cleanup action"
+examples = ["lla plugin run brew cleanup"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "doctor"
+description = "Run the doctor action"
+examples = ["lla plugin run brew doctor"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "menu"
+description = "Run the menu action"
+examples = ["lla plugin run brew menu"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Run the help action"
+examples = ["lla plugin run brew help"]
+interactive = true
+arguments = [{ name = "args", type = "string", position = 0, repeatable = true }]
+output = { type = "none" }

@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "lla-sdk-custom-batch-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_sdk = { path = "../../../" }
