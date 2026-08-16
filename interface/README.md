@@ -26,7 +26,7 @@ decoration, and typed actions; its default batch implementation processes each
 entry individually and can be overridden with one native operation.
 
 The maintained WIT world is published at
-`lla_plugin_sdk/wit/lla-plugin.wit`. Other languages can generate Component
+`sdk/wit/lla-plugin.wit`. Other languages can generate Component
 Model bindings from that world and package a `.wasm` component.
 Rust Component Model plugins enable the SDK's `component` feature and use
 `lla_plugin_sdk::export_component!` instead of the native export macro.

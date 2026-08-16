@@ -16,7 +16,7 @@ use wasmtime_wasi_http::p2::{
 use wasmtime_wasi_http::WasiHttpCtx;
 
 wasmtime::component::bindgen!({
-    path: "../lla_plugin_sdk/wit",
+    path: "../sdk/wit",
     world: "plugin",
 });
 

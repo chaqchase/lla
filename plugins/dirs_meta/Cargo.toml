@@ -7,8 +7,8 @@ edition = "2021"
 [dependencies]
 colored = { workspace = true }
 walkdir = { workspace = true }
-lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 rayon = { workspace = true }
 lazy_static = "1.4"
 parking_lot = { workspace = true }

@@ -8,8 +8,8 @@ description = "Safety-first folder organization and cleanup plugin for lla"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 chrono = { workspace = true }
 colored = { workspace = true }
 dialoguer = { workspace = true }

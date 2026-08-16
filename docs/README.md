@@ -23,6 +23,6 @@ link to one canonical source.
 
 Crate-specific API documentation remains beside each crate:
 
-- [`lla_plugin_sdk`](../lla_plugin_sdk/README.md)
-- [`lla_plugin_interface`](../lla_plugin_interface/README.md)
-- [`lla_plugin_utils`](../lla_plugin_utils/README.md)
+- [`lla_plugin_sdk`](../sdk/README.md)
+- [`lla_plugin_interface`](../interface/README.md)
+- [`lla_plugin_utils`](../utils/README.md)

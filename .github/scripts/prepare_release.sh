@@ -36,15 +36,15 @@ perl -0pi -e '
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
-' lla_plugin_utils/Cargo.toml
+' utils/Cargo.toml
 
 perl -0pi -e '
   s/(lla_plugin_sdk_macros = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
-' lla_plugin_sdk/Cargo.toml
+' sdk/Cargo.toml
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
-' lla_plugin_sdk_macros/Cargo.toml
+' macros/Cargo.toml
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;

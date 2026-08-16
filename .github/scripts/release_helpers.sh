@@ -95,23 +95,23 @@ validate_release_versions() {
     exit 1
   fi
 
-  if ! grep -Eq 'lla_plugin_sdk_macros = \{[^}]*version = "'"$version"'"' lla_plugin_sdk/Cargo.toml; then
-    log_error "lla_plugin_sdk/Cargo.toml must depend on lla_plugin_sdk_macros $version"
+  if ! grep -Eq 'lla_plugin_sdk_macros = \{[^}]*version = "'"$version"'"' sdk/Cargo.toml; then
+    log_error "sdk/Cargo.toml must depend on lla_plugin_sdk_macros $version"
     exit 1
   fi
 
-  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' lla_plugin_sdk_macros/Cargo.toml; then
-    log_error "lla_plugin_sdk_macros/Cargo.toml must depend on lla_plugin_interface $version"
+  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' macros/Cargo.toml; then
+    log_error "macros/Cargo.toml must depend on lla_plugin_interface $version"
     exit 1
   fi
 
-  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' lla_plugin_utils/Cargo.toml; then
-    log_error "lla_plugin_utils/Cargo.toml must depend on lla_plugin_interface $version"
+  if ! grep -Eq 'lla_plugin_interface = \{[^}]*version = "'"$version"'"' utils/Cargo.toml; then
+    log_error "utils/Cargo.toml must depend on lla_plugin_interface $version"
     exit 1
   fi
 
-  if ! grep -Eq 'lla_plugin_sdk = \{[^}]*version = "'"$version"'"' lla_plugin_utils/Cargo.toml; then
-    log_error "lla_plugin_utils/Cargo.toml must depend on lla_plugin_sdk $version"
+  if ! grep -Eq 'lla_plugin_sdk = \{[^}]*version = "'"$version"'"' utils/Cargo.toml; then
+    log_error "utils/Cargo.toml must depend on lla_plugin_sdk $version"
     exit 1
   fi
 

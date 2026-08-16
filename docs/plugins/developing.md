@@ -147,7 +147,7 @@ cargo build --release --target wasm32-wasip2
 ```
 
 The maintained interface is
-[`lla_plugin_sdk/wit/lla-plugin.wit`](../../lla_plugin_sdk/wit/lla-plugin.wit).
+[`sdk/wit/lla-plugin.wit`](../../sdk/wit/lla-plugin.wit).
 
 ## Install and test locally
 
@@ -169,6 +169,6 @@ Workspace maintainers can validate an entire release bundle with:
 
 Use the SDK fixtures as executable examples:
 
-- [Minimal native plugin](../../lla_plugin_sdk/tests/fixtures/minimal_native)
-- [Custom native batch](../../lla_plugin_sdk/tests/fixtures/custom_batch)
-- [Rust WebAssembly component](../../lla_plugin_sdk/tests/fixtures/wasm_component)
+- [Minimal native plugin](../../sdk/tests/fixtures/minimal_native)
+- [Custom native batch](../../sdk/tests/fixtures/custom_batch)
+- [Rust WebAssembly component](../../sdk/tests/fixtures/wasm_component)

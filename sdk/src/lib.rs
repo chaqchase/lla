@@ -416,7 +416,7 @@ mod tests {
     fn published_wit_world_matches_component_export_macro() {
         assert_eq!(
             include_str!("../wit/lla-plugin.wit"),
-            include_str!("../../lla_plugin_sdk_macros/wit/lla-plugin.wit")
+            include_str!("../../macros/wit/lla-plugin.wit")
         );
     }
 }

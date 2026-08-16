@@ -44,10 +44,10 @@ cargo clippy -p lla --no-default-features --all-targets -- -D warnings
 Build the SDK fixtures, including a real Component Model target:
 
 ```bash
-cargo check --manifest-path lla_plugin_sdk/tests/fixtures/minimal_native/Cargo.toml
-cargo check --manifest-path lla_plugin_sdk/tests/fixtures/custom_batch/Cargo.toml
+cargo check --manifest-path sdk/tests/fixtures/minimal_native/Cargo.toml
+cargo check --manifest-path sdk/tests/fixtures/custom_batch/Cargo.toml
 rustup target add wasm32-wasip2
-cargo build --manifest-path lla_plugin_sdk/tests/fixtures/wasm_component/Cargo.toml \
+cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml \
   --target wasm32-wasip2
 ```
 

@@ -128,7 +128,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build WASM component SDK fixture
-        run: cargo build --manifest-path lla_plugin_sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
+        run: cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
 
   build_core:
     name: Build CLI (${{ matrix.artifact_name }})

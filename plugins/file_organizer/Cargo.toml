@@ -8,8 +8,8 @@ description = "A plugin for lla that organizes files using various strategies"
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 colored = "2.0"
 lazy_static = "1.4"
 parking_lot = "0.12"

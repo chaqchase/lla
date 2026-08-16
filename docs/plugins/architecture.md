@@ -20,13 +20,19 @@ plugin source
 
 ## Crate responsibilities
 
-- `lla_plugin_sdk` is the public Rust authoring API.
-- `lla_plugin_sdk_macros` generates exports and embeds `plugin.toml`; plugin
-  authors use its macros through the SDK re-exports.
-- `lla_plugin_interface` owns protobuf messages, manifest structures, stable
-  constants, and the native ABI. It is intentionally low-level.
-- `lla_plugin_utils` contains optional UI, configuration, formatting, and
-  compatibility helpers used by bundled plugins.
+Repository directories are intentionally short; published crate names remain
+stable:
+
+| Directory | Published crate | Responsibility |
+| --- | --- | --- |
+| `interface/` | `lla_plugin_interface` | Protobuf messages, manifests, constants, and the native ABI |
+| `macros/` | `lla_plugin_sdk_macros` | Native/component exports and manifest embedding |
+| `sdk/` | `lla_plugin_sdk` | Public high-level Rust authoring API and WIT world |
+| `utils/` | `lla_plugin_utils` | Optional UI, configuration, formatting, and compatibility helpers |
+
+Plugin authors use the macros through the SDK re-exports rather than depending
+on the macro implementation crate directly. The interface crate is
+intentionally low-level.
 
 All four crates are workspace members and share the lla product version.
 

@@ -8,8 +8,8 @@ description = "Detect project ecosystems, toolchains, lockfiles, artifacts, and 
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_sdk = { path = "../../lla_plugin_sdk" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 lazy_static = "1.4"
 parking_lot = "0.12"
 
