@@ -36,6 +36,7 @@ perl -0pi -e '
 
 perl -0pi -e '
   s/(lla_plugin_interface = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
+  s/(lla_plugin_sdk = \{[^}]*version = ")[^"]+(")/$1$ENV{VERSION}$2/g;
 ' utils/Cargo.toml
 
 perl -0pi -e '
