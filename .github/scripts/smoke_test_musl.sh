@@ -27,6 +27,14 @@ sed 's/enabled_plugins = \[\]/enabled_plugins = ["missing_plugin"]/' \
   "$config_file" >"$config_file.tmp"
 mv "$config_file.tmp" "$config_file"
 
+"$binary" "$fixture_dir/files" >/dev/null 2>"$fixture_dir/missing-plugin.stderr"
+grep -qF \
+  'Warning: Enabled plugin not found: missing_plugin' \
+  "$fixture_dir/missing-plugin.stderr"
+sed 's/enabled_plugins = \["missing_plugin"\]/enabled_plugins = []/' \
+  "$config_file" >"$config_file.tmp"
+mv "$config_file.tmp" "$config_file"
+
 "$binary" "$fixture_dir/files" >/dev/null 2>"$fixture_dir/default.stderr"
 [[ ! -s "$fixture_dir/default.stderr" ]]
 "$binary" "$fixture_dir/files" --long >/dev/null 2>"$fixture_dir/long.stderr"
