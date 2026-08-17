@@ -1,6 +1,6 @@
 [package]
 name = "project_context"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Detect project ecosystems, toolchains, lockfiles, artifacts, and repository health"
 

@@ -1,6 +1,6 @@
 [package]
 name = "activity_history"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Add Git-backed file activity history to timeline listings"
 
