@@ -113,9 +113,7 @@ impl MediaInspectorPlugin {
             .par_iter()
             .map(|(_, path, _, _)| Self::inspect_path(path))
             .collect::<Vec<_>>();
-        for ((index, _, key, fingerprint), inspected) in
-            misses.into_iter().zip(inspected.into_iter())
-        {
+        for ((index, _, key, fingerprint), inspected) in misses.into_iter().zip(inspected) {
             info[index] = Some(inspected.clone());
             self.cache.insert(key, fingerprint, inspected);
         }

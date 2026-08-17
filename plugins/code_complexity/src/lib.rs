@@ -640,9 +640,7 @@ impl CodeComplexityEstimatorPlugin {
             .par_iter()
             .map(|(_, path, _, _)| PLUGIN_STATE.read().analyze_file(path))
             .collect::<Vec<_>>();
-        for ((index, _path, key, fingerprint), analyzed) in
-            misses.into_iter().zip(analyzed.into_iter())
-        {
+        for ((index, _path, key, fingerprint), analyzed) in misses.into_iter().zip(analyzed) {
             metrics[index] = analyzed.clone();
             self.analysis_cache
                 .insert(key, fingerprint, analyzed.clone());

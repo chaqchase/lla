@@ -388,11 +388,9 @@ fn request_paths(request: &[u8], user_path_access: bool) -> Vec<RequestedPath> {
                 });
             }
         }
-        Some(Message::Action(action)) => {
-            if user_path_access {
-                for value in action.arguments.into_values() {
-                    collect_value_paths(value, &mut paths);
-                }
+        Some(Message::Action(action)) if user_path_access => {
+            for value in action.arguments.into_values() {
+                collect_value_paths(value, &mut paths);
             }
         }
         _ => {}
