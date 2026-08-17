@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "activity_history"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_sdk",
  "tempfile",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "brew"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "categorizer"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "change_risk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_sdk",
  "tempfile",
@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "code_complexity"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "code_snippet_extractor"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "base64 0.21.7",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "dirs_meta"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "duplicate_file_detector"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "file_copier"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "colored",
  "dialoguer",
@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "file_hash"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_sdk",
  "serde",
@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "file_meta"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "file_mover"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "colored",
  "dialoguer",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "file_organizer"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "chrono",
  "colored",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "file_remover"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "colored",
  "dialoguer",
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "file_tagger"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "flush_dns"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -1153,7 +1153,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "folder_cleaner"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "chrono",
  "colored",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "git_status"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "google_meet"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "google_search"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "hackernews"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -1975,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "jwt"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -2005,7 +2005,7 @@ dependencies = [
 
 [[package]]
 name = "keyword_search"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -2030,7 +2030,7 @@ dependencies = [
 
 [[package]]
 name = "kill_process"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "colored",
  "console",
@@ -2047,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "last_git_commit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -2132,7 +2132,7 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "lla"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "atty",
@@ -2191,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_interface"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "prost",
  "prost-build",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_sdk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_interface",
  "lla_plugin_sdk_macros",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_sdk_macros"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_interface",
  "quote",
@@ -2222,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "lla_plugin_utils"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "chrono",
  "colored",
@@ -2282,7 +2282,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "media_inspector"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "kamadak-exif",
  "lazy_static",
@@ -2363,7 +2363,7 @@ checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
 
 [[package]]
 name = "npm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -2743,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "preview"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lazy_static",
  "lla_plugin_sdk",
@@ -2772,7 +2772,7 @@ dependencies = [
 
 [[package]]
 name = "project_context"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lazy_static",
  "lla_plugin_sdk",
@@ -3021,7 +3021,7 @@ dependencies = [
 
 [[package]]
 name = "reclaimable_space"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_sdk",
  "tempfile",
@@ -3094,7 +3094,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "remove_paywall"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",
@@ -3329,7 +3329,7 @@ dependencies = [
 
 [[package]]
 name = "security_audit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lazy_static",
  "lla_plugin_sdk",
@@ -3499,7 +3499,7 @@ checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "sizeviz"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "colored",
@@ -3548,7 +3548,7 @@ dependencies = [
 
 [[package]]
 name = "speed_test"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -4035,7 +4035,7 @@ dependencies = [
 
 [[package]]
 name = "trash"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lazy_static",
  "lla_plugin_sdk",
@@ -4045,7 +4045,7 @@ dependencies = [
 
 [[package]]
 name = "tree_summary"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "lla_plugin_sdk",
  "tempfile",
@@ -5191,7 +5191,7 @@ dependencies = [
 
 [[package]]
 name = "youtube"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arboard",
  "bytes",

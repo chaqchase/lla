@@ -3,7 +3,7 @@ schema_version = 3
 [plugin]
 id = "dev.lla.duplicate-file-detector"
 name = "duplicate_file_detector"
-version = "0.6.0"
+version = "0.6.1"
 api_min = 3
 api_max = 3
 runtime = "native"
