@@ -860,5 +860,9 @@ mod tests {
             include_str!("../wit/lla-plugin.wit"),
             include_str!("../../macros/wit/lla-plugin.wit")
         );
+        assert_eq!(
+            include_str!("../wit/lla-plugin.wit"),
+            include_str!("../../lla/wit/lla-plugin.wit")
+        );
     }
 }

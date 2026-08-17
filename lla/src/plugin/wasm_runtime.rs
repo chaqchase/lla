@@ -16,7 +16,10 @@ use wasmtime_wasi_http::p2::{
 use wasmtime_wasi_http::WasiHttpCtx;
 
 wasmtime::component::bindgen!({
-    path: "../sdk/wit",
+    // Keep the WIT inside this crate: `cargo package` verifies the crate from
+    // an isolated tarball where workspace siblings such as `../sdk` do not
+    // exist.
+    path: "wit",
     world: "plugin",
 });
 
