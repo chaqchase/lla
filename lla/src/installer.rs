@@ -4,32 +4,26 @@ use crate::theme::color_value_to_color;
 use crate::utils::color::{get_theme, ColorState};
 use colored::{Color, Colorize};
 use console::Term;
+#[cfg(feature = "dynamic-plugins")]
+use dialoguer::Confirm;
 use dialoguer::MultiSelect;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 #[cfg(feature = "dynamic-plugins")]
-use libloading::Library;
-#[cfg(feature = "dynamic-plugins")]
-use lla_plugin_interface::proto::{plugin_message::Message, PluginMessage};
-#[cfg(feature = "dynamic-plugins")]
 use lla_plugin_interface::{
     manifest::{PluginManifest, PluginRuntime},
-    PluginApi, CURRENT_PLUGIN_API_VERSION, LEGACY_PLUGIN_API_VERSION,
+    PLUGIN_API_VERSION,
 };
 use lla_plugin_utils::ui::components::{BoxComponent, BoxStyle, LlaDialoguerTheme};
-#[cfg(feature = "dynamic-plugins")]
-use prost::Message as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{BufRead, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-#[cfg(feature = "dynamic-plugins")]
-use std::ptr;
 use std::time::{Duration, Instant, SystemTime};
 use tar::Archive;
 use toml::{self, Value};
@@ -941,6 +935,49 @@ impl PluginInstaller {
         InstallerUi::new(&self.color_state)
     }
 
+    #[cfg(feature = "dynamic-plugins")]
+    fn ensure_wasm_permissions(&self, manifest: &PluginManifest) -> Result<()> {
+        if manifest.plugin.runtime != PluginRuntime::WasmComponent {
+            return Ok(());
+        }
+        let path = crate::plugin::grants::GrantStore::path(&self.plugins_dir);
+        let mut grants =
+            crate::plugin::grants::GrantStore::load(&path).map_err(LlaError::Plugin)?;
+        let expanded = grants.expanded_permissions(manifest);
+        if expanded.is_empty() && grants.approves(manifest) {
+            return Ok(());
+        }
+        if !atty::is(atty::Stream::Stdin) || !atty::is(atty::Stream::Stderr) {
+            return Err(LlaError::Plugin(format!(
+                "Plugin '{}' requests new permissions ({}); reinstall from a TTY to approve them",
+                manifest.plugin.name,
+                expanded.join(", ")
+            )));
+        }
+        eprintln!(
+            "Plugin '{}' requests: {}",
+            manifest.plugin.name,
+            if expanded.is_empty() {
+                "no capabilities".to_string()
+            } else {
+                expanded.join(", ")
+            }
+        );
+        let approved = Confirm::new()
+            .with_prompt("Approve these WASM sandbox permissions?")
+            .default(false)
+            .interact()
+            .map_err(|error| LlaError::Plugin(format!("permission prompt failed: {error}")))?;
+        if !approved {
+            return Err(LlaError::Plugin(format!(
+                "Permission approval denied for '{}'",
+                manifest.plugin.name
+            )));
+        }
+        grants.record(manifest);
+        grants.save(&path).map_err(LlaError::Plugin)
+    }
+
     fn truncate_desc(desc: &str, max: usize) -> String {
         if desc.len() <= max {
             desc.to_string()
@@ -966,6 +1003,20 @@ impl PluginInstaller {
             .ok_or_else(|| LlaError::Plugin("No version found in Cargo.toml".to_string()))?;
 
         Ok(version.to_string())
+    }
+
+    fn get_plugin_package_name(&self, plugin_dir: &Path) -> Result<String> {
+        let cargo_toml_path = plugin_dir.join("Cargo.toml");
+        let contents = fs::read_to_string(&cargo_toml_path)
+            .map_err(|e| LlaError::Plugin(format!("Failed to read Cargo.toml: {e}")))?;
+        let cargo_toml: Value = toml::from_str(&contents)
+            .map_err(|e| LlaError::Plugin(format!("Failed to parse Cargo.toml: {e}")))?;
+        cargo_toml
+            .get("package")
+            .and_then(|package| package.get("name"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| LlaError::Plugin("No package name found in Cargo.toml".to_string()))
     }
 
     fn load_metadata_store(&self) -> Result<MetadataStore> {
@@ -1267,6 +1318,106 @@ impl PluginInstaller {
         Ok(format!("{:x}", digest))
     }
 
+    fn write_package_checksums(package_dir: &Path) -> Result<()> {
+        let manifest_path = package_dir.join("plugin.toml");
+        let manifest_source = fs::read_to_string(&manifest_path).map_err(|error| {
+            LlaError::Plugin(format!(
+                "Failed to read plugin manifest {}: {error}",
+                manifest_path.display()
+            ))
+        })?;
+        let manifest: Value = toml::from_str(&manifest_source).map_err(|error| {
+            LlaError::Plugin(format!(
+                "Failed to parse plugin manifest {}: {error}",
+                manifest_path.display()
+            ))
+        })?;
+        let entrypoint = manifest
+            .get("plugin")
+            .and_then(|plugin| plugin.get("entrypoint"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                LlaError::Plugin(format!(
+                    "Plugin manifest {} is missing plugin.entrypoint",
+                    manifest_path.display()
+                ))
+            })?;
+        let logical_entrypoint = Path::new(entrypoint);
+        if logical_entrypoint.is_absolute()
+            || !matches!(
+                logical_entrypoint
+                    .components()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                [std::path::Component::Normal(_)]
+            )
+        {
+            return Err(LlaError::Plugin(format!(
+                "Plugin manifest {} has an invalid package entrypoint '{}'",
+                manifest_path.display(),
+                entrypoint
+            )));
+        }
+
+        let platform_entrypoint = format!(
+            "{}{}{}",
+            std::env::consts::DLL_PREFIX,
+            entrypoint,
+            std::env::consts::DLL_SUFFIX
+        );
+        let entrypoint_without_prefix = format!("{}{}", entrypoint, std::env::consts::DLL_SUFFIX);
+        let entrypoint_path = [
+            package_dir.join(entrypoint),
+            package_dir.join(platform_entrypoint),
+            package_dir.join(entrypoint_without_prefix),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            LlaError::Plugin(format!(
+                "Cannot find runtime entrypoint '{}' in plugin package {}",
+                entrypoint,
+                package_dir.display()
+            ))
+        })?;
+        let entrypoint_name = entrypoint_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                LlaError::Plugin(format!(
+                    "Plugin package entrypoint {} has an invalid file name",
+                    entrypoint_path.display()
+                ))
+            })?;
+
+        let mut files = BTreeMap::new();
+        for (name, path) in [
+            ("plugin.toml", manifest_path.as_path()),
+            (entrypoint_name, entrypoint_path.as_path()),
+        ] {
+            if !path.is_file() {
+                return Err(LlaError::Plugin(format!(
+                    "Cannot checksum missing plugin package file {}",
+                    path.display()
+                )));
+            }
+            files.insert(name.to_string(), Self::calculate_sha256(path)?);
+        }
+
+        #[derive(Serialize)]
+        struct Inventory {
+            files: BTreeMap<String, String>,
+        }
+
+        let document = toml::to_string_pretty(&Inventory { files }).map_err(|error| {
+            LlaError::Plugin(format!("Failed to serialize plugin checksums: {error}"))
+        })?;
+        let temporary = package_dir.join("checksums.toml.tmp");
+        fs::write(&temporary, document)?;
+        fs::rename(temporary, package_dir.join("checksums.toml"))?;
+        Ok(())
+    }
+
     fn extract_archive(archive_path: &Path, destination: &Path) -> Result<()> {
         fs::create_dir_all(destination)?;
         let extension = archive_path
@@ -1330,7 +1481,9 @@ impl PluginInstaller {
                 && path
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case(extension))
+                    .map(|ext| {
+                        ext.eq_ignore_ascii_case(extension) || ext.eq_ignore_ascii_case("wasm")
+                    })
                     .unwrap_or(false)
             {
                 plugins.push(path.to_path_buf());
@@ -1349,21 +1502,32 @@ impl PluginInstaller {
             .unwrap_or_default();
         if manifest_path.is_file() {
             let manifest = PluginManifest::from_path(&manifest_path).map_err(LlaError::Plugin)?;
-            if manifest.plugin.runtime != PluginRuntime::Native {
+            if manifest.plugin.runtime == PluginRuntime::WasmComponent
+                && !crate::plugin::wasm_runtime_supported(std::env::consts::ARCH)
+            {
                 return Err(LlaError::Plugin(format!(
-                    "Plugin '{}' uses unsupported prebuilt runtime {:?}",
-                    manifest.plugin.name, manifest.plugin.runtime
+                    "Plugin '{}' is a WASM component, but Wasmtime is unsupported on {}",
+                    manifest.plugin.name,
+                    std::env::consts::ARCH
                 )));
             }
-            if !manifest.supports_host_api(CURRENT_PLUGIN_API_VERSION) {
+            if !manifest.supports_host_api(PLUGIN_API_VERSION) {
                 return Err(LlaError::Plugin(format!(
                     "Plugin '{}' supports API {}..={} but lla uses API {}",
                     manifest.plugin.name,
                     manifest.plugin.api_min,
                     manifest.plugin.api_max,
-                    CURRENT_PLUGIN_API_VERSION
+                    PLUGIN_API_VERSION
                 )));
             }
+            // Permission expansion is checked before any package files are installed.
+            // Native plugins remain trusted and therefore skip this prompt.
+            // WASM grants are persisted atomically in plugin-grants.toml.
+            //
+            // This also makes unattended installs fail closed.
+            //
+            // `self` is not available in this associated loader, so the caller
+            // performs the prompt immediately before copying the package.
             return Ok(PrebuiltPlugin {
                 path: path.to_path_buf(),
                 name: manifest.plugin.name,
@@ -1372,72 +1536,20 @@ impl PluginInstaller {
             });
         }
 
-        unsafe {
-            let library = Library::new(path).map_err(|err| {
-                LlaError::Plugin(format!("Failed to load plugin {:?}: {}", path, err))
-            })?;
-
-            let create_fn: libloading::Symbol<unsafe fn() -> *mut PluginApi> =
-                library.get(b"_plugin_create").map_err(|err| {
-                    LlaError::Plugin(format!(
-                        "Plugin {:?} is missing the _plugin_create entry point: {}",
-                        path, err
-                    ))
-                })?;
-
-            let api = create_fn();
-
-            if (*api).version != LEGACY_PLUGIN_API_VERSION {
-                return Err(LlaError::Plugin(format!(
-                    "Legacy plugin {:?} targets API v{} but lla expects legacy API v{}",
-                    path,
-                    (*api).version,
-                    LEGACY_PLUGIN_API_VERSION
-                )));
-            }
-
-            let name = Self::query_plugin_string(
-                api,
-                PluginMessage {
-                    message: Some(Message::GetName(true)),
-                },
-                "name",
-                path,
-            )?;
-
-            let version = Self::query_plugin_string(
-                api,
-                PluginMessage {
-                    message: Some(Message::GetVersion(true)),
-                },
-                "version",
-                path,
-            )?;
-
-            let description = Self::query_plugin_string(
-                api,
-                PluginMessage {
-                    message: Some(Message::GetDescription(true)),
-                },
-                "description",
-                path,
-            )?;
-
-            drop(library);
-
-            Ok(PrebuiltPlugin {
-                path: path.to_path_buf(),
-                name,
-                version,
-                description,
-            })
-        }
+        Err(LlaError::Plugin(format!(
+            "Plugin package {:?} has no API v3 plugin.toml",
+            path
+        )))
     }
 
     #[cfg(feature = "dynamic-plugins")]
     fn verify_plugin_package(entrypoint: &Path) -> Result<()> {
         crate::plugin::package::verify_package_checksums(entrypoint)
-            .map(|_| ())
+            .and_then(|present| {
+                present
+                    .then_some(())
+                    .ok_or_else(|| "API v3 package is missing checksums.toml".to_string())
+            })
             .map_err(LlaError::Plugin)
     }
 
@@ -1522,9 +1634,14 @@ impl PluginInstaller {
         })?;
 
         let manifest_source = plugin.path.parent().map(|dir| dir.join("plugin.toml"));
-        let is_v2_package = manifest_source.as_ref().is_some_and(|path| path.is_file());
+        #[cfg(feature = "dynamic-plugins")]
+        if let Some(path) = manifest_source.as_ref().filter(|path| path.is_file()) {
+            let manifest = PluginManifest::from_path(path).map_err(LlaError::Plugin)?;
+            self.ensure_wasm_permissions(&manifest)?;
+        }
+        let is_v3_package = manifest_source.as_ref().is_some_and(|path| path.is_file());
         let package_dir = self.plugins_dir.join(&plugin.name);
-        let destination = if is_v2_package {
+        let destination = if is_v3_package {
             fs::create_dir_all(&package_dir)?;
             package_dir.join(file_name)
         } else {
@@ -1562,41 +1679,6 @@ impl PluginInstaller {
         );
 
         self.update_plugin_metadata(&plugin.name, metadata)
-    }
-
-    #[cfg(feature = "dynamic-plugins")]
-    unsafe fn send_plugin_request(
-        api: *mut PluginApi,
-        message: PluginMessage,
-    ) -> Result<PluginMessage> {
-        let mut buffer = Vec::with_capacity(message.encoded_len());
-        message
-            .encode(&mut buffer)
-            .map_err(|err| LlaError::Plugin(format!("Failed to encode plugin request: {}", err)))?;
-
-        let raw = ((*api).handle_request)(ptr::null_mut(), buffer.as_ptr(), buffer.len());
-        let response_vec = Vec::from_raw_parts(raw.ptr, raw.len, raw.capacity);
-
-        PluginMessage::decode(&response_vec[..])
-            .map_err(|err| LlaError::Plugin(format!("Failed to decode plugin response: {}", err)))
-    }
-
-    #[cfg(feature = "dynamic-plugins")]
-    unsafe fn query_plugin_string(
-        api: *mut PluginApi,
-        message: PluginMessage,
-        field: &str,
-        path: &Path,
-    ) -> Result<String> {
-        match Self::send_plugin_request(api, message)?.message {
-            Some(Message::NameResponse(value)) if field == "name" => Ok(value),
-            Some(Message::VersionResponse(value)) if field == "version" => Ok(value),
-            Some(Message::DescriptionResponse(value)) if field == "description" => Ok(value),
-            _ => Err(LlaError::Plugin(format!(
-                "Plugin {:?} did not provide a {}",
-                path, field
-            ))),
-        }
     }
 
     fn select_plugins(&self, plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -1869,6 +1951,123 @@ impl PluginInstaller {
         }
     }
 
+    pub fn migrate_prebuilt(&self) -> Result<()> {
+        fs::create_dir_all(&self.plugins_dir)?;
+        let metadata_path = self.plugins_dir.join("metadata.toml");
+        let grants_path = self.plugins_dir.join("plugin-grants.toml");
+        let metadata_snapshot = fs::read(&metadata_path).ok();
+        let grants_snapshot = fs::read(&grants_path).ok();
+        let metadata = self.load_metadata_store()?;
+        let official = metadata
+            .plugins
+            .iter()
+            .filter_map(|(name, metadata)| {
+                matches!(metadata.source, PluginSource::Prebuilt { .. }).then_some(name.as_str())
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let backup_dir = self.plugins_dir.join(".legacy").join(timestamp);
+        let mut backups = Vec::<(PathBuf, PathBuf)>::new();
+        let mut unmatched = Vec::new();
+
+        let mut entries = fs::read_dir(&self.plugins_dir)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort();
+        let original_paths = entries
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        for path in entries {
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if matches!(
+                file_name,
+                "metadata.toml" | "plugin-grants.toml" | ".legacy"
+            ) {
+                continue;
+            }
+            let candidate = if path.is_dir() {
+                file_name.to_string()
+            } else {
+                path.file_stem()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.strip_prefix("lib").unwrap_or(name).to_string())
+                    .unwrap_or_default()
+            };
+            if official.contains(candidate.as_str()) {
+                fs::create_dir_all(&backup_dir)?;
+                let destination = backup_dir.join(file_name);
+                fs::rename(&path, &destination)?;
+                backups.push((path, destination));
+            } else {
+                unmatched.push(candidate);
+            }
+        }
+
+        match self.install_from_prebuilt() {
+            Ok(()) => {
+                println!(
+                    "Migrated {} official plugin artifact(s); legacy files are preserved in {}",
+                    backups.len(),
+                    backup_dir.display()
+                );
+                unmatched.sort();
+                unmatched.dedup();
+                if !unmatched.is_empty() {
+                    println!(
+                        "Unmatched third-party plugins left untouched: {}",
+                        unmatched.join(", ")
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let failed_dir = backup_dir.join("failed-v3-install");
+                for (original, backup) in backups.iter().rev() {
+                    if original.exists() {
+                        fs::create_dir_all(&failed_dir)?;
+                        let name = original.file_name().unwrap();
+                        fs::rename(original, failed_dir.join(name))?;
+                    }
+                    if backup.exists() {
+                        fs::rename(backup, original)?;
+                    }
+                }
+                for entry in fs::read_dir(&self.plugins_dir)? {
+                    let path = entry?.path();
+                    let name = path.file_name().and_then(|name| name.to_str());
+                    if matches!(
+                        name,
+                        Some("metadata.toml" | "plugin-grants.toml" | ".legacy")
+                    ) || original_paths.contains(&path)
+                    {
+                        continue;
+                    }
+                    fs::create_dir_all(&failed_dir)?;
+                    let file_name = path.file_name().ok_or_else(|| {
+                        LlaError::Plugin("partial migration artifact has no file name".to_string())
+                    })?;
+                    fs::rename(&path, failed_dir.join(file_name))?;
+                }
+                for (path, snapshot) in [
+                    (&metadata_path, metadata_snapshot.as_deref()),
+                    (&grants_path, grants_snapshot.as_deref()),
+                ] {
+                    if let Some(snapshot) = snapshot {
+                        fs::write(path, snapshot)?;
+                    } else if path.exists() {
+                        fs::remove_file(path)?;
+                    }
+                }
+                Err(LlaError::Plugin(format!(
+                    "Plugin migration failed and legacy artifacts were restored: {error}"
+                )))
+            }
+        }
+    }
+
     pub fn install_from_git(&self, url: &str) -> Result<()> {
         let ui = self.ui();
         ui.banner("Git Installation");
@@ -2067,7 +2266,9 @@ impl PluginInstaller {
                             let cargo_toml = path.join("Cargo.toml");
                             if cargo_toml.exists() {
                                 if let Ok(contents) = fs::read_to_string(&cargo_toml) {
-                                    if contents.contains("lla_plugin_interface") {
+                                    if contents.contains("lla_plugin_interface")
+                                        || contents.contains("lla_plugin_sdk")
+                                    {
                                         let name = Self::get_display_name(path);
                                         if name != "lla_plugin_interface" {
                                             if let Ok(version) = self.get_plugin_version(path) {
@@ -2105,7 +2306,9 @@ impl PluginInstaller {
                 let cargo_toml = path.join("Cargo.toml");
                 if cargo_toml.exists() {
                     if let Ok(contents) = fs::read_to_string(&cargo_toml) {
-                        if contents.contains("lla_plugin_interface") {
+                        if contents.contains("lla_plugin_interface")
+                            || contents.contains("lla_plugin_sdk")
+                        {
                             let name = Self::get_display_name(path);
                             if name != "lla_plugin_interface" {
                                 if let Ok(version) = self.get_plugin_version(path) {
@@ -2161,14 +2364,39 @@ impl PluginInstaller {
         pb: Option<&ProgressBar>,
         _base_progress: Option<u64>,
     ) -> Result<()> {
+        let manifest_source = plugin_dir.join("plugin.toml");
+        #[cfg(feature = "dynamic-plugins")]
+        let manifest = manifest_source
+            .is_file()
+            .then(|| PluginManifest::from_path(&manifest_source).map_err(LlaError::Plugin))
+            .transpose()?;
+        #[cfg(feature = "dynamic-plugins")]
+        let wasm_component = manifest
+            .as_ref()
+            .is_some_and(|manifest| manifest.plugin.runtime == PluginRuntime::WasmComponent);
+        #[cfg(not(feature = "dynamic-plugins"))]
+        let wasm_component = false;
+        if wasm_component && !crate::plugin::wasm_runtime_supported(std::env::consts::ARCH) {
+            return Err(LlaError::Plugin(format!(
+                "WASM component plugins are unsupported on {}",
+                std::env::consts::ARCH
+            )));
+        }
+        #[cfg(feature = "dynamic-plugins")]
+        let plugin_name = manifest
+            .as_ref()
+            .map(|manifest| manifest.plugin.name.clone())
+            .unwrap_or_else(|| Self::get_display_name(plugin_dir));
+        #[cfg(not(feature = "dynamic-plugins"))]
         let plugin_name = Self::get_display_name(plugin_dir);
+        let package_name = self.get_plugin_package_name(plugin_dir)?;
 
         // Silent mode when using progress bars to avoid stdout interference
         let silent = pb.is_some();
         let workspace_info = self.is_workspace_member(plugin_dir, silent)?;
         let ui = self.ui();
 
-        let (build_dir, build_args) = match workspace_info {
+        let (build_dir, mut build_args) = match workspace_info {
             Some(workspace_root) => {
                 if let Some(pb) = pb {
                     let message = format!(
@@ -2180,19 +2408,71 @@ impl PluginInstaller {
                 }
                 (
                     workspace_root,
-                    vec!["build", "--release", "-p", &plugin_name],
+                    vec![
+                        "build".to_string(),
+                        "--release".to_string(),
+                        "-p".to_string(),
+                        package_name.clone(),
+                    ],
                 )
             }
             None => {
                 if let Some(pb) = pb {
                     pb.set_message(ui.progress_message("Building", &plugin_name));
                 }
-                (plugin_dir.to_path_buf(), vec!["build", "--release"])
+                (
+                    plugin_dir.to_path_buf(),
+                    vec!["build".to_string(), "--release".to_string()],
+                )
             }
         };
+        if wasm_component {
+            build_args.extend(["--target".to_string(), "wasm32-wasip2".to_string()]);
+        }
 
         let start_time = Instant::now();
-        let mut child = Command::new("cargo")
+        let mut build_command = if wasm_component {
+            let target_status = Command::new("rustup")
+                .args(["target", "add", "wasm32-wasip2", "--toolchain", "stable"])
+                .status()
+                .map_err(|error| {
+                    LlaError::Plugin(format!(
+                        "rustup is required to build WASM component plugins: {error}"
+                    ))
+                })?;
+            if !target_status.success() {
+                return Err(LlaError::Plugin(
+                    "failed to install the wasm32-wasip2 Rust target".to_string(),
+                ));
+            }
+            let rustc = Command::new("rustup")
+                .args(["which", "rustc", "--toolchain", "stable"])
+                .output()
+                .map_err(|error| {
+                    LlaError::Plugin(format!("failed to locate rustup's stable rustc: {error}"))
+                })?;
+            if !rustc.status.success() {
+                return Err(LlaError::Plugin(
+                    "failed to locate rustup's stable rustc".to_string(),
+                ));
+            }
+            let rustc = String::from_utf8(rustc.stdout)
+                .map_err(|error| LlaError::Plugin(error.to_string()))?;
+            let mut command = Command::new("rustup");
+            command
+                .args(["run", "stable", "cargo"])
+                .env("RUSTC", rustc.trim());
+            command
+        } else {
+            Command::new("cargo")
+        };
+        #[cfg(target_os = "macos")]
+        if !wasm_component {
+            // rustc's Mach-O stripping can produce malformed LINKEDIT string pools
+            // for cdylibs. This matches the release packaging path.
+            build_command.env("CARGO_PROFILE_RELEASE_STRIP", "none");
+        }
+        let mut child = build_command
             .args(&build_args)
             .current_dir(&build_dir)
             .stderr(std::process::Stdio::piped())
@@ -2239,8 +2519,30 @@ impl PluginInstaller {
             )));
         }
 
-        let target_dir = build_dir.join("target").join("release");
-        let plugin_files = self.find_plugin_files(&target_dir, &plugin_name)?;
+        let target_dir = if wasm_component {
+            build_dir
+                .join("target")
+                .join("wasm32-wasip2")
+                .join("release")
+        } else {
+            build_dir.join("target").join("release")
+        };
+        #[cfg(feature = "dynamic-plugins")]
+        let plugin_files = if let Some(manifest) = manifest.as_ref().filter(|_| wasm_component) {
+            let entrypoint = target_dir.join(&manifest.plugin.entrypoint);
+            if entrypoint.is_file() {
+                vec![entrypoint]
+            } else {
+                return Err(LlaError::Plugin(format!(
+                    "WASM build did not produce manifest entrypoint {}",
+                    entrypoint.display()
+                )));
+            }
+        } else {
+            self.find_plugin_files(&target_dir, &package_name.replace('-', "_"))?
+        };
+        #[cfg(not(feature = "dynamic-plugins"))]
+        let plugin_files = self.find_plugin_files(&target_dir, &package_name.replace('-', "_"))?;
 
         if plugin_files.is_empty() {
             return Err(LlaError::Plugin(format!(
@@ -2254,8 +2556,12 @@ impl PluginInstaller {
         }
 
         fs::create_dir_all(&self.plugins_dir)?;
-        let manifest_source = plugin_dir.join("plugin.toml");
         let destination_dir = if manifest_source.is_file() {
+            #[cfg(feature = "dynamic-plugins")]
+            {
+                let manifest = manifest.as_ref().expect("manifest was parsed above");
+                self.ensure_wasm_permissions(manifest)?;
+            }
             let destination = self.plugins_dir.join(&plugin_name);
             fs::create_dir_all(&destination)?;
             fs::copy(&manifest_source, destination.join("plugin.toml"))?;
@@ -2267,6 +2573,10 @@ impl PluginInstaller {
         for plugin_file in plugin_files.iter() {
             let dest_path = destination_dir.join(plugin_file.file_name().unwrap());
             fs::copy(plugin_file, &dest_path)?;
+        }
+
+        if manifest_source.is_file() {
+            Self::write_package_checksums(&destination_dir)?;
         }
 
         // When progress bar is provided, leave it active for the caller to complete
@@ -2316,6 +2626,19 @@ impl PluginInstaller {
         );
 
         for plugin_dir in selected_plugins.iter() {
+            #[cfg(feature = "dynamic-plugins")]
+            let manifest = plugin_dir
+                .join("plugin.toml")
+                .is_file()
+                .then(|| PluginManifest::from_path(&plugin_dir.join("plugin.toml")))
+                .transpose()
+                .map_err(LlaError::Plugin)?;
+            #[cfg(feature = "dynamic-plugins")]
+            let plugin_name = manifest
+                .as_ref()
+                .map(|manifest| manifest.plugin.name.clone())
+                .unwrap_or_else(|| Self::get_display_name(plugin_dir));
+            #[cfg(not(feature = "dynamic-plugins"))]
             let plugin_name = Self::get_display_name(plugin_dir);
             let spinner = if self.no_progress {
                 None
@@ -2326,6 +2649,12 @@ impl PluginInstaller {
 
             match self.build_and_install_plugin(plugin_dir, spinner.as_ref(), None) {
                 Ok(_) => {
+                    #[cfg(feature = "dynamic-plugins")]
+                    let version = manifest
+                        .as_ref()
+                        .map(|manifest| manifest.plugin.version.clone())
+                        .unwrap_or(self.get_plugin_version(plugin_dir)?);
+                    #[cfg(not(feature = "dynamic-plugins"))]
                     let version = self.get_plugin_version(plugin_dir)?;
                     let metadata = if let Some((repo_name, url)) = repo_info {
                         PluginMetadata::new(
@@ -2795,6 +3124,7 @@ impl PluginInstaller {
 #[cfg(test)]
 mod tests {
     use super::{CliBinaryTarget, PluginInstaller};
+    #[cfg(feature = "dynamic-plugins")]
     use std::fs;
     use std::io::Write;
 
@@ -2837,7 +3167,8 @@ mod tests {
     }
 
     #[test]
-    fn v2_package_checksums_detect_tampering() {
+    #[cfg(feature = "dynamic-plugins")]
+    fn v3_package_checksums_detect_tampering() {
         let root = tempfile::tempdir().unwrap();
         let entrypoint = root.path().join("libexample.so");
         fs::write(&entrypoint, b"plugin").unwrap();
@@ -2850,6 +3181,57 @@ mod tests {
 
         PluginInstaller::verify_plugin_package(&entrypoint).unwrap();
         fs::write(&entrypoint, b"tampered").unwrap();
+        assert!(PluginInstaller::verify_plugin_package(&entrypoint).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "dynamic-plugins")]
+    fn source_packages_receive_checksum_inventories() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path().join("plugin.toml"),
+            b"[plugin]\nentrypoint = \"example\"\n",
+        )
+        .unwrap();
+        let entrypoint_name = format!(
+            "{}example{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        );
+        let entrypoint = root.path().join(&entrypoint_name);
+        fs::write(&entrypoint, b"plugin").unwrap();
+        fs::write(root.path().join("config.toml"), b"first_run = false").unwrap();
+        fs::write(root.path().join("cache.toml"), b"entries = []").unwrap();
+
+        PluginInstaller::write_package_checksums(root.path()).unwrap();
+
+        let inventory = fs::read_to_string(root.path().join("checksums.toml")).unwrap();
+        let inventory: toml::Value = toml::from_str(&inventory).unwrap();
+        let files = inventory
+            .get("files")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.contains_key("plugin.toml"));
+        assert!(files.contains_key(&entrypoint_name));
+        assert!(!files.contains_key("config.toml"));
+        assert!(!files.contains_key("cache.toml"));
+
+        fs::write(root.path().join("config.toml"), b"first_run = true").unwrap();
+        fs::write(root.path().join("cache.toml"), b"entries = [1]").unwrap();
+        assert_eq!(
+            PluginInstaller::verify_plugin_package(&entrypoint).unwrap(),
+            ()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "dynamic-plugins")]
+    fn prebuilt_v3_packages_require_checksum_inventories() {
+        let root = tempfile::tempdir().unwrap();
+        let entrypoint = root.path().join("libexample.so");
+        fs::write(&entrypoint, b"plugin").unwrap();
+
         assert!(PluginInstaller::verify_plugin_package(&entrypoint).is_err());
     }
 }

@@ -1,10 +1,10 @@
 use colored::Colorize;
 use dialoguer::Confirm;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -495,81 +495,19 @@ impl FlushDnsPlugin {
 }
 
 impl Plugin for FlushDnsPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => {
-                        // This plugin doesn't decorate entries
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(_entry, _format) => {
-                        // This plugin doesn't format fields
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "flush" => self.flush_dns_cache(),
-                            "history" => self.view_history(),
-                            "clear-history" => self.clear_history(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "flush".to_string(),
-                                usage: "flush".to_string(),
-                                description: "Flush DNS cache".to_string(),
-                                examples: vec!["lla plugin flush_dns flush".to_string()],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "View flush history".to_string(),
-                                examples: vec!["lla plugin flush_dns history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "clear-history".to_string(),
-                                usage: "clear-history".to_string(),
-                                description: "Clear flush history".to_string(),
-                                examples: vec!["lla plugin flush_dns clear-history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin flush_dns preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin flush_dns help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "flush" => self.flush_dns_cache(),
+            "history" => self.view_history(),
+            "clear-history" => self.clear_history(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -591,6 +529,4 @@ impl ConfigurablePlugin for FlushDnsPlugin {
     }
 }
 
-impl ProtobufHandler for FlushDnsPlugin {}
-
-lla_plugin_interface::declare_plugin!(FlushDnsPlugin);
+lla_plugin_sdk::export_plugin!(FlushDnsPlugin);

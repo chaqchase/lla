@@ -1,13 +1,11 @@
 use lla_plugin_interface::proto::DecoratedEntry;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
 use once_cell::sync::Lazy;
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 use std::sync::Mutex;
 use users::{get_group_by_gid, get_user_by_uid};
 
@@ -29,6 +27,13 @@ pub struct SerializableEntry {
     pub owner_group: Option<String>,
     pub inode: Option<u64>,
     pub hard_links: Option<u64>,
+    pub allocated_size_bytes: Option<u64>,
+    pub xattrs: BTreeMap<String, u64>,
+    pub has_acl: bool,
+    pub security_context: Option<String>,
+    pub mount_point: Option<String>,
+    pub mount_source: Option<String>,
+    pub filesystem: Option<String>,
     pub symlink_target: Option<String>,
     pub is_hidden: bool,
     pub git_status: Option<String>,
@@ -112,14 +117,9 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     }
     .to_string();
 
-    // Extra FS data
-    #[cfg(unix)]
-    let (inode, hard_links) = match fs::symlink_metadata(&entry.path) {
-        Ok(m) => (Some(m.ino()), Some(m.nlink())),
-        Err(_) => (None, None),
-    };
-    #[cfg(not(unix))]
-    let (inode, hard_links) = (None, None);
+    let inode = (md.inode != 0).then_some(md.inode);
+    let hard_links = (md.hard_links != 0).then_some(md.hard_links);
+    let allocated_size_bytes = (md.inode != 0).then_some(md.allocated_size);
 
     let symlink_target = if md.is_symlink {
         if let Some(t) = entry.custom_fields.get("symlink_target") {
@@ -142,11 +142,14 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
     for (k, v) in &entry.custom_fields {
         plugin.insert(k.clone(), serde_json::Value::String(v.clone()));
     }
-    for (key, value) in &entry.typed_fields {
+    fn typed_value_to_json(value: &lla_plugin_interface::proto::TypedValue) -> serde_json::Value {
         let Some(value) = &value.value else {
-            continue;
+            return serde_json::Value::Null;
         };
-        let json = match value {
+        match value {
+            lla_plugin_interface::proto::typed_value::Value::NullValue(_) => {
+                serde_json::Value::Null
+            }
             lla_plugin_interface::proto::typed_value::Value::StringValue(value)
             | lla_plugin_interface::proto::typed_value::Value::PathValue(value) => {
                 serde_json::Value::String(value.clone())
@@ -166,8 +169,22 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
             | lla_plugin_interface::proto::typed_value::Value::TimestampValue(value) => {
                 serde_json::Value::Number((*value).into())
             }
-        };
-        plugin.insert(key.clone(), json);
+            lla_plugin_interface::proto::typed_value::Value::ListValue(values) => {
+                serde_json::Value::Array(values.values.iter().map(typed_value_to_json).collect())
+            }
+            lla_plugin_interface::proto::typed_value::Value::ObjectValue(value) => {
+                serde_json::Value::Object(
+                    value
+                        .fields
+                        .iter()
+                        .map(|(key, value)| (key.clone(), typed_value_to_json(value)))
+                        .collect(),
+                )
+            }
+        }
+    }
+    for (key, value) in &entry.typed_fields {
+        plugin.insert(key.clone(), typed_value_to_json(value));
     }
 
     SerializableEntry {
@@ -184,6 +201,13 @@ pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> Se
         owner_group,
         inode,
         hard_links,
+        allocated_size_bytes,
+        xattrs: md.xattrs.into_iter().collect(),
+        has_acl: md.has_acl,
+        security_context: (!md.security_context.is_empty()).then_some(md.security_context),
+        mount_point: (!md.mount_point.is_empty()).then_some(md.mount_point),
+        mount_source: (!md.mount_source.is_empty()).then_some(md.mount_source),
+        filesystem: (!md.filesystem.is_empty()).then_some(md.filesystem),
         symlink_target,
         is_hidden,
         git_status,

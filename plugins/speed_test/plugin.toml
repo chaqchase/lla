@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.speed-test"
 name = "speed_test"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "speed_test"
 description = "Measure network latency and throughput"
@@ -11,7 +13,54 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["test", "quick", "history", "clear-history", "menu", "help"]
 
 [permissions]
-network = ["*"]
+network = ["cloudflare-dns.com", "dns.google", "nbg1-speed.hetzner.com", "proof.ovh.net", "speed.cloudflare.com", "welcome.opendns.com"]
+
+[[actions]]
+id = "test"
+description = "Run a full speed test"
+examples = ["lla plugin run speed_test test"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "quick"
+description = "Run a quick speed test"
+examples = ["lla plugin run speed_test quick"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Show speed test history"
+examples = ["lla plugin run speed_test history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "clear-history"
+description = "Clear speed test history"
+examples = ["lla plugin run speed_test clear-history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "menu"
+description = "Interactive menu"
+examples = ["lla plugin run speed_test menu"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run speed_test help"]
+interactive = true
+arguments = []
+output = { type = "none" }

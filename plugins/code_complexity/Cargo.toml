@@ -1,18 +1,19 @@
 [package]
 name = "code_complexity"
 description = "Analyzes code complexity and provides metrics"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 colored = "2.0"
 prost = "0.12"
 bytes = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1.4"
 parking_lot = "0.12"
+rayon.workspace = true
 toml = "0.8"
 dirs = "5.0"
 

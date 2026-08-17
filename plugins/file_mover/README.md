@@ -29,35 +29,35 @@ path = "bright_yellow"
 
 ```bash
 # Add files from current directory to clipboard
-lla plugin --name file_mover --action add
+lla plugin run file_mover add
 
 # Add files from a specific directory to clipboard
-lla plugin --name file_mover --action add --args /path/to/source
+lla plugin run file_mover add -- /path/to/source
 
 # Move all files from clipboard to current directory
-lla plugin --name file_mover --action move-all
+lla plugin run file_mover move-all
 
 # Move all files from clipboard to specific directory
-lla plugin --name file_mover --action move-all --args /path/to/destination
+lla plugin run file_mover move-all -- /path/to/destination
 
 # Move selected files from clipboard to current directory
-lla plugin --name file_mover --action move-partial
+lla plugin run file_mover move-partial
 
 # Move selected files from clipboard to specific directory
-lla plugin --name file_mover --action move-partial --args /path/to/destination
+lla plugin run file_mover move-partial -- /path/to/destination
 ```
 
 ### Clipboard Management
 
 ```bash
 # View clipboard contents with option to remove items
-lla plugin --name file_mover --action show
+lla plugin run file_mover show
 
 # Clear the clipboard
-lla plugin --name file_mover --action clear
+lla plugin run file_mover clear
 
 # Show help information
-lla plugin --name file_mover --action help
+lla plugin run file_mover help
 ```
 
 ## Common Workflows
@@ -66,11 +66,11 @@ lla plugin --name file_mover --action help
 
 ```bash
 # Add files from source directory
-lla plugin --name file_mover --action add --args /path/to/source
+lla plugin run file_mover add -- /path/to/source
 # Select files to move using space, confirm with enter
 
 # Move all files to target directory
-lla plugin --name file_mover --action move-all --args /path/to/target
+lla plugin run file_mover move-all -- /path/to/target
 ```
 
 ### 2. Moving Files Using Current Directory Navigation
@@ -78,17 +78,17 @@ lla plugin --name file_mover --action move-all --args /path/to/target
 ```bash
 # In source directory
 cd /path/to/source
-lla plugin --name file_mover --action add
+lla plugin run file_mover add
 # Select files to add to clipboard
 
 # Navigate to first target
 cd /path/to/target1
-lla plugin --name file_mover --action move-partial
+lla plugin run file_mover move-partial
 # Select subset of files to move here
 
 # Navigate to second target
 cd /path/to/target2
-lla plugin --name file_mover --action move-partial
+lla plugin run file_mover move-partial
 # Select another subset of files to move here
 ```
 
@@ -96,11 +96,11 @@ lla plugin --name file_mover --action move-partial
 
 ```bash
 # Add files from current directory
-lla plugin --name file_mover --action add
+lla plugin run file_mover add
 # Select files to add to clipboard
 
 # Move selected files to a specific directory without changing location
-lla plugin --name file_mover --action move-partial --args /path/to/target
+lla plugin run file_mover move-partial -- /path/to/target
 ```
 
 ## Display Format

@@ -1,19 +1,21 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         format_size, TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    path::Path,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::SystemTime,
 };
@@ -34,7 +36,7 @@ lazy_static! {
             "clear-cache",
             "clear-cache",
             "Clear the directory analysis cache",
-            ["lla plugin --name dirs_meta --action clear-cache"],
+            ["lla plugin run dirs_meta clear-cache"],
             |_| {
                 let spinner = SPINNER.write();
                 spinner.set_status("Clearing cache...".to_string());
@@ -60,7 +62,7 @@ lazy_static! {
             "stats",
             "stats <path>",
             "Show detailed statistics for a directory",
-            ["lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""],
+            ["lla plugin run dirs_meta stats -- \"/path/to/dir\""],
             DirsPlugin::stats_action
         );
 
@@ -69,7 +71,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name dirs_meta --action help"],
+            ["lla plugin run dirs_meta help"],
             |_| {
                 let mut help = HelpFormatter::new("Directory Metadata Plugin".to_string());
                 help.add_section("Description".to_string())
@@ -83,20 +85,17 @@ lazy_static! {
                     .add_command(
                         "clear-cache".to_string(),
                         "Clear the directory analysis cache".to_string(),
-                        vec!["lla plugin --name dirs_meta --action clear-cache".to_string()],
+                        vec!["lla plugin run dirs_meta clear-cache".to_string()],
                     )
                     .add_command(
                         "stats".to_string(),
                         "Show detailed statistics for a directory".to_string(),
-                        vec![
-                            "lla plugin --name dirs_meta --action stats --args \"/path/to/dir\""
-                                .to_string(),
-                        ],
+                        vec!["lla plugin run dirs_meta stats -- \"/path/to/dir\"".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name dirs_meta --action help".to_string()],
+                        vec!["lla plugin run dirs_meta help".to_string()],
                     );
 
                 help.add_section("Formats".to_string())
@@ -177,6 +176,14 @@ impl PluginConfig for DirsConfig {}
 
 pub struct DirsPlugin {
     base: BasePlugin<DirsConfig>,
+    persistent_cache: lla_plugin_utils::PersistentCache<DirectoryStats>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+struct DirectoryStats {
+    files: usize,
+    directories: usize,
+    size: u64,
 }
 
 impl DirsPlugin {
@@ -184,6 +191,12 @@ impl DirsPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            persistent_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "directory-cache.toml",
+                1,
+                20_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[DirsPlugin] Failed to save config: {}", e);
@@ -386,61 +399,169 @@ impl DirsPlugin {
             .map(format_size)
             .unwrap_or_else(|_| value.to_string())
     }
+
+    fn analyze_batch(&mut self, requested: &[PathBuf]) -> HashMap<PathBuf, DirectoryStats> {
+        let mut results = HashMap::new();
+        let mut misses = Vec::new();
+        for path in requested {
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let fingerprint = lla_plugin_utils::file_fingerprint(&canonical).unwrap_or_default();
+            let key = canonical.to_string_lossy().into_owned();
+            if let Some(stats) = self.persistent_cache.get_fresh_matching(
+                &key,
+                Some(&fingerprint),
+                std::time::Duration::from_secs(2),
+            ) {
+                results.insert(canonical, stats);
+            } else {
+                misses.push((canonical, key, fingerprint));
+            }
+        }
+
+        let mut roots = misses
+            .iter()
+            .map(|(path, _, _)| path.clone())
+            .collect::<Vec<_>>();
+        roots.sort_by_key(|path| path.components().count());
+        let mut scan_roots = Vec::<PathBuf>::new();
+        for path in roots {
+            if !scan_roots.iter().any(|root| path.starts_with(root)) {
+                scan_roots.push(path);
+            }
+        }
+        let scans = scan_roots
+            .par_iter()
+            .map(|root| scan_directory_tree(root))
+            .collect::<Vec<_>>();
+        for (path, key, fingerprint) in misses {
+            let stats = scans
+                .iter()
+                .find_map(|scan| scan.get(&path).copied())
+                .unwrap_or_default();
+            self.persistent_cache.insert(key, fingerprint, stats);
+            results.insert(path, stats);
+        }
+        let _ = self.persistent_cache.persist();
+        results
+    }
 }
 
 impl Plugin for DirsPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if entry.metadata.is_dir {
-                            let result = Self::analyze_directory(&entry.path);
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+    }
 
-                            if let Some((file_count, dir_count, total_size)) = result {
-                                entry
-                                    .custom_fields
-                                    .insert("dir_file_count".to_string(), file_count.to_string());
-                                entry
-                                    .custom_fields
-                                    .insert("dir_subdir_count".to_string(), dir_count.to_string());
-                                entry
-                                    .custom_fields
-                                    .insert("dir_total_size".to_string(), total_size.to_string());
-                            }
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_directory_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        let requested = entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.is_dir)
+            })
+            .map(|entry| PathBuf::from(&entry.path))
+            .collect::<Vec<_>>();
+        let stats = self.analyze_batch(&requested);
+        entries
+            .into_iter()
+            .map(|mut entry| {
+                let path = Path::new(&entry.path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| PathBuf::from(&entry.path));
+                if let Some(stats) = stats.get(&path) {
+                    entry.insert_field(
+                        "dir_file_count",
+                        value::integer(stats.files as i64),
+                        stats.files.to_string(),
+                    );
+                    entry.insert_field(
+                        "dir_subdir_count",
+                        value::integer(stats.directories as i64),
+                        stats.directories.to_string(),
+                    );
+                    entry.insert_field(
+                        "dir_total_size",
+                        value::bytes(stats.size),
+                        stats.size.to_string(),
+                    );
+                }
+                entry
+            })
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_directory_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        if action == "clear-cache" {
+            self.persistent_cache.clear();
+            let _ = self.persistent_cache.persist();
+        }
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
+    }
+}
+
+fn scan_directory_tree(root: &Path) -> HashMap<PathBuf, DirectoryStats> {
+    let mut stats = HashMap::<PathBuf, DirectoryStats>::new();
+    for item in WalkDir::new(root).follow_links(false).into_iter().flatten() {
+        let path = item.path();
+        let Ok(metadata) = item.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            stats.entry(path.to_path_buf()).or_insert(DirectoryStats {
+                directories: 1,
+                ..DirectoryStats::default()
+            });
+        } else if metadata.is_file() {
+            if let Some(parent) = path.parent() {
+                let parent = stats.entry(parent.to_path_buf()).or_insert(DirectoryStats {
+                    directories: 1,
+                    ..DirectoryStats::default()
+                });
+                parent.files += 1;
+                parent.size = parent.size.saturating_add(metadata.len());
             }
-            Err(e) => self.encode_error(&e),
         }
     }
+    let mut directories = stats.keys().cloned().collect::<Vec<_>>();
+    directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    for directory in directories {
+        if directory == root {
+            continue;
+        }
+        let Some(parent_path) = directory.parent() else {
+            continue;
+        };
+        let child = stats.get(&directory).copied().unwrap_or_default();
+        if let Some(parent) = stats.get_mut(parent_path) {
+            parent.files = parent.files.saturating_add(child.files);
+            parent.directories = parent.directories.saturating_add(child.directories);
+            parent.size = parent.size.saturating_add(child.size);
+        }
+    }
+    stats
 }
 
 impl Default for DirsPlugin {
@@ -461,9 +582,7 @@ impl ConfigurablePlugin for DirsPlugin {
     }
 }
 
-impl ProtobufHandler for DirsPlugin {}
-
-lla_plugin_interface::declare_plugin!(DirsPlugin);
+lla_plugin_sdk::export_plugin!(DirsPlugin);
 
 #[cfg(test)]
 mod tests {
@@ -473,5 +592,22 @@ mod tests {
     fn raw_byte_values_keep_the_existing_human_size_display() {
         assert_eq!(DirsPlugin::format_total_size("1024"), format_size(1024));
         assert_eq!(DirsPlugin::format_total_size("legacy"), "legacy");
+    }
+
+    #[test]
+    fn one_tree_scan_aggregates_overlapping_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let child = root.path().join("child");
+        let nested = child.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(child.join("one.bin"), [0_u8; 3]).unwrap();
+        std::fs::write(nested.join("two.bin"), [0_u8; 5]).unwrap();
+
+        let stats = scan_directory_tree(root.path());
+        assert_eq!(stats[root.path()].files, 2);
+        assert_eq!(stats[root.path()].directories, 3);
+        assert_eq!(stats[root.path()].size, 8);
+        assert_eq!(stats[&child].files, 2);
+        assert_eq!(stats[&child].directories, 2);
     }
 }

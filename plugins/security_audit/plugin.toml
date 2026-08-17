@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.security-audit"
 name = "security_audit"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "security_audit"
 description = "Audit unsafe permissions, privileged bits, risky symlinks, and exposed secrets"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["audit", "help"]
 machine_output = true
 
 [permissions]
@@ -44,3 +45,19 @@ filterable = true
 name = "secret_exposed"
 type = "boolean"
 filterable = true
+
+[[actions]]
+id = "audit"
+description = "Audit a file or directory and print security findings"
+examples = ["lla plugin run security_audit audit -- .", "lla plugin run security_audit audit -- . -- --recursive"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }, { name = "recursive", type = "boolean", description = "Process nested directories recursively.", option = "--recursive" }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show security audit usage and risk rules"
+examples = ["lla plugin run security_audit help"]
+interactive = true
+arguments = []
+output = { type = "none" }

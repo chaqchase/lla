@@ -17,6 +17,7 @@ use crate::lister::{
 use crate::plugin::PluginManager;
 use crate::sorter::{AlphabeticalSorter, DateSorter, FileSorter, SizeSorter, SortOptions};
 use crate::utils::cache::ListingCache;
+use crate::utils::{fs_metadata, hyperlink};
 use ignore::WalkBuilder;
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use rayon::prelude::*;
@@ -24,10 +25,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 pub fn list_directory(
     args: &Args,
@@ -35,6 +34,7 @@ pub fn list_directory(
     plugin_manager: &mut PluginManager,
     config_error: Option<crate::error::LlaError>,
 ) -> Result<()> {
+    hyperlink::set_enabled(args.hyperlinks && matches!(args.output_mode, OutputMode::Human));
     // Record directory visit for jump history (respect exclude_paths inside)
     crate::commands::jump::record_visit(&args.directory, config);
     if let Some(error) = config_error {
@@ -60,7 +60,12 @@ pub fn list_directory(
 
     // Archive auto-detection branch
     let p = std::path::Path::new(&args.directory);
-    let path_is_archive = p.is_file() && archive_lister::is_archive_path_str(&args.directory);
+    let path_is_symlink = p
+        .symlink_metadata()
+        .map(|metadata| metadata.is_symlink())
+        .unwrap_or(false);
+    let path_is_archive =
+        !path_is_symlink && p.is_file() && archive_lister::is_archive_path_str(&args.directory);
     if path_is_archive {
         let decorated_files =
             list_and_decorate_archive_entries(args, &filter, plugin_manager, format)?;
@@ -105,7 +110,7 @@ pub fn list_directory(
     }
 
     // Single file path handling: allow listing one file
-    if p.is_file() {
+    if p.is_file() || path_is_symlink {
         let decorated_files = list_and_decorate_single_file(args, &filter, plugin_manager, format)?;
         let decorated_files = if !args.tree_format && !args.recursive_format {
             sort_files(decorated_files, &sorter, args)?
@@ -239,27 +244,40 @@ pub fn get_format(args: &Args) -> &'static str {
 }
 
 pub fn convert_metadata(metadata: &std::fs::Metadata) -> EntryMetadata {
-    EntryMetadata {
-        size: metadata.len(),
-        modified: metadata
-            .modified()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        accessed: metadata
-            .accessed()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        created: metadata
-            .created()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-            .unwrap_or(0),
-        is_dir: metadata.is_dir(),
-        is_file: metadata.is_file(),
-        is_symlink: metadata.is_symlink(),
-        permissions: metadata.mode(),
-        uid: metadata.uid(),
-        gid: metadata.gid(),
-    }
+    fs_metadata::from_metadata(metadata)
+}
+
+fn metadata_for_path(
+    path: &Path,
+    args: &Args,
+) -> std::io::Result<(EntryMetadata, Option<std::fs::Metadata>)> {
+    let link_metadata = path.symlink_metadata()?;
+    let target_metadata = if link_metadata.is_symlink() {
+        fs::metadata(path).ok()
+    } else {
+        None
+    };
+    let displayed = if args.dereference_symlinks {
+        target_metadata.as_ref().unwrap_or(&link_metadata)
+    } else {
+        &link_metadata
+    };
+    let mut metadata = convert_metadata(displayed);
+    metadata.is_symlink = link_metadata.is_symlink();
+
+    let machine_output = !matches!(args.output_mode, OutputMode::Human);
+    let enriched_path = if args.dereference_symlinks && link_metadata.is_symlink() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    fs_metadata::enrich(
+        &enriched_path,
+        &mut metadata,
+        args.show_xattrs || args.show_context || machine_output,
+        args.show_mounts || machine_output,
+    );
+    Ok((metadata, target_metadata))
 }
 
 fn calculate_dir_size(path: &Path) -> std::io::Result<u64> {
@@ -372,18 +390,25 @@ pub fn list_and_decorate_files(
                 .any(|ex| path_abs.starts_with(ex))
         })
         .filter_map(|path| {
-            let fs_metadata = match path.symlink_metadata() {
-                Ok(meta) => meta,
+            let (mut metadata, target_metadata) = match metadata_for_path(&path, args) {
+                Ok(metadata) => metadata,
                 Err(_) => {
                     if path.file_name().is_some() {
                         let mut custom_fields = HashMap::new();
                         custom_fields.insert("invalid_symlink".to_string(), "true".to_string());
 
-                        if let Ok(target) = std::fs::read_link(&path) {
-                            custom_fields.insert(
-                                "symlink_target".to_string(),
-                                target.to_string_lossy().into_owned(),
-                            );
+                        if !args.show_symlink_target {
+                            custom_fields
+                                .insert("hide_symlink_target".to_string(), "true".to_string());
+                        }
+
+                        if args.show_symlink_target {
+                            if let Ok(target) = std::fs::read_link(&path) {
+                                custom_fields.insert(
+                                    "symlink_target".to_string(),
+                                    target.to_string_lossy().into_owned(),
+                                );
+                            }
                         }
 
                         return Some(DecoratedEntry {
@@ -399,6 +424,7 @@ pub fn list_and_decorate_files(
                                 permissions: 0,
                                 uid: 0,
                                 gid: 0,
+                                ..EntryMetadata::default()
                             }),
                             custom_fields,
                             typed_fields: Default::default(),
@@ -407,8 +433,6 @@ pub fn list_and_decorate_files(
                     return None;
                 }
             };
-
-            let mut metadata = convert_metadata(&fs_metadata);
 
             let is_dotfile = path
                 .file_name()
@@ -430,19 +454,32 @@ pub fn list_and_decorate_files(
             }
 
             let should_include = if args.dirs_only {
-                metadata.is_dir
+                if metadata.is_symlink {
+                    args.show_symlinks
+                        && target_metadata
+                            .as_ref()
+                            .is_some_and(|target| target.is_dir())
+                } else {
+                    metadata.is_dir
+                }
             } else if args.files_only {
-                metadata.is_file
+                if metadata.is_symlink {
+                    args.show_symlinks
+                        && target_metadata
+                            .as_ref()
+                            .is_some_and(|target| target.is_file())
+                } else {
+                    metadata.is_file
+                }
             } else if args.symlinks_only {
                 metadata.is_symlink && !args.no_symlinks
+            } else if metadata.is_symlink {
+                !args.no_symlinks
             } else {
                 let include_dirs = !args.no_dirs;
                 let include_files = !args.no_files;
-                let include_symlinks = !args.no_symlinks;
 
-                (metadata.is_dir && include_dirs)
-                    || (metadata.is_file && include_files)
-                    || (metadata.is_symlink && include_symlinks)
+                (metadata.is_dir && include_dirs) || (metadata.is_file && include_files)
             };
 
             if !should_include {
@@ -469,11 +506,19 @@ pub fn list_and_decorate_files(
 
             let mut custom_fields = HashMap::new();
             if metadata.is_symlink {
-                if let Ok(target) = std::fs::read_link(&path) {
-                    custom_fields.insert(
-                        "symlink_target".to_string(),
-                        target.to_string_lossy().into_owned(),
-                    );
+                if !args.show_symlink_target {
+                    custom_fields.insert("hide_symlink_target".to_string(), "true".to_string());
+                }
+                if args.show_symlink_target {
+                    if let Ok(target) = std::fs::read_link(&path) {
+                        custom_fields.insert(
+                            "symlink_target".to_string(),
+                            target.to_string_lossy().into_owned(),
+                        );
+                    }
+                }
+                if target_metadata.is_none() {
+                    custom_fields.insert("invalid_symlink".to_string(), "true".to_string());
                 }
             }
 
@@ -616,6 +661,7 @@ pub fn list_and_decorate_archive_entries(
             permissions: 0,
             uid: 0,
             gid: 0,
+            ..EntryMetadata::default()
         });
 
         let is_dotfile = pb
@@ -699,8 +745,7 @@ pub fn list_and_decorate_single_file(
     }
 
     // Read metadata and map to EntryMetadata
-    let fs_metadata = path.symlink_metadata()?;
-    let mut metadata = convert_metadata(&fs_metadata);
+    let (mut metadata, target_metadata) = metadata_for_path(path, args)?;
 
     if args.include_dirs && metadata.is_dir {
         if let Ok(dir_size) = calculate_dir_size(path) {
@@ -714,11 +759,19 @@ pub fn list_and_decorate_single_file(
 
     let mut custom_fields = HashMap::new();
     if metadata.is_symlink {
-        if let Ok(target) = fs::read_link(path) {
-            custom_fields.insert(
-                "symlink_target".to_string(),
-                target.to_string_lossy().into_owned(),
-            );
+        if !args.show_symlink_target {
+            custom_fields.insert("hide_symlink_target".to_string(), "true".to_string());
+        }
+        if args.show_symlink_target {
+            if let Ok(target) = fs::read_link(path) {
+                custom_fields.insert(
+                    "symlink_target".to_string(),
+                    target.to_string_lossy().into_owned(),
+                );
+            }
+        }
+        if target_metadata.is_none() {
+            custom_fields.insert("invalid_symlink".to_string(), "true".to_string());
         }
     }
 
@@ -840,7 +893,8 @@ pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> 
             args.permission_format.clone(),
         ))
     } else if args.long_format {
-        let columns = parse_columns(&config.formatters.long.columns);
+        let columns =
+            add_requested_metadata_columns(parse_columns(&config.formatters.long.columns), args);
         Box::new(LongFormatter::new(
             args.show_icons,
             args.permission_format.clone(),
@@ -852,7 +906,8 @@ pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> 
     } else if args.tree_format {
         Box::new(TreeFormatter::new(args.show_icons))
     } else if args.table_format {
-        let columns = parse_columns(&config.formatters.table.columns);
+        let columns =
+            add_requested_metadata_columns(parse_columns(&config.formatters.table.columns), args);
         Box::new(TableFormatter::new(
             args.show_icons,
             args.permission_format.clone(),
@@ -875,6 +930,44 @@ pub fn create_formatter(args: &Args, config: &Config) -> Box<dyn FileFormatter> 
     } else {
         Box::new(DefaultFormatter::new(args.show_icons))
     }
+}
+
+fn add_requested_metadata_columns(
+    mut columns: Vec<crate::formatter::column_config::ColumnKey>,
+    args: &Args,
+) -> Vec<crate::formatter::column_config::ColumnKey> {
+    use crate::formatter::column_config::ColumnKey;
+
+    fn insert_before_name(columns: &mut Vec<ColumnKey>, column: ColumnKey) {
+        if columns.contains(&column) {
+            return;
+        }
+        let index = columns
+            .iter()
+            .position(|candidate| matches!(candidate, ColumnKey::Name))
+            .unwrap_or(columns.len());
+        columns.insert(index, column);
+    }
+
+    if args.show_inode && !columns.contains(&ColumnKey::Inode) {
+        columns.insert(0, ColumnKey::Inode);
+    }
+    if args.show_hard_links {
+        insert_before_name(&mut columns, ColumnKey::HardLinks);
+    }
+    if args.show_allocated_size {
+        insert_before_name(&mut columns, ColumnKey::AllocatedSize);
+    }
+    if args.show_xattrs {
+        insert_before_name(&mut columns, ColumnKey::Xattrs);
+    }
+    if args.show_context {
+        insert_before_name(&mut columns, ColumnKey::Context);
+    }
+    if args.show_mounts {
+        insert_before_name(&mut columns, ColumnKey::Mount);
+    }
+    columns
 }
 
 fn matches_metadata_filters(args: &Args, metadata: &EntryMetadata) -> bool {
@@ -943,9 +1036,13 @@ struct ListingContext {
     dirs_only: bool,
     files_only: bool,
     symlinks_only: bool,
+    show_symlinks: bool,
     no_dirs: bool,
     no_files: bool,
     no_symlinks: bool,
+    dereference_symlinks: bool,
+    collect_extended_metadata: bool,
+    collect_mount_metadata: bool,
     no_dotfiles: bool,
     almost_all: bool,
     dotfiles_only: bool,
@@ -971,9 +1068,16 @@ impl ListingContext {
             dirs_only: args.dirs_only,
             files_only: args.files_only,
             symlinks_only: args.symlinks_only,
+            show_symlinks: args.show_symlinks,
             no_dirs: args.no_dirs,
             no_files: args.no_files,
             no_symlinks: args.no_symlinks,
+            dereference_symlinks: args.dereference_symlinks,
+            collect_extended_metadata: args.show_xattrs
+                || args.show_context
+                || !matches!(args.output_mode, OutputMode::Human),
+            collect_mount_metadata: args.show_mounts
+                || !matches!(args.output_mode, OutputMode::Human),
             no_dotfiles: args.no_dotfiles,
             almost_all: args.almost_all,
             dotfiles_only: args.dotfiles_only,
@@ -1013,6 +1117,7 @@ fn canonicalize_path_for_cache(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::{symlink, MetadataExt};
 
     fn args_with_include_dirs() -> Args {
         Args {
@@ -1029,6 +1134,7 @@ mod tests {
             fuzzy_format: false,
             recursive_format: false,
             show_icons: false,
+            hyperlinks: false,
             no_color: true,
             sort_by: "name".to_string(),
             sort_reverse: false,
@@ -1052,9 +1158,12 @@ mod tests {
             dirs_only: false,
             files_only: false,
             symlinks_only: false,
+            show_symlinks: false,
             no_dirs: false,
             no_files: false,
             no_symlinks: false,
+            dereference_symlinks: false,
+            show_symlink_target: true,
             no_dotfiles: false,
             almost_all: false,
             dotfiles_only: false,
@@ -1063,6 +1172,12 @@ mod tests {
             hide_group: false,
             relative_dates: false,
             date_format: crate::config::DEFAULT_LONG_DATE_FORMAT.to_string(),
+            show_inode: false,
+            show_hard_links: false,
+            show_allocated_size: false,
+            show_xattrs: false,
+            show_context: false,
+            show_mounts: false,
             output_mode: OutputMode::Human,
             command: None,
             search: None,
@@ -1124,5 +1239,28 @@ mod tests {
         std::os::unix::fs::symlink(root.path().join("one"), nested.join("link")).unwrap();
 
         assert_eq!(calculate_dir_size(root.path()).unwrap(), 18);
+    }
+
+    #[test]
+    fn dereferenced_symlink_keeps_link_identity_and_uses_target_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let link = directory.path().join("link");
+        fs::write(&target, vec![0u8; 1024]).unwrap();
+        symlink(&target, &link).unwrap();
+
+        let mut args = args_with_include_dirs();
+        args.include_dirs = false;
+        let (link_metadata, target_metadata) = metadata_for_path(&link, &args).unwrap();
+        assert!(link_metadata.is_symlink);
+        assert_ne!(link_metadata.size, 1024);
+        assert!(target_metadata.is_some());
+
+        args.dereference_symlinks = true;
+        let (dereferenced, _) = metadata_for_path(&link, &args).unwrap();
+        assert!(dereferenced.is_symlink);
+        assert!(dereferenced.is_file);
+        assert_eq!(dereferenced.size, 1024);
+        assert_eq!(dereferenced.inode, fs::metadata(target).unwrap().ino());
     }
 }

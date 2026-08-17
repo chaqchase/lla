@@ -1,12 +1,12 @@
 [package]
 name = "file_tagger"
 description = "Add and manage tags for files"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 colored = "2.0.0"
 prost = "0.12"
 bytes = "1.5"

@@ -13,19 +13,19 @@ Google search plugin for `lla` with live autosuggestions, history management, an
 
 ```bash
 # Perform a Google search (live suggestions)
-lla plugin --name google_search --action search
+lla plugin run google_search search
 
 # Search with selected/clipboard text (prefills input; live suggestions)
-lla plugin --name google_search --action search-selected
+lla plugin run google_search search-selected
 
 # Manage search history
-lla plugin --name google_search --action history
+lla plugin run google_search history
 
 # Configure preferences
-lla plugin --name google_search --action preferences
+lla plugin run google_search preferences
 
 # Show help
-lla plugin --name google_search --action help
+lla plugin run google_search help
 ```
 
 ## Configuration

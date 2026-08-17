@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
@@ -197,6 +198,7 @@ impl FileFormatter for SizeMapFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "sizemap");
 
         let term_width = terminal_size()
             .map(|(Width(w), _)| w as usize)
@@ -220,6 +222,7 @@ impl FileFormatter for SizeMapFormatter {
             let path = Path::new(&file.path);
             let colored_name = colorize_file_name(path).to_string();
             let name = format_with_icon(path, colored_name, self.show_icons);
+            let name = hyperlink::link_path(path, name);
             let metadata = file.metadata.as_ref().cloned().unwrap_or_default();
             let size = metadata.size;
             let size_str = format_size(size);
@@ -318,6 +321,7 @@ mod tests {
                     permissions: 0,
                     uid: 0,
                     gid: 0,
+                    ..Default::default()
                 }),
                 custom_fields: Default::default(),
                 typed_fields: Default::default(),
@@ -335,6 +339,7 @@ mod tests {
                     permissions: 0,
                     uid: 0,
                     gid: 0,
+                    ..Default::default()
                 }),
                 custom_fields: Default::default(),
                 typed_fields: Default::default(),

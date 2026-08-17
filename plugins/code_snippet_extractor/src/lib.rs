@@ -6,11 +6,12 @@ use dialoguer::{MultiSelect, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry, run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use ring::digest;
@@ -133,7 +134,7 @@ lazy_static! {
             "extract",
             "extract <file_path> <snippet_name> <start_line> <end_line> [context_lines]",
             "Extract a code snippet from a file",
-            ["lla plugin --name code_snippet_extractor --action extract --args \"file.rs\" \"my_func\" 10 20"],
+            ["lla plugin run code_snippet_extractor extract -- \"file.rs\" \"my_func\" 10 20"],
             CodeSnippetExtractorPlugin::extract_action
         );
 
@@ -143,8 +144,8 @@ lazy_static! {
             "list [file_path]",
             "List all snippets, optionally filtered by file",
             [
-                "lla plugin --name code_snippet_extractor --action list",
-                "lla plugin --name code_snippet_extractor --action list --args \"file.rs\""
+                "lla plugin run code_snippet_extractor list",
+                "lla plugin run code_snippet_extractor list -- \"file.rs\""
             ],
             CodeSnippetExtractorPlugin::list_action
         );
@@ -154,7 +155,7 @@ lazy_static! {
             "get",
             "get <snippet_id>",
             "Get a specific snippet by ID",
-            ["lla plugin --name code_snippet_extractor --action get --args \"abc123\""],
+            ["lla plugin run code_snippet_extractor get -- \"abc123\""],
             CodeSnippetExtractorPlugin::get_action
         );
 
@@ -163,7 +164,7 @@ lazy_static! {
             "search",
             "search <query>",
             "Search through all snippets",
-            ["lla plugin --name code_snippet_extractor --action search --args \"function\""],
+            ["lla plugin run code_snippet_extractor search -- \"function\""],
             CodeSnippetExtractorPlugin::search_action
         );
 
@@ -172,7 +173,7 @@ lazy_static! {
             "add-tags",
             "add-tags <snippet_id> <tag1> [tag2...]",
             "Add tags to a snippet",
-            ["lla plugin --name code_snippet_extractor --action add-tags --args \"abc123\" \"rust\" \"function\""],
+            ["lla plugin run code_snippet_extractor add-tags -- \"abc123\" \"rust\" \"function\""],
             CodeSnippetExtractorPlugin::add_tags_action
         );
 
@@ -181,7 +182,7 @@ lazy_static! {
             "remove-tags",
             "remove-tags <snippet_id> <tag1> [tag2...]",
             "Remove tags from a snippet",
-            ["lla plugin --name code_snippet_extractor --action remove-tags --args \"abc123\" \"rust\""],
+            ["lla plugin run code_snippet_extractor remove-tags -- \"abc123\" \"rust\""],
             CodeSnippetExtractorPlugin::remove_tags_action
         );
 
@@ -190,7 +191,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name code_snippet_extractor --action help"],
+            ["lla plugin run code_snippet_extractor help"],
             |_| CodeSnippetExtractorPlugin::help_action()
         );
 
@@ -199,7 +200,7 @@ lazy_static! {
             "list-categories",
             "list-categories",
             "List all available categories",
-            ["lla plugin --name code_snippet_extractor --action list-categories"],
+            ["lla plugin run code_snippet_extractor list-categories"],
             |_| CodeSnippetExtractorPlugin::list_categories_action()
         );
 
@@ -208,7 +209,7 @@ lazy_static! {
             "list-by-category",
             "list-by-category <category>",
             "List all snippets in a category",
-            ["lla plugin --name code_snippet_extractor --action list-by-category --args \"algorithms\""],
+            ["lla plugin run code_snippet_extractor list-by-category -- \"algorithms\""],
             CodeSnippetExtractorPlugin::list_by_category_action
         );
 
@@ -217,7 +218,7 @@ lazy_static! {
             "set-category",
             "set-category <snippet_id> <category>",
             "Set or change the category of a snippet",
-            ["lla plugin --name code_snippet_extractor --action set-category --args \"abc123\" \"algorithms\""],
+            ["lla plugin run code_snippet_extractor set-category -- \"abc123\" \"algorithms\""],
             CodeSnippetExtractorPlugin::set_category_action
         );
 
@@ -227,8 +228,8 @@ lazy_static! {
             "export <file_path> [snippet_ids...]",
             "Export snippets to a JSON file",
             [
-                "lla plugin --name code_snippet_extractor --action export --args \"snippets.json\"",
-                "lla plugin --name code_snippet_extractor --action export --args \"snippets.json\" \"abc123\" \"def456\""
+                "lla plugin run code_snippet_extractor export -- \"snippets.json\"",
+                "lla plugin run code_snippet_extractor export -- \"snippets.json\" \"abc123\" \"def456\""
             ],
             CodeSnippetExtractorPlugin::export_action
         );
@@ -238,7 +239,7 @@ lazy_static! {
             "import",
             "import <file_path>",
             "Import snippets from a JSON file",
-            ["lla plugin --name code_snippet_extractor --action import --args \"snippets.json\""],
+            ["lla plugin run code_snippet_extractor import -- \"snippets.json\""],
             CodeSnippetExtractorPlugin::import_action
         );
 
@@ -1234,56 +1235,66 @@ impl Deref for CodeSnippetExtractorPlugin {
 }
 
 impl Plugin for CodeSnippetExtractorPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if let Some(file_path) = entry.path.to_str() {
-                            let snippet_count = self.list_snippets_by_file(file_path).len();
-                            if snippet_count > 0 {
-                                entry
-                                    .custom_fields
-                                    .insert("snippet_count".to_string(), snippet_count.to_string());
-                            }
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = match format.as_str() {
-                            "default" | "long" | "snippet_count" => entry
-                                .custom_fields
-                                .get("snippet_count")
-                                .map(|count| Self::format_snippet_count(count)),
-                            _ => None,
-                        };
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let mut entry = map_decorated_entry(entry, |mut entry| {
+            if let Some(file_path) = entry.path.to_str() {
+                let snippet_count = self.list_snippets_by_file(file_path).len();
+                if snippet_count > 0 {
+                    entry
+                        .custom_fields
+                        .insert("snippet_count".into(), snippet_count.to_string());
+                }
             }
-            Err(e) => self.encode_error(&e),
+            entry
+        });
+        if let Some(display) = entry.custom_fields.get("snippet_count").cloned() {
+            if let Ok(count) = display.parse::<i64>() {
+                entry.insert_field("snippet_count", value::integer(count), display);
+            }
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        let mut counts = HashMap::<&str, usize>::new();
+        for snippet in self.snippets.values() {
+            *counts.entry(&snippet.source_file).or_default() += 1;
+        }
+        for entry in &mut entries {
+            if let Some(count) = counts.get(entry.path.as_str()).copied() {
+                let display = count.to_string();
+                entry.insert_field("snippet_count", value::integer(count as i64), display);
+            }
+        }
+        entries
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        let entry = decode_decorated_entry(entry).ok()?;
+        match format.as_str() {
+            "default" | "long" | "snippet_count" => entry
+                .custom_fields
+                .get("snippet_count")
+                .map(|count| Self::format_snippet_count(count)),
+            _ => None,
+        }
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -1299,9 +1310,7 @@ impl ConfigurablePlugin for CodeSnippetExtractorPlugin {
     }
 }
 
-impl ProtobufHandler for CodeSnippetExtractorPlugin {}
-
-lla_plugin_interface::declare_plugin!(CodeSnippetExtractorPlugin);
+lla_plugin_sdk::export_plugin!(CodeSnippetExtractorPlugin);
 
 impl Default for CodeSnippetExtractorPlugin {
     fn default() -> Self {

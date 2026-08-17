@@ -1,11 +1,11 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,6 +73,8 @@ impl PluginConfig for NpmConfig {}
 
 pub struct NpmPlugin {
     base: BasePlugin<NpmConfig>,
+    package_cache: std::sync::Mutex<lla_plugin_utils::PersistentCache<PackageInfo>>,
+    bundle_cache: std::sync::Mutex<lla_plugin_utils::PersistentCache<BundleInfo>>,
 }
 
 impl NpmPlugin {
@@ -80,6 +82,18 @@ impl NpmPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            package_cache: std::sync::Mutex::new(lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "package-cache.toml",
+                1,
+                5_000,
+            )),
+            bundle_cache: std::sync::Mutex::new(lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "bundle-cache.toml",
+                1,
+                5_000,
+            )),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[NpmPlugin] Failed to save config: {}", e);
@@ -88,6 +102,14 @@ impl NpmPlugin {
     }
 
     fn search_package(&self, package_name: &str) -> Result<PackageInfo, String> {
+        let cache_key = package_name.trim().to_lowercase();
+        if let Some(package) = self.package_cache.lock().unwrap().get_fresh_matching(
+            &cache_key,
+            Some(&self.base.config().registry),
+            std::time::Duration::from_secs(6 * 60 * 60),
+        ) {
+            return Ok(package);
+        }
         let url = format!("{}/{}", self.base.config().registry, package_name);
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -115,7 +137,7 @@ impl NpmPlugin {
 
         let version_info = &json["versions"][&latest_version];
 
-        Ok(PackageInfo {
+        let package = PackageInfo {
             name: json["name"].as_str().unwrap_or(package_name).to_string(),
             version: latest_version,
             description: json["description"]
@@ -132,10 +154,27 @@ impl NpmPlugin {
                 .map(|s| s.to_string()),
             homepage: json["homepage"].as_str().map(|s| s.to_string()),
             repository: json["repository"]["url"].as_str().map(|s| s.to_string()),
-        })
+        };
+        let mut cache = self.package_cache.lock().unwrap();
+        cache.insert(
+            cache_key,
+            self.base.config().registry.clone(),
+            package.clone(),
+        );
+        let _ = cache.persist();
+        Ok(package)
     }
 
     fn get_bundle_size(&self, package_name: &str) -> Result<BundleInfo, String> {
+        let cache_key = package_name.trim().to_lowercase();
+        if let Some(bundle) = self
+            .bundle_cache
+            .lock()
+            .unwrap()
+            .get_fresh(&cache_key, std::time::Duration::from_secs(24 * 60 * 60))
+        {
+            return Ok(bundle);
+        }
         let url = format!("https://bundlephobia.com/api/size?package={}", package_name);
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -155,9 +194,31 @@ impl NpmPlugin {
             .json()
             .map_err(|e| format!("Failed to parse bundle info: {}", e))?;
 
-        Ok(BundleInfo {
+        let bundle = BundleInfo {
             size: json["size"].as_u64().unwrap_or(0),
             gzip: json["gzip"].as_u64().unwrap_or(0),
+        };
+        let mut cache = self.bundle_cache.lock().unwrap();
+        cache.insert(cache_key, "bundlephobia-v1", bundle.clone());
+        let _ = cache.persist();
+        Ok(bundle)
+    }
+
+    fn package_and_bundle(
+        &self,
+        package_name: &str,
+    ) -> Result<(PackageInfo, Option<BundleInfo>), String> {
+        std::thread::scope(|scope| {
+            let package = scope.spawn(|| self.search_package(package_name));
+            let bundle = scope.spawn(|| self.get_bundle_size(package_name).ok());
+
+            let package = package
+                .join()
+                .map_err(|_| "Package lookup worker panicked".to_string())??;
+            let bundle = bundle
+                .join()
+                .map_err(|_| "Bundle lookup worker panicked".to_string())?;
+            Ok((package, bundle))
         })
     }
 
@@ -247,8 +308,7 @@ impl NpmPlugin {
             package_name
         );
 
-        let package = self.search_package(&package_name)?;
-        let bundle = self.get_bundle_size(&package_name).ok();
+        let (package, bundle) = self.package_and_bundle(&package_name)?;
 
         if bundle.is_none() {
             println!(
@@ -376,8 +436,7 @@ impl NpmPlugin {
                     package_name
                 );
 
-                let package = self.search_package(package_name)?;
-                let bundle = self.get_bundle_size(package_name).ok();
+                let (package, bundle) = self.package_and_bundle(package_name)?;
 
                 if bundle.is_none() {
                     println!(
@@ -537,70 +596,18 @@ impl NpmPlugin {
 }
 
 impl Plugin for NpmPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "search" => self.search_packages(),
-                            "favorites" => self.view_favorites(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search".to_string(),
-                                description: "Search npm packages".to_string(),
-                                examples: vec!["lla plugin npm search".to_string()],
-                            },
-                            ActionInfo {
-                                name: "favorites".to_string(),
-                                usage: "favorites".to_string(),
-                                description: "View favorite packages".to_string(),
-                                examples: vec!["lla plugin npm favorites".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin npm preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin npm help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "search" => self.search_packages(),
+            "favorites" => self.view_favorites(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -622,6 +629,4 @@ impl ConfigurablePlugin for NpmPlugin {
     }
 }
 
-impl ProtobufHandler for NpmPlugin {}
-
-lla_plugin_interface::declare_plugin!(NpmPlugin);
+lla_plugin_sdk::export_plugin!(NpmPlugin);

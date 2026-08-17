@@ -32,8 +32,8 @@ walkdir.workspace = true
 tempfile.workspace = true
 users.workspace = true
 parking_lot.workspace = true
-lla_plugin_interface = { version = "0.5.12", path = "../lla_plugin_interface" }
-lla_plugin_utils = { version = "0.5.12", path = "../lla_plugin_utils" }
+lla_plugin_interface = { version = "0.6.0", path = "../interface" }
+lla_plugin_utils = { version = "0.6.0", path = "../utils" }
 once_cell.workspace = true
 dashmap.workspace = true
 unicode-width.workspace = true
@@ -58,6 +58,20 @@ zip = { version = "1", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
 libc = "0.2"
+xattr = "1.4"
 ureq.workspace = true
 sha2.workspace = true
 similar = "2"
+object = { version = "0.39", features = ["read"] }
+
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
+wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"] }
+wasmtime-wasi = { version = "47.0.3", default-features = false, features = ["p2"] }
+wasmtime-wasi-http = { version = "47.0.3", default-features = true }
+hyper = { version = "1.9", features = ["full"] }
+arboard = "3.3.0"
+open = "5.4.1"
+url = "2.5"
+
+[dev-dependencies]
+object = { version = "0.39", features = ["read", "write"] }

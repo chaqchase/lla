@@ -19,6 +19,7 @@ _lla() {
 '--search-context=[Number of context lines to show before and after matches (default: 2)]: : ' \
 '-d+[Set the depth for tree listing (default from config)]: : ' \
 '--depth=[Set the depth for tree listing (default from config)]: : ' \
+'--hyperlink=[Emit OSC 8 file hyperlinks (always, auto, never)]:WHEN:(always auto automatic never)' \
 '-s+[Sort files by name, size, or date]: :(name size date)' \
 '--sort=[Sort files by name, size, or date]: :(name size date)' \
 '-f+[Filter files by name or extension]: : ' \
@@ -74,9 +75,13 @@ _lla() {
 '--dirs-only[Show only directories]' \
 '--files-only[Show only regular files]' \
 '--symlinks-only[Show only symbolic links]' \
+'(--no-symlinks)--show-symlinks[Include symlinks whose targets match --dirs-only or --files-only]' \
 '--no-dirs[Hide directories]' \
 '--no-files[Hide regular files]' \
 '--no-symlinks[Hide symbolic links]' \
+'-X[Display metadata from symbolic-link targets]' \
+'--dereference[Display metadata from symbolic-link targets]' \
+'--no-symlink-target[Do not display symbolic-link targets after file names]' \
 '--no-dotfiles[Hide files starting with a dot (overrides config setting)]' \
 '-a[Show all files including dotfiles (overrides no_dotfiles config)]' \
 '--all[Show all files including dotfiles (overrides no_dotfiles config)]' \
@@ -87,6 +92,17 @@ _lla() {
 '--no-gitignore[Disable .gitignore filtering even if enabled in config]' \
 '--hide-group[Hide group column in long format]' \
 '--relative-dates[Show relative dates (e.g., '\''2h ago'\'') in long format]' \
+'-i[Show inode numbers in long format]' \
+'--inode[Show inode numbers in long format]' \
+'-H[Show hard-link counts in long format]' \
+'--links[Show hard-link counts in long format]' \
+'--allocated-size[Show allocated filesystem size in long format]' \
+'-@[Show extended attribute names and sizes in long format]' \
+'--extended[Show extended attribute names and sizes in long format]' \
+'-Z[Show ACL or SELinux security context in long format]' \
+'--context[Show ACL or SELinux security context in long format]' \
+'-M[Show source, mount point, and filesystem in long format]' \
+'--mounts[Show source, mount point, and filesystem in long format]' \
 '::directory -- The directory to list:' \
 ":: :_lla_commands" \
 "*::: :->lla" \
@@ -138,7 +154,7 @@ _arguments "${_arguments_options[@]}" \
 '*--args=[Arguments for the plugin action (alternative to positional)]: : ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
-'::plugin_name -- Name of the plugin:' \
+'::plugin_name -- Plugin name, or doctor/info/permissions:' \
 '::plugin_action -- Action to perform:' \
 '*::plugin_args -- Arguments for the plugin action:' \
 && ret=0
@@ -359,7 +375,7 @@ _lla_commands() {
 'diff:Compare two directories or a directory against a git reference' \
 'jump:Jump to a bookmarked or recent directory' \
 'install:Install a plugin' \
-'plugin:Run a plugin action' \
+'plugin:Run actions or inspect Plugin Platform v2 packages' \
 'list-plugins:List all available plugins' \
 'use:Interactive plugin manager' \
 'init:Initialize the configuration file' \

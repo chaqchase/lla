@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.folder-cleaner"
 name = "folder_cleaner"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "folder_cleaner"
 description = "Plan, quarantine and restore generated-folder cleanup"
@@ -11,7 +13,102 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["scan", "preview", "clean", "apply", "restore", "quarantine-list", "quarantine-empty", "history", "show-plan", "doctor", "config-wizard", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:tree", "delete:quarantine"]
+
+[[actions]]
+id = "scan"
+description = "Analyze folder clutter and print a summary without saving a plan"
+examples = ["lla plugin run folder_cleaner scan -- ~/Downloads"]
+interactive = true
+arguments = [{ name = "directory", type = "path", description = "Directory to process.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "preview"
+description = "Show proposed organization and cleanup actions, then save the plan"
+examples = ["lla plugin run folder_cleaner preview -- ~/Downloads", "lla plugin run folder_cleaner preview -- ~/Downloads project"]
+interactive = true
+arguments = [{ name = "directory", type = "path", description = "Directory to process.", position = 0 }, { name = "profile", type = "string", description = "Saved profile name.", position = 1 }]
+output = { type = "none" }
+
+[[actions]]
+id = "clean"
+description = "Preview, interactively approve, then execute selected safe actions"
+examples = ["lla plugin run folder_cleaner clean -- ~/Downloads downloads"]
+interactive = true
+arguments = [{ name = "directory", type = "path", description = "Directory to process.", position = 0 }, { name = "profile", type = "string", description = "Saved profile name.", position = 1 }]
+output = { type = "none" }
+
+[[actions]]
+id = "apply"
+description = "Apply a saved plan after validation and confirmation"
+examples = ["lla plugin run folder_cleaner apply -- plan-20260508090000000"]
+interactive = true
+arguments = [{ name = "plan_id", type = "string", description = "Cleanup plan identifier.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "restore"
+description = "Restore files moved by a previous run"
+examples = ["lla plugin run folder_cleaner restore -- run-20260508090000000"]
+interactive = true
+arguments = [{ name = "run_id", type = "string", description = "Cleanup run identifier.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "quarantine-list"
+description = "List files currently held in quarantine"
+examples = ["lla plugin run folder_cleaner quarantine-list"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "quarantine-empty"
+description = "Permanently remove quarantined files older than the given number of days"
+examples = ["lla plugin run folder_cleaner quarantine-empty -- 30"]
+interactive = true
+arguments = [{ name = "older_than_days", type = "integer", description = "Only include records older than this many days.", position = 0, min = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "List saved plans and completed or partial runs"
+examples = ["lla plugin run folder_cleaner history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "show-plan"
+description = "Render a saved plan preview"
+examples = ["lla plugin run folder_cleaner show-plan -- plan-20260508090000000"]
+interactive = true
+arguments = [{ name = "plan_id", type = "string", description = "Cleanup plan identifier.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "doctor"
+description = "Inspect run manifests and recover restorable items when requested"
+examples = ["lla plugin run folder_cleaner doctor", "lla plugin run folder_cleaner doctor -- run-20260508090000000 --repair"]
+interactive = true
+arguments = [{ name = "run_id", type = "string", description = "Cleanup run identifier.", position = 0 }, { name = "repair", type = "boolean", description = "Attempt safe automatic repairs.", option = "--repair" }]
+output = { type = "none" }
+
+[[actions]]
+id = "config-wizard"
+description = "Interactively adjust common folder cleaner settings"
+examples = ["lla plugin run folder_cleaner config-wizard"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run folder_cleaner help"]
+interactive = true
+arguments = []
+output = { type = "none" }

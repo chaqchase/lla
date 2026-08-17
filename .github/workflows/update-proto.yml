@@ -3,7 +3,7 @@ name: Update Proto Bindings
 on:
   push:
     paths:
-      - "lla_plugin_interface/src/plugin.proto"
+      - "interface/src/plugin.proto"
   workflow_dispatch:
 
 jobs:

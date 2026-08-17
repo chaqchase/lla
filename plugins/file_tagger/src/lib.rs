@@ -1,12 +1,13 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, Spinner},
         TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,7 @@ lazy_static! {
             "add-tag",
             "add-tag <file_path> <tag>",
             "Add a tag to a file",
-            ["lla plugin --name file_tagger --action add-tag --args \"/path/to/file\" \"mytag\""],
+            ["lla plugin run file_tagger add-tag -- \"/path/to/file\" \"mytag\""],
             |args| {
                 if args.len() != 2 {
                     return Err("Usage: add-tag <file_path> <tag>".to_string());
@@ -54,7 +55,7 @@ lazy_static! {
             "remove-tag",
             "remove-tag <file_path> <tag>",
             "Remove a tag from a file",
-            ["lla plugin --name file_tagger --action remove-tag --args \"/path/to/file\" \"mytag\""],
+            ["lla plugin run file_tagger remove-tag -- \"/path/to/file\" \"mytag\""],
             |args| {
                 if args.len() != 2 {
                     return Err("Usage: remove-tag <file_path> <tag>".to_string());
@@ -81,7 +82,7 @@ lazy_static! {
             "list-tags",
             "list-tags <file_path>",
             "List all tags for a file",
-            ["lla plugin --name file_tagger --action list-tags --args \"/path/to/file\""],
+            ["lla plugin run file_tagger list-tags -- \"/path/to/file\""],
             |args| {
                 if args.len() != 1 {
                     return Err("Usage: list-tags <file_path>".to_string());
@@ -118,7 +119,7 @@ lazy_static! {
             "all-tags",
             "all-tags",
             "List all registered tags",
-            ["lla plugin --name file_tagger --action all-tags"],
+            ["lla plugin run file_tagger all-tags"],
             |_| {
                 let plugin = FileTaggerPlugin::new();
                 let tags = plugin.get_all_tags();
@@ -152,7 +153,7 @@ lazy_static! {
             "files-by-tag",
             "files-by-tag <tag-to-query>",
             "List all files tagged with the given tag",
-            ["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-query\""],
+            ["lla plugin run file_tagger files-by-tag -- \"tag-to-query\""],
             |args| {
                 if args.len() != 1 {
                     return Err("Usage: files-by-tag <tag-to-query>".to_string());
@@ -188,7 +189,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_tagger --action help"],
+            ["lla plugin run file_tagger help"],
             |_| {
                 let mut help = HelpFormatter::new("File Tagger Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -201,32 +202,43 @@ lazy_static! {
                     .add_command(
                         "add-tag".to_string(),
                         "Add a tag to a file".to_string(),
-                        vec!["lla plugin --name file_tagger --action add-tag --args \"/path/to/file\" \"mytag\"".to_string()],
+                        vec![
+                            "lla plugin run file_tagger add-tag -- \"/path/to/file\" \"mytag\""
+                                .to_string(),
+                        ],
                     )
                     .add_command(
                         "remove-tag".to_string(),
                         "Remove a tag from a file".to_string(),
-                        vec!["lla plugin --name file_tagger --action remove-tag --args \"/path/to/file\" \"mytag\"".to_string()],
+                        vec![
+                            "lla plugin run file_tagger remove-tag -- \"/path/to/file\" \"mytag\""
+                                .to_string(),
+                        ],
                     )
                     .add_command(
                         "list-tags".to_string(),
                         "List all tags for a file".to_string(),
-                        vec!["lla plugin --name file_tagger --action list-tags --args \"/path/to/file\"".to_string()],
+                        vec![
+                            "lla plugin run file_tagger list-tags -- \"/path/to/file\"".to_string()
+                        ],
                     )
                     .add_command(
                         "all-tags".to_string(),
                         "List all registered tags across all files".to_string(),
-                        vec!["lla plugin --name file_tagger --action all-tags".to_string()],
+                        vec!["lla plugin run file_tagger all-tags".to_string()],
                     )
                     .add_command(
                         "files-by-tag".to_string(),
                         "List all files tagged with the specific tag".to_string(),
-                         vec!["lla plugin --name file_tagger --action files-by-tag --args \"tag-to-check\"".to_string()],
+                        vec![
+                            "lla plugin run file_tagger files-by-tag -- \"tag-to-check\""
+                                .to_string(),
+                        ],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name file_tagger --action help".to_string()],
+                        vec!["lla plugin run file_tagger help".to_string()],
                     );
 
                 help.add_section("Formats".to_string())
@@ -377,7 +389,7 @@ impl FileTaggerPlugin {
 
     fn format_tags(
         &self,
-        entry: &lla_plugin_interface::DecoratedEntry,
+        entry: &lla_plugin_utils::DecoratedEntry,
         format: &str,
     ) -> Option<String> {
         let tags = entry.custom_fields.get("tags")?;
@@ -423,48 +435,51 @@ impl FileTaggerPlugin {
 }
 
 impl Plugin for FileTaggerPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        let tags = self.get_tags(entry.path.to_str().unwrap_or(""));
-                        if !tags.is_empty() {
-                            entry
-                                .custom_fields
-                                .insert("tags".to_string(), tags.join(", "));
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_tags(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let mut entry = map_decorated_entry(entry, |mut entry| {
+            let tags = self.get_tags(entry.path.to_str().unwrap_or(""));
+            if !tags.is_empty() {
+                entry.custom_fields.insert("tags".into(), tags.join(", "));
             }
-            Err(e) => self.encode_error(&e),
+            entry
+        });
+        if let Some(display) = entry.custom_fields.get("tags").cloned() {
+            entry.insert_field("tags", value::string(&display), display);
         }
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        for entry in &mut entries {
+            if let Some(tags) = self.tags.get(&entry.path).filter(|tags| !tags.is_empty()) {
+                let display = tags.join(", ");
+                entry.insert_field("tags", value::string(&display), display);
+            }
+        }
+        entries
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_tags(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -486,6 +501,4 @@ impl ConfigurablePlugin for FileTaggerPlugin {
     }
 }
 
-impl ProtobufHandler for FileTaggerPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileTaggerPlugin);
+lla_plugin_sdk::export_plugin!(FileTaggerPlugin);

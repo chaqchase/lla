@@ -2,6 +2,7 @@ use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
+use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use colored::Colorize;
 use lla_plugin_interface::proto::DecoratedEntry;
@@ -22,11 +23,12 @@ impl TreeFormatter {
 
     fn format_entry(&self, path: &Path) -> String {
         let colored_name = colorize_file_name(path).to_string();
-        if self.show_icons {
+        let name = if self.show_icons {
             format_with_icon(path, colored_name, true)
         } else {
             colored_name
-        }
+        };
+        hyperlink::link_path(path, name)
     }
 
     fn build_tree(

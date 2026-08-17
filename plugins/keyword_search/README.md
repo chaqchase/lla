@@ -13,7 +13,7 @@ High-performance keyword search plugin for `lla` with interactive search and ric
 
 ```bash
 # Search in current directory
-lla plugin --name keyword_search --action search
+lla plugin run keyword_search search
 
 # Available actions after finding matches:
 1. View detailed matches

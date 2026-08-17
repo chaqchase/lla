@@ -1,13 +1,13 @@
 [package]
 name = "keyword_search"
 description = "Searches file contents for user-specified keywords"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
 colored = "2.0.0"
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 dirs = "5.0.1"
 serde = { version = "1.0.200", features = ["derive"] }
 toml = "0.8.8"
@@ -16,6 +16,7 @@ prost = "0.12"
 bytes = "1.5"
 lazy_static = "1.4"
 parking_lot = "0.12"
+rayon.workspace = true
 dialoguer = "0.11.0"
 console = "0.15.7"
 syntect = "5.1"

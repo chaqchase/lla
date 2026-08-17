@@ -30,7 +30,7 @@ name = "bright_yellow"      # Name highlighting
 
 ```bash
 # View help information
-lla plugin --name file_meta --action help
+lla plugin run file_meta help
 ```
 
 ## Display Format

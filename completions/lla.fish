@@ -1,6 +1,7 @@
 complete -c lla -n "__fish_use_subcommand" -l search -d 'Search file contents with ripgrep for the given pattern' -r
 complete -c lla -n "__fish_use_subcommand" -l search-context -d 'Number of context lines to show before and after matches (default: 2)' -r
 complete -c lla -n "__fish_use_subcommand" -s d -l depth -d 'Set the depth for tree listing (default from config)' -r
+complete -c lla -n "__fish_use_subcommand" -l hyperlink -d 'Emit OSC 8 file hyperlinks (always, auto, never)' -r -f -a "{always	,auto	,automatic	,never	}"
 complete -c lla -n "__fish_use_subcommand" -s s -l sort -d 'Sort files by name, size, or date' -r -f -a "{name	,size	,date	}"
 complete -c lla -n "__fish_use_subcommand" -s f -l filter -d 'Filter files by name or extension' -r
 complete -c lla -n "__fish_use_subcommand" -l preset -d 'Apply a named filter preset defined in your config' -r
@@ -42,9 +43,12 @@ complete -c lla -n "__fish_use_subcommand" -l include-dirs -d 'Include directory
 complete -c lla -n "__fish_use_subcommand" -l dirs-only -d 'Show only directories'
 complete -c lla -n "__fish_use_subcommand" -l files-only -d 'Show only regular files'
 complete -c lla -n "__fish_use_subcommand" -l symlinks-only -d 'Show only symbolic links'
+complete -c lla -n "__fish_use_subcommand" -l show-symlinks -d 'Include symlinks whose targets match --dirs-only or --files-only'
 complete -c lla -n "__fish_use_subcommand" -l no-dirs -d 'Hide directories'
 complete -c lla -n "__fish_use_subcommand" -l no-files -d 'Hide regular files'
 complete -c lla -n "__fish_use_subcommand" -l no-symlinks -d 'Hide symbolic links'
+complete -c lla -n "__fish_use_subcommand" -s X -l dereference -d 'Display metadata from symbolic-link targets'
+complete -c lla -n "__fish_use_subcommand" -l no-symlink-target -d 'Do not display symbolic-link targets after file names'
 complete -c lla -n "__fish_use_subcommand" -l no-dotfiles -d 'Hide files starting with a dot (overrides config setting)'
 complete -c lla -n "__fish_use_subcommand" -s a -l all -d 'Show all files including dotfiles (overrides no_dotfiles config)'
 complete -c lla -n "__fish_use_subcommand" -s A -l almost-all -d 'Show all files including dotfiles except . and .. (overrides no_dotfiles config)'
@@ -53,10 +57,16 @@ complete -c lla -n "__fish_use_subcommand" -l respect-gitignore -d 'Hide files t
 complete -c lla -n "__fish_use_subcommand" -l no-gitignore -d 'Disable .gitignore filtering even if enabled in config'
 complete -c lla -n "__fish_use_subcommand" -l hide-group -d 'Hide group column in long format'
 complete -c lla -n "__fish_use_subcommand" -l relative-dates -d 'Show relative dates (e.g., \'2h ago\') in long format'
+complete -c lla -n "__fish_use_subcommand" -s i -l inode -d 'Show inode numbers in long format'
+complete -c lla -n "__fish_use_subcommand" -s H -l links -d 'Show hard-link counts in long format'
+complete -c lla -n "__fish_use_subcommand" -l allocated-size -d 'Show allocated filesystem size in long format'
+complete -c lla -n "__fish_use_subcommand" -s @ -l extended -d 'Show extended attribute names and sizes in long format'
+complete -c lla -n "__fish_use_subcommand" -s Z -l context -d 'Show ACL or SELinux security context in long format'
+complete -c lla -n "__fish_use_subcommand" -s M -l mounts -d 'Show source, mount point, and filesystem in long format'
 complete -c lla -n "__fish_use_subcommand" -f -a "diff" -d 'Compare two directories or a directory against a git reference'
 complete -c lla -n "__fish_use_subcommand" -f -a "jump" -d 'Jump to a bookmarked or recent directory'
 complete -c lla -n "__fish_use_subcommand" -f -a "install" -d 'Install a plugin'
-complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run a plugin action'
+complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run actions or inspect Plugin Platform v2 packages'
 complete -c lla -n "__fish_use_subcommand" -f -a "list-plugins" -d 'List all available plugins'
 complete -c lla -n "__fish_use_subcommand" -f -a "use" -d 'Interactive plugin manager'
 complete -c lla -n "__fish_use_subcommand" -f -a "init" -d 'Initialize the configuration file'

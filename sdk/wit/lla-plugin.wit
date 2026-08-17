@@ -1,0 +1,14 @@
+package lla:plugin@0.3.0;
+
+interface host {
+    clipboard-write: func(text: string) -> result<_, string>;
+    open-url: func(url: string) -> result<_, string>;
+}
+
+/// Component-model boundary for lla API v3. The maintained Rust SDK maps the
+/// protobuf request envelope to its high-level decoration and action traits.
+world plugin {
+    import host;
+    export manifest: func() -> string;
+    export handle: func(request: list<u8>) -> result<list<u8>, string>;
+}

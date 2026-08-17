@@ -1,12 +1,14 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         format_size,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -21,7 +23,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_meta --action help"],
+            ["lla plugin run file_meta help"],
             |_| {
                 let mut help = HelpFormatter::new("File Metadata Plugin".to_string());
                 help.add_section("Description".to_string())
@@ -34,7 +36,7 @@ lazy_static! {
                 help.add_section("Actions".to_string()).add_command(
                     "help".to_string(),
                     "Show this help information".to_string(),
-                    vec!["lla plugin --name file_meta --action help".to_string()],
+                    vec!["lla plugin run file_meta help".to_string()],
                 );
 
                 help.add_section("Formats".to_string())
@@ -219,65 +221,68 @@ impl FileMetadataPlugin {
 }
 
 impl Plugin for FileMetadataPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        entry
-                            .custom_fields
-                            .insert("accessed".to_string(), entry.metadata.accessed.to_string());
-                        entry
-                            .custom_fields
-                            .insert("modified".to_string(), entry.metadata.modified.to_string());
-                        entry
-                            .custom_fields
-                            .insert("created".to_string(), entry.metadata.created.to_string());
-                        entry
-                            .custom_fields
-                            .insert("uid".to_string(), entry.metadata.uid.to_string());
-                        entry
-                            .custom_fields
-                            .insert("gid".to_string(), entry.metadata.gid.to_string());
-                        entry
-                            .custom_fields
-                            .insert("size".to_string(), entry.metadata.size.to_string());
-                        entry.custom_fields.insert(
-                            "permissions".to_string(),
-                            entry.metadata.permissions.to_string(),
-                        );
+    fn decorate_entry(&mut self, mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let Some(metadata) = entry.metadata.clone() else {
+            return entry;
+        };
+        entry
+            .custom_fields
+            .insert("accessed".into(), metadata.accessed.to_string());
+        entry.insert_field(
+            "modified",
+            value::timestamp(metadata.modified),
+            metadata.modified.to_string(),
+        );
+        entry
+            .custom_fields
+            .insert("created".into(), metadata.created.to_string());
+        entry
+            .custom_fields
+            .insert("uid".into(), metadata.uid.to_string());
+        entry
+            .custom_fields
+            .insert("gid".into(), metadata.gid.to_string());
+        entry.insert_field(
+            "size",
+            value::bytes(metadata.size),
+            metadata.size.to_string(),
+        );
+        entry.insert_field(
+            "permissions",
+            value::integer(i64::from(metadata.permissions)),
+            metadata.permissions.to_string(),
+        );
+        entry
+    }
 
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_file_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| self.decorate_entry(entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_file_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -299,9 +304,7 @@ impl ConfigurablePlugin for FileMetadataPlugin {
     }
 }
 
-impl ProtobufHandler for FileMetadataPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileMetadataPlugin);
+lla_plugin_sdk::export_plugin!(FileMetadataPlugin);
 
 #[cfg(test)]
 mod tests {

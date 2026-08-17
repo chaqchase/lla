@@ -1,12 +1,13 @@
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    run_cli_action,
     trash::{remove_path, TrashStore},
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -47,8 +48,8 @@ lazy_static! {
             "remove [path]",
             "Move selected files/directories into recoverable trash",
             [
-                "lla plugin --name file_remover --action remove",
-                "lla plugin --name file_remover --action remove --args /path/to/dir"
+                "lla plugin run file_remover remove",
+                "lla plugin run file_remover remove -- /path/to/dir"
             ],
             FileRemoverPlugin::remove_action
         );
@@ -59,8 +60,8 @@ lazy_static! {
             "purge [path]",
             "Permanently delete selected files/directories after confirmation",
             [
-                "lla plugin --name file_remover --action purge",
-                "lla plugin --name file_remover --action purge --args /path/to/dir"
+                "lla plugin run file_remover purge",
+                "lla plugin run file_remover purge -- /path/to/dir"
             ],
             FileRemoverPlugin::purge_action
         );
@@ -70,7 +71,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_remover --action help"],
+            ["lla plugin run file_remover help"],
             |_| FileRemoverPlugin::help_action()
         );
 
@@ -252,17 +253,14 @@ impl FileRemoverPlugin {
                 "remove [path]".to_string(),
                 "Move selected files/directories into recoverable trash".to_string(),
                 vec![
-                    "lla plugin --name file_remover --action remove".to_string(),
-                    "lla plugin --name file_remover --action remove --args /path/to/dir"
-                        .to_string(),
+                    "lla plugin run file_remover remove".to_string(),
+                    "lla plugin run file_remover remove -- /path/to/dir".to_string(),
                 ],
             )
             .add_command(
                 "purge [path]".to_string(),
                 "Permanently delete selected items after an explicit confirmation".to_string(),
-                vec![
-                    "lla plugin --name file_remover --action purge --args /path/to/dir".to_string(),
-                ],
+                vec!["lla plugin run file_remover purge -- /path/to/dir".to_string()],
             );
 
         println!(
@@ -285,36 +283,17 @@ impl Deref for FileRemoverPlugin {
 }
 
 impl Plugin for FileRemoverPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_, _) => PluginResponse::FormattedField(None),
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -330,9 +309,7 @@ impl ConfigurablePlugin for FileRemoverPlugin {
     }
 }
 
-impl ProtobufHandler for FileRemoverPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileRemoverPlugin);
+lla_plugin_sdk::export_plugin!(FileRemoverPlugin);
 
 impl Default for FileRemoverPlugin {
     fn default() -> Self {

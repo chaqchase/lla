@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.code-snippet-extractor"
 name = "code_snippet_extractor"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "code_snippet_extractor"
 description = "Extract and manage tagged code snippets"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["extract", "list", "get", "search", "add-tags", "remove-tags", "help", "list-categories", "list-by-category", "set-category", "export", "import"]
 machine_output = true
 
 [permissions]
@@ -24,3 +25,99 @@ name = "snippet_count"
 type = "integer"
 sortable = true
 filterable = true
+
+[[actions]]
+id = "extract"
+description = "Extract a code snippet from a file"
+examples = ["lla plugin run code_snippet_extractor extract -- \"file.rs\" \"my_func\" 10 20"]
+interactive = true
+arguments = [{ name = "file_path", type = "path", description = "Path to the source file.", position = 0, required = true }, { name = "snippet_name", type = "string", description = "Name for the extracted snippet.", position = 1, required = true }, { name = "start_line", type = "integer", description = "First source line to include.", position = 2, required = true, min = 1 }, { name = "end_line", type = "integer", description = "Last source line to include.", position = 3, required = true, min = 1 }, { name = "context_lines", type = "integer", description = "Number of surrounding source lines to include.", position = 4, min = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "list"
+description = "List all snippets, optionally filtered by file"
+examples = ["lla plugin run code_snippet_extractor list", "lla plugin run code_snippet_extractor list -- \"file.rs\""]
+interactive = true
+arguments = [{ name = "file_path", type = "path", description = "Path to the source file.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "get"
+description = "Get a specific snippet by ID"
+examples = ["lla plugin run code_snippet_extractor get -- \"abc123\""]
+interactive = true
+arguments = [{ name = "snippet_id", type = "string", description = "Snippet identifier.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Search through all snippets"
+examples = ["lla plugin run code_snippet_extractor search -- \"function\""]
+interactive = true
+arguments = [{ name = "query", type = "string", description = "Search query.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "add-tags"
+description = "Add tags to a snippet"
+examples = ["lla plugin run code_snippet_extractor add-tags -- \"abc123\" \"rust\" \"function\""]
+interactive = true
+arguments = [{ name = "snippet_id", type = "string", description = "Snippet identifier.", position = 0, required = true }, { name = "tags", type = "string", description = "One or more tags.", position = 1, required = true, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "remove-tags"
+description = "Remove tags from a snippet"
+examples = ["lla plugin run code_snippet_extractor remove-tags -- \"abc123\" \"rust\""]
+interactive = true
+arguments = [{ name = "snippet_id", type = "string", description = "Snippet identifier.", position = 0, required = true }, { name = "tags", type = "string", description = "One or more tags.", position = 1, required = true, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run code_snippet_extractor help"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "list-categories"
+description = "List all available categories"
+examples = ["lla plugin run code_snippet_extractor list-categories"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "list-by-category"
+description = "List all snippets in a category"
+examples = ["lla plugin run code_snippet_extractor list-by-category -- \"algorithms\""]
+interactive = true
+arguments = [{ name = "category", type = "string", description = "Category name to use.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "set-category"
+description = "Set or change the category of a snippet"
+examples = ["lla plugin run code_snippet_extractor set-category -- \"abc123\" \"algorithms\""]
+interactive = true
+arguments = [{ name = "snippet_id", type = "string", description = "Snippet identifier.", position = 0, required = true }, { name = "category", type = "string", description = "Category name to use.", position = 1, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "export"
+description = "Export snippets to a JSON file"
+examples = ["lla plugin run code_snippet_extractor export -- \"snippets.json\"", "lla plugin run code_snippet_extractor export -- \"snippets.json\" \"abc123\" \"def456\""]
+interactive = true
+arguments = [{ name = "file_path", type = "path", description = "Path to the source file.", position = 0, required = true }, { name = "snippet_ids", type = "string", description = "One or more snippet identifiers.", position = 1, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "import"
+description = "Import snippets from a JSON file"
+examples = ["lla plugin run code_snippet_extractor import -- \"snippets.json\""]
+interactive = true
+arguments = [{ name = "file_path", type = "path", description = "Path to the source file.", position = 0, required = true }]
+output = { type = "none" }

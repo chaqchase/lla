@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-copier"
 name = "file_copier"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_copier"
 description = "Interactively copy files and directories"
@@ -11,8 +13,55 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["add", "copy-all", "copy-partial", "clear", "show", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:selected-destination"]
 clipboard = true
+
+[[actions]]
+id = "add"
+description = "Add files/directories to clipboard from current or specified directory"
+examples = ["lla plugin run file_copier add", "lla plugin run file_copier add -- /path/to/dir"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "copy-all"
+description = "Copy all items from clipboard to current or specified directory"
+examples = ["lla plugin run file_copier copy-all", "lla plugin run file_copier copy-all -- /path/to/target"]
+interactive = true
+arguments = [{ name = "target_path", type = "path", description = "Destination path.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "copy-partial"
+description = "Copy selected items from clipboard to current or specified directory"
+examples = ["lla plugin run file_copier copy-partial", "lla plugin run file_copier copy-partial -- /path/to/target"]
+interactive = true
+arguments = [{ name = "target_path", type = "path", description = "Destination path.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "clear"
+description = "Clear the clipboard"
+examples = ["lla plugin run file_copier clear"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "show"
+description = "Show clipboard contents"
+examples = ["lla plugin run file_copier show"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run file_copier help"]
+interactive = true
+arguments = []
+output = { type = "none" }

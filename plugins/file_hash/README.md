@@ -5,13 +5,16 @@ A high-performance file hashing plugin for `lla` that calculates secure cryptogr
 ## Features
 
 - SHA-1 and SHA-256 hash calculation
-- Efficient buffered reading
-- Progress indication
+- One native decoration and formatting call per listing batch
+- Persistent metadata-keyed digest cache
+- Efficient 64 KiB buffered reads on cache misses
 - Rich display formatting
+- Sandboxed WASI Preview 2 execution
+- Structured text output for plugin actions
 
 ## Configuration
 
-Located at `~/.config/lla/file_hash/config.toml`:
+Located at `~/.config/lla/plugins/file_hash/config.toml`:
 
 ```toml
 [colors]
@@ -20,13 +23,27 @@ sha256 = "bright_yellow"  # SHA-256 hash color
 success = "bright_green"  # Success messages
 info = "bright_blue"     # Information messages
 name = "bright_yellow"   # Name highlighting
+
+[cache]
+enabled = true            # Reuse hashes when size and modification time match
+max_entries = 10000       # Retain the most recently used entries
 ```
+
+The cache is stored at `~/.config/lla/plugins/file_hash/cache.toml`. A file is
+hashed again when its size or nanosecond modification timestamp changes. Delete
+that cache file to force a complete rebuild; it is recreated automatically.
 
 ## Usage
 
 ```bash
 # View help information
-lla plugin --name file_hash --action help
+lla plugin run file_hash help
+
+# First run populates the digest and Wasmtime compilation caches
+lla -l ./directory
+
+# The same listing should reuse both caches
+lla -l ./directory
 ```
 
 ## Display Formats

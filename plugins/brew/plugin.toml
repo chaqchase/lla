@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.brew"
 name = "brew"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "brew"
 description = "Manage Homebrew packages"
@@ -11,8 +13,103 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["list", "search", "outdated", "install", "uninstall", "upgrade", "info", "cleanup", "doctor", "menu", "help"]
 
 [permissions]
 network = ["formulae.brew.sh", "github.com"]
 process = true
+
+[[actions]]
+id = "list"
+description = "List installed packages"
+examples = ["lla plugin run brew list"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Search for packages"
+examples = ["lla plugin run brew search -- git"]
+interactive = true
+arguments = [{ name = "query", type = "string", description = "Search query.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "outdated"
+description = "List outdated packages"
+examples = ["lla plugin run brew outdated"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "install"
+description = "Install a package"
+examples = ["lla plugin run brew install -- wget"]
+interactive = true
+arguments = [{ name = "package", type = "string", description = "Package name.", position = 0, required = true }, { name = "cask", type = "boolean", description = "Treat the package as a Homebrew cask.", option = "--cask" }]
+output = { type = "none" }
+
+[[actions]]
+id = "uninstall"
+description = "Uninstall a package"
+examples = ["lla plugin run brew uninstall -- wget"]
+interactive = true
+arguments = [{ name = "package", type = "string", description = "Package name.", position = 0, required = true }, { name = "cask", type = "boolean", description = "Treat the package as a Homebrew cask.", option = "--cask" }]
+output = { type = "none" }
+
+[[actions]]
+id = "remove"
+description = "Uninstall a package (alias for uninstall)"
+examples = ["lla plugin run brew remove -- wget"]
+interactive = true
+arguments = [{ name = "package", type = "string", description = "Package name.", position = 0, required = true }, { name = "cask", type = "boolean", description = "Treat the package as a Homebrew cask.", option = "--cask" }]
+output = { type = "none" }
+
+[[actions]]
+id = "upgrade"
+description = "Upgrade packages"
+examples = ["lla plugin run brew upgrade"]
+interactive = true
+arguments = [{ name = "package", type = "string", description = "Package name.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "info"
+description = "Show package information"
+examples = ["lla plugin run brew info -- git"]
+interactive = true
+arguments = [{ name = "package", type = "string", description = "Package name.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "cleanup"
+description = "Cleanup old versions"
+examples = ["lla plugin run brew cleanup"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "doctor"
+description = "Check for problems"
+examples = ["lla plugin run brew doctor"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "menu"
+description = "Interactive menu"
+examples = ["lla plugin run brew menu"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run brew help"]
+interactive = true
+arguments = []
+output = { type = "none" }

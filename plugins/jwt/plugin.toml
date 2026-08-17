@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.jwt"
 name = "jwt"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "jwt"
 description = "Decode and inspect JSON Web Tokens"
@@ -11,7 +13,46 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["decode", "search", "history", "preferences", "help"]
 
 [permissions]
 clipboard = true
+
+[[actions]]
+id = "decode"
+description = "View decoded JWT tokens"
+examples = ["lla plugin run jwt decode"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "search"
+description = "Search decoded JWT tokens"
+examples = ["lla plugin run jwt search"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "Manage token history"
+examples = ["lla plugin run jwt history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Configure preferences"
+examples = ["lla plugin run jwt preferences"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run jwt help"]
+interactive = true
+arguments = []
+output = { type = "none" }

@@ -5,6 +5,7 @@ use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, *};
 use crate::utils::icons::format_with_icon;
+use crate::utils::{fs_metadata, hyperlink};
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 use once_cell::sync::Lazy;
@@ -173,14 +174,24 @@ impl TableFormatter {
         match column {
             ColumnKey::Permissions => {
                 let perms = Permissions::from_mode(metadata.permissions);
-                colorize_permissions(&perms, Some(&self.permission_format))
+                let mut rendered = colorize_permissions(&perms, Some(&self.permission_format));
+                if metadata.has_acl {
+                    rendered.push('+');
+                }
+                rendered
             }
+            ColumnKey::Inode => metadata.inode.to_string(),
+            ColumnKey::HardLinks => metadata.hard_links.to_string(),
             ColumnKey::Size => colorize_size(metadata.size).to_string(),
+            ColumnKey::AllocatedSize => colorize_size(metadata.allocated_size).to_string(),
             ColumnKey::Modified => self.format_timestamp(metadata.modified),
             ColumnKey::Created => self.format_timestamp(metadata.created),
             ColumnKey::Accessed => self.format_timestamp(metadata.accessed),
             ColumnKey::User => colorize_user(&lookup_user(metadata.uid)).to_string(),
             ColumnKey::Group => colorize_group(&lookup_group(metadata.gid)).to_string(),
+            ColumnKey::Xattrs => fs_metadata::format_xattrs(metadata),
+            ColumnKey::Context => fs_metadata::format_context(metadata),
+            ColumnKey::Mount => fs_metadata::format_mount(metadata),
             ColumnKey::Name => self.render_name(entry),
             ColumnKey::Path => entry.path.clone(),
             ColumnKey::Plugins => plugin_text.to_string(),
@@ -195,8 +206,12 @@ impl TableFormatter {
     fn render_name(&self, entry: &DecoratedEntry) -> String {
         let path = Path::new(&entry.path);
         let colored_name = colorize_file_name(path).to_string();
-        colorize_file_name_with_icon(path, format_with_icon(path, colored_name, self.show_icons))
-            .to_string()
+        let name = colorize_file_name_with_icon(
+            path,
+            format_with_icon(path, colored_name, self.show_icons),
+        )
+        .to_string();
+        hyperlink::link_path(path, name)
     }
 
     fn format_timestamp(&self, seconds: u64) -> String {
@@ -254,6 +269,7 @@ impl FileFormatter for TableFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "table");
 
         let headers: Vec<String> = self
             .columns
@@ -287,11 +303,7 @@ impl FileFormatter for TableFormatter {
             rows.push((values, plugin_suffix));
         }
 
-        let alignments: Vec<bool> = self
-            .columns
-            .iter()
-            .map(|column| matches!(column, ColumnKey::Size))
-            .collect();
+        let alignments: Vec<bool> = self.columns.iter().map(ColumnKey::align_right).collect();
 
         let mut output = String::new();
         output.push_str(&Self::create_top_border(&widths));

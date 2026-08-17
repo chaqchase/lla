@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package lla_plugin;
+
+message EntryMetadata {
+    uint64 size = 1;
+    uint64 modified = 2;
+    uint64 accessed = 3;
+    uint64 created = 4;
+    bool is_dir = 5;
+    bool is_file = 6;
+    bool is_symlink = 7;
+    uint32 permissions = 8;
+    uint32 uid = 9;
+    uint32 gid = 10;
+    uint64 inode = 11;
+    uint64 hard_links = 12;
+    uint64 allocated_size = 13;
+    map<string, uint64> xattrs = 14;
+    bool has_acl = 15;
+    string security_context = 16;
+    string mount_point = 17;
+    string mount_source = 18;
+    string filesystem = 19;
+}
+
+message DecoratedEntry {
+    string path = 1;
+    EntryMetadata metadata = 2;
+    map<string, string> custom_fields = 3;
+    map<string, TypedValue> typed_fields = 4;
+}
+
+message PluginMessage {
+    oneof message {
+        DecoratedEntry decorate = 5;
+        FormatFieldRequest format_field = 6;
+        ActionRequest action = 7;
+        bool list_actions = 8;
+        BatchDecorateRequest decorate_batch = 9;
+        BatchFormatRequest format_batch = 10;
+        DecoratedEntry decorated_response = 105;
+        FormattedFieldResponse field_response = 106;
+        ActionResponse action_response = 107;
+        string error_response = 108;
+        ListActionsResponse list_actions_response = 109;
+        BatchDecorateResponse decorate_batch_response = 110;
+        PluginError structured_error_response = 111;
+        BatchFormatResponse format_batch_response = 112;
+    }
+}
+
+message TypedValue {
+    oneof value {
+        NullValue null_value = 1;
+        string string_value = 2;
+        sint64 integer_value = 3;
+        double float_value = 4;
+        bool boolean_value = 5;
+        uint64 bytes_value = 6;
+        uint64 timestamp_value = 7;
+        string path_value = 8;
+        ListValue list_value = 9;
+        ObjectValue object_value = 10;
+    }
+}
+
+enum NullValue {
+    NULL_VALUE = 0;
+}
+
+message ListValue {
+    repeated TypedValue values = 1;
+}
+
+message ObjectValue {
+    map<string, TypedValue> fields = 1;
+}
+
+message BatchDecorateRequest {
+    repeated DecoratedEntry entries = 1;
+    string format = 2;
+}
+
+message BatchDecorateResponse {
+    repeated DecoratedEntry entries = 1;
+}
+
+message FormatFieldRequest {
+    DecoratedEntry entry = 1;
+    string format = 2;
+}
+
+message BatchFormatRequest {
+    repeated DecoratedEntry entries = 1;
+    string format = 2;
+}
+
+message BatchFormatResponse {
+    repeated FormattedFieldResponse fields = 1;
+}
+
+message ActionRequest {
+    string action = 1;
+    reserved 2;
+    map<string, TypedValue> arguments = 3;
+}
+
+message FormattedFieldResponse {
+    optional string field = 1;
+}
+
+message ActionResponse {
+    bool success = 1;
+    optional string error = 2;
+    ActionOutput output = 3;
+    PluginError structured_error = 4;
+}
+
+message PluginError {
+    string code = 1;
+    string message = 2;
+    map<string, TypedValue> details = 3;
+}
+
+message ActionOutput {
+    oneof output {
+        bool none = 1;
+        string text = 2;
+        TypedValue value = 3;
+        TableValue table = 4;
+    }
+}
+
+message TableValue {
+    repeated string columns = 1;
+    repeated TableRow rows = 2;
+}
+
+message TableRow {
+    repeated TypedValue cells = 1;
+}
+
+message ActionInfo {
+    string name = 1;
+    string usage = 2;
+    string description = 3;
+    repeated string examples = 4;
+}
+
+message ListActionsResponse {
+    repeated ActionInfo actions = 1;
+}

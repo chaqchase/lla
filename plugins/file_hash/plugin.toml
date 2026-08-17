@@ -1,18 +1,19 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-hash"
 name = "file_hash"
-version = "0.5.12"
-api_min = 2
-api_max = 2
-runtime = "native"
-entrypoint = "file_hash"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+runtime = "wasm-component"
+entrypoint = "file_hash.wasm"
 description = "Calculate file hashes"
 license = "MIT"
 
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["help"]
 machine_output = true
 
 [permissions]
@@ -27,3 +28,11 @@ filterable = true
 name = "sha256"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run file_hash help"]
+interactive = false
+arguments = []
+output = { type = "text" }

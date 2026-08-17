@@ -32,13 +32,13 @@ File categorization plugin for `lla` that organizes files based on extensions, w
 
 ```bash
 # Add category
-lla plugin --name categorizer --action add-category --args "Images" "yellow" "jpg,png,gif"
+lla plugin run categorizer add-category -- "Images" "yellow" "jpg,png,gif"
 
 # Add subcategory
-lla plugin --name categorizer --action add-subcategory --args "Images" "Raster" "jpg,png,gif"
+lla plugin run categorizer add-subcategory -- "Images" "Raster" "jpg,png,gif"
 
 # List categories
-lla plugin --name categorizer --action list-categories
+lla plugin run categorizer list-categories
 ```
 
 ## Configuration

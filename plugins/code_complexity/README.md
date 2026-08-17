@@ -36,10 +36,10 @@ A code analysis plugin for `lla` that performs real-time complexity analysis of 
 
 ```bash
 # Set complexity thresholds
-lla plugin --name code_complexity --action set-thresholds --args 10 20 30 40
+lla plugin run code_complexity set-thresholds -- 10 20 30 40
 
 # Show report
-lla plugin --name code_complexity --action show-report
+lla plugin run code_complexity show-report
 ```
 
 ## Display Formats

@@ -1,6 +1,9 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
-use lla_plugin_utils::{trash::TrashStore, ActionRegistry, ProtobufHandler};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::{
+    decode_decorated_entry, map_decorated_entry, run_cli_action, trash::TrashStore, ActionRegistry,
+    DecoratedEntry,
+};
 use parking_lot::RwLock;
 use std::path::Path;
 
@@ -12,7 +15,7 @@ lazy_static! {
             "put",
             "put <path>...",
             "Move one or more files or directories into recoverable trash",
-            ["lla plugin trash put ./draft.txt ./old-folder"],
+            ["lla plugin run trash put -- ./draft.txt ./old-folder"],
             TrashPlugin::put_action
         );
         lla_plugin_utils::define_action!(
@@ -20,7 +23,7 @@ lazy_static! {
             "list",
             "list",
             "List recoverable trash records and their original paths",
-            ["lla plugin trash list"],
+            ["lla plugin run trash list"],
             |_| TrashPlugin::list_action()
         );
         lla_plugin_utils::define_action!(
@@ -28,7 +31,7 @@ lazy_static! {
             "restore",
             "restore <id>",
             "Restore a trashed item without overwriting an existing path",
-            ["lla plugin trash restore 20260815T120000.000Z-123-0"],
+            ["lla plugin run trash restore -- 20260815T120000.000Z-123-0"],
             TrashPlugin::restore_action
         );
         lla_plugin_utils::define_action!(
@@ -36,7 +39,7 @@ lazy_static! {
             "empty",
             "empty [older-than-days] --yes",
             "Permanently delete old trash records after explicit confirmation",
-            ["lla plugin trash empty 30 -- --yes"],
+            ["lla plugin run trash empty -- 30 -- --yes"],
             TrashPlugin::empty_action
         );
         lla_plugin_utils::define_action!(
@@ -44,7 +47,7 @@ lazy_static! {
             "help",
             "help",
             "Show recoverable trash usage",
-            ["lla plugin trash help"],
+            ["lla plugin run trash help"],
             |_| TrashPlugin::help_action()
         );
         actions
@@ -92,7 +95,7 @@ impl TrashPlugin {
             }
             match store.put(Path::new(value)) {
                 Ok(record) => println!(
-                    "Trashed {}\n  id: {}\n  restore: lla plugin trash restore {}",
+                    "Trashed {}\n  id: {}\n  restore: lla plugin run trash restore -- {}",
                     record.original_path.display(),
                     record.id,
                     record.id
@@ -137,7 +140,7 @@ impl TrashPlugin {
     fn empty_action(args: &[String]) -> Result<(), String> {
         if !args.iter().any(|arg| arg == "--yes") {
             return Err(
-                "Permanent deletion requires --yes. Example: lla plugin trash empty 30 -- --yes"
+                "Permanent deletion requires --yes. Example: lla plugin run trash empty -- 30 -- --yes"
                     .to_string(),
             );
         }
@@ -162,37 +165,48 @@ impl TrashPlugin {
 }
 
 impl Plugin for TrashPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        let response = match self.decode_request(request) {
-            Ok(PluginRequest::GetName) => PluginResponse::Name(env!("CARGO_PKG_NAME").into()),
-            Ok(PluginRequest::GetVersion) => {
-                PluginResponse::Version(env!("CARGO_PKG_VERSION").into())
-            }
-            Ok(PluginRequest::GetDescription) => {
-                PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").into())
-            }
-            Ok(PluginRequest::GetSupportedFormats) => {
-                PluginResponse::SupportedFormats(vec!["default".into(), "long".into()])
-            }
-            Ok(PluginRequest::Decorate(entry)) => PluginResponse::Decorated(Self::decorate(entry)),
-            Ok(PluginRequest::FormatField(entry, format)) => {
-                PluginResponse::FormattedField(Self::format(&entry, &format))
-            }
-            Ok(PluginRequest::PerformAction(action, args)) => {
-                PluginResponse::ActionResult(ACTIONS.read().handle(&action, &args))
-            }
-            Ok(PluginRequest::GetAvailableActions) => {
-                PluginResponse::AvailableActions(ACTIONS.read().list_actions())
-            }
-            Err(error) => return self.encode_error(&error),
-        };
-        self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| Self::format(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
-impl ProtobufHandler for TrashPlugin {}
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_boolean_field("trashable");
+    entry.promote_string_field("trash_state");
+    entry
+}
 
-lla_plugin_interface::declare_plugin!(TrashPlugin);
+lla_plugin_sdk::export_plugin!(TrashPlugin);
 
 impl Default for TrashPlugin {
     fn default() -> Self {

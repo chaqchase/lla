@@ -3,12 +3,13 @@ use dialoguer::{Input, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use indicatif::{ProgressBar, ProgressStyle};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    typed_action_arguments_as_strings,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
     ui::interactive_suggest,
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -139,6 +140,12 @@ pub struct OutdatedCask {
     pub installed_versions: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CatalogCache {
+    formulae: Vec<Formula>,
+    casks: Vec<Cask>,
+}
+
 pub struct BrewPlugin {
     base: BasePlugin<BrewConfig>,
     http: Client,
@@ -146,6 +153,7 @@ pub struct BrewPlugin {
     catalog_formulae: Option<Vec<Formula>>,
     catalog_casks: Option<Vec<Cask>>,
     catalog_fetched_at: Option<Instant>,
+    catalog_cache: lla_plugin_utils::PersistentCache<CatalogCache>,
 }
 
 impl BrewPlugin {
@@ -165,6 +173,12 @@ impl BrewPlugin {
             catalog_formulae: None,
             catalog_casks: None,
             catalog_fetched_at: None,
+            catalog_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "catalog-cache.toml",
+                1,
+                2,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[BrewPlugin] Failed to save config: {}", e);
@@ -252,6 +266,17 @@ impl BrewPlugin {
         if !force && self.catalog_formulae.is_some() && self.catalog_casks.is_some() && !stale {
             return Ok(());
         }
+        if !force {
+            if let Some(catalog) = self
+                .catalog_cache
+                .get_fresh("homebrew-catalog", Duration::from_secs(60 * 60))
+            {
+                self.catalog_formulae = Some(catalog.formulae);
+                self.catalog_casks = Some(catalog.casks);
+                self.catalog_fetched_at = Some(Instant::now());
+                return Ok(());
+            }
+        }
 
         let pb = ProgressBar::new_spinner();
         pb.set_style(
@@ -262,24 +287,44 @@ impl BrewPlugin {
         pb.set_message("Fetching Homebrew catalog (formulae + casks)...");
         pb.enable_steady_tick(Duration::from_millis(80));
 
-        let formulae: Vec<Formula> = self
-            .http
-            .get(FORMULA_API_URL)
-            .send()
-            .map_err(|e| format!("Failed to fetch formula catalog: {}", e))?
-            .json()
-            .map_err(|e| format!("Failed to parse formula catalog: {}", e))?;
+        let (formulae, casks) = std::thread::scope(|scope| {
+            let formulae = scope.spawn(|| -> Result<Vec<Formula>, String> {
+                self.http
+                    .get(FORMULA_API_URL)
+                    .send()
+                    .map_err(|e| format!("Failed to fetch formula catalog: {}", e))?
+                    .json()
+                    .map_err(|e| format!("Failed to parse formula catalog: {}", e))
+            });
+            let casks = scope.spawn(|| -> Result<Vec<Cask>, String> {
+                self.http
+                    .get(CASK_API_URL)
+                    .send()
+                    .map_err(|e| format!("Failed to fetch cask catalog: {}", e))?
+                    .json()
+                    .map_err(|e| format!("Failed to parse cask catalog: {}", e))
+            });
 
-        let casks: Vec<Cask> = self
-            .http
-            .get(CASK_API_URL)
-            .send()
-            .map_err(|e| format!("Failed to fetch cask catalog: {}", e))?
-            .json()
-            .map_err(|e| format!("Failed to parse cask catalog: {}", e))?;
+            let formulae = formulae
+                .join()
+                .map_err(|_| "Formula catalog worker panicked".to_string())??;
+            let casks = casks
+                .join()
+                .map_err(|_| "Cask catalog worker panicked".to_string())??;
+            Ok::<_, String>((formulae, casks))
+        })?;
 
         pb.finish_and_clear();
 
+        self.catalog_cache.insert(
+            "homebrew-catalog",
+            "formulae-v1+casks-v1",
+            CatalogCache {
+                formulae: formulae.clone(),
+                casks: casks.clone(),
+            },
+        );
+        let _ = self.catalog_cache.persist();
         self.catalog_formulae = Some(formulae);
         self.catalog_casks = Some(casks);
         self.catalog_fetched_at = Some(Instant::now());
@@ -708,21 +753,9 @@ impl BrewPlugin {
         pb.set_message("Searching packages...");
         pb.enable_steady_tick(Duration::from_millis(100));
 
-        // Fetch formulae
-        let formulae: Vec<Formula> = self
-            .http
-            .get(FORMULA_API_URL)
-            .send()
-            .and_then(|r| r.json())
-            .unwrap_or_default();
-
-        // Fetch casks
-        let casks: Vec<Cask> = self
-            .http
-            .get(CASK_API_URL)
-            .send()
-            .and_then(|r| r.json())
-            .unwrap_or_default();
+        self.ensure_catalog_loaded(false)?;
+        let formulae = self.catalog_formulae.clone().unwrap_or_default();
+        let casks = self.catalog_casks.clone().unwrap_or_default();
 
         pb.finish_and_clear();
 
@@ -1321,63 +1354,63 @@ impl BrewPlugin {
             .add_command(
                 "list".to_string(),
                 "List installed packages".to_string(),
-                vec!["lla plugin brew list".to_string()],
+                vec!["lla plugin run brew list".to_string()],
             )
             .add_command(
                 "search <query>".to_string(),
                 "Search for packages".to_string(),
-                vec!["lla plugin brew search git".to_string()],
+                vec!["lla plugin run brew search -- git".to_string()],
             )
             .add_command(
                 "outdated".to_string(),
                 "List outdated packages".to_string(),
-                vec!["lla plugin brew outdated".to_string()],
+                vec!["lla plugin run brew outdated".to_string()],
             )
             .add_command(
                 "install <package>".to_string(),
                 "Install a package".to_string(),
                 vec![
-                    "lla plugin brew install wget".to_string(),
-                    "lla plugin brew install firefox --cask".to_string(),
+                    "lla plugin run brew install -- wget".to_string(),
+                    "lla plugin run brew install -- firefox --cask".to_string(),
                 ],
             )
             .add_command(
                 "uninstall <package>".to_string(),
                 "Uninstall a package".to_string(),
-                vec!["lla plugin brew uninstall wget".to_string()],
+                vec!["lla plugin run brew uninstall -- wget".to_string()],
             )
             .add_command(
                 "upgrade [package]".to_string(),
                 "Upgrade packages (all if no package specified)".to_string(),
                 vec![
-                    "lla plugin brew upgrade".to_string(),
-                    "lla plugin brew upgrade wget".to_string(),
+                    "lla plugin run brew upgrade".to_string(),
+                    "lla plugin run brew upgrade -- wget".to_string(),
                 ],
             )
             .add_command(
                 "info <package>".to_string(),
                 "Show package information".to_string(),
-                vec!["lla plugin brew info git".to_string()],
+                vec!["lla plugin run brew info -- git".to_string()],
             )
             .add_command(
                 "cleanup".to_string(),
                 "Remove old versions and clear cache".to_string(),
-                vec!["lla plugin brew cleanup".to_string()],
+                vec!["lla plugin run brew cleanup".to_string()],
             )
             .add_command(
                 "doctor".to_string(),
                 "Check system for potential problems".to_string(),
-                vec!["lla plugin brew doctor".to_string()],
+                vec!["lla plugin run brew doctor".to_string()],
             )
             .add_command(
                 "menu".to_string(),
                 "Interactive menu".to_string(),
-                vec!["lla plugin brew menu".to_string()],
+                vec!["lla plugin run brew menu".to_string()],
             )
             .add_command(
                 "help".to_string(),
                 "Show this help information".to_string(),
-                vec!["lla plugin brew help".to_string()],
+                vec!["lla plugin run brew help".to_string()],
             );
 
         println!(
@@ -1393,44 +1426,32 @@ impl BrewPlugin {
 }
 
 impl Plugin for BrewPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = match action.as_str() {
-                            "list" => self.list_installed(),
-                            "search" => {
-                                let query = args.first().map(|s| s.as_str());
-                                self.search_packages(query)
-                            }
-                            "outdated" => self.list_outdated(),
-                            "install" => self.install_package(&args),
-                            "uninstall" | "remove" => self.uninstall_package(&args),
-                            "upgrade" => self.upgrade_packages(&args),
-                            "info" => self.package_info(&args),
-                            "cleanup" => self.cleanup(),
-                            "doctor" => self.run_doctor(),
-                            "menu" => self.interactive_menu(),
-                            "help" => self.show_help(),
-                            _ => Err(format!(
-                                "Unknown action: '{}'\n\n\
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let args = match typed_action_arguments_as_strings(
+            &action,
+            &arguments,
+            include_str!("../plugin.toml"),
+        ) {
+            Ok(arguments) => arguments,
+            Err(error) => return response::error(error),
+        };
+        let result = match action.as_str() {
+            "list" => self.list_installed(),
+            "search" => {
+                let query = args.first().map(|s| s.as_str());
+                self.search_packages(query)
+            }
+            "outdated" => self.list_outdated(),
+            "install" => self.install_package(&args),
+            "uninstall" | "remove" => self.uninstall_package(&args),
+            "upgrade" => self.upgrade_packages(&args),
+            "info" => self.package_info(&args),
+            "cleanup" => self.cleanup(),
+            "doctor" => self.run_doctor(),
+            "menu" => self.interactive_menu(),
+            "help" => self.show_help(),
+            _ => Err(format!(
+                "Unknown action: '{}'\n\n\
                                 Available actions:\n  \
                                 • list       - List installed packages\n  \
                                 • search     - Search for packages\n  \
@@ -1443,88 +1464,15 @@ impl Plugin for BrewPlugin {
                                 • doctor     - Run diagnostics\n  \
                                 • menu       - Interactive menu\n  \
                                 • help       - Show help\n\n\
-                                Example: lla plugin brew list",
-                                action
-                            )),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "list".to_string(),
-                                usage: "list".to_string(),
-                                description: "List installed packages".to_string(),
-                                examples: vec!["lla plugin brew list".to_string()],
-                            },
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search <query>".to_string(),
-                                description: "Search for packages".to_string(),
-                                examples: vec!["lla plugin brew search git".to_string()],
-                            },
-                            ActionInfo {
-                                name: "outdated".to_string(),
-                                usage: "outdated".to_string(),
-                                description: "List outdated packages".to_string(),
-                                examples: vec!["lla plugin brew outdated".to_string()],
-                            },
-                            ActionInfo {
-                                name: "install".to_string(),
-                                usage: "install <package> [--cask]".to_string(),
-                                description: "Install a package".to_string(),
-                                examples: vec!["lla plugin brew install wget".to_string()],
-                            },
-                            ActionInfo {
-                                name: "uninstall".to_string(),
-                                usage: "uninstall <package>".to_string(),
-                                description: "Uninstall a package".to_string(),
-                                examples: vec!["lla plugin brew uninstall wget".to_string()],
-                            },
-                            ActionInfo {
-                                name: "upgrade".to_string(),
-                                usage: "upgrade [package]".to_string(),
-                                description: "Upgrade packages".to_string(),
-                                examples: vec!["lla plugin brew upgrade".to_string()],
-                            },
-                            ActionInfo {
-                                name: "info".to_string(),
-                                usage: "info <package>".to_string(),
-                                description: "Show package information".to_string(),
-                                examples: vec!["lla plugin brew info git".to_string()],
-                            },
-                            ActionInfo {
-                                name: "cleanup".to_string(),
-                                usage: "cleanup".to_string(),
-                                description: "Cleanup old versions".to_string(),
-                                examples: vec!["lla plugin brew cleanup".to_string()],
-                            },
-                            ActionInfo {
-                                name: "doctor".to_string(),
-                                usage: "doctor".to_string(),
-                                description: "Check for problems".to_string(),
-                                examples: vec!["lla plugin brew doctor".to_string()],
-                            },
-                            ActionInfo {
-                                name: "menu".to_string(),
-                                usage: "menu".to_string(),
-                                description: "Interactive menu".to_string(),
-                                examples: vec!["lla plugin brew menu".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin brew help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+                                Example: lla plugin run brew list",
+                action
+            )),
+        };
+        response::from_result(result)
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -1546,9 +1494,7 @@ impl ConfigurablePlugin for BrewPlugin {
     }
 }
 
-impl ProtobufHandler for BrewPlugin {}
-
-lla_plugin_interface::declare_plugin!(BrewPlugin);
+lla_plugin_sdk::export_plugin!(BrewPlugin);
 
 #[derive(Debug, Clone)]
 struct CatalogHit {

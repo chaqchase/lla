@@ -23,6 +23,15 @@
 
 lla is a modern `ls` replacement that transforms how developers interact with their filesystem. Built with Rust's performance capabilities and designed with user experience in mind, lla combines the familiarity of `ls` with powerful features like specialized views, Git integration, and a robust plugin system with an extensible list of plugins to add more functionality.
 
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Installing and managing plugins](docs/plugins/README.md)
+- [Developing plugins with the Rust SDK](docs/plugins/developing.md)
+- [Plugin manifest reference](docs/plugins/manifest.md)
+- [Bundled plugin catalog](docs/plugins/catalog.md)
+- [Release process](docs/maintainers/releasing.md)
+
 ## Features
 
 - Multiple Views: Default clean view, long format, tree structure, table layout, grid display
@@ -164,6 +173,28 @@ Options and tweaks:
   lla -l --date-format "%Y-%m-%d %H:%M"
   ```
 
+- Add filesystem metadata columns (these flags select long view when no other view is given):
+
+  ```bash
+  lla --inode --links --allocated-size
+  lla --extended --context --mounts
+  ```
+
+- Emit clickable OSC 8 file links when supported, or force them for scripts and tests:
+
+  ```bash
+  lla --hyperlink auto
+  lla --hyperlink always
+  ```
+
+- Control symlink metadata and presentation:
+
+  ```bash
+  lla -l --dereference          # show target metadata but retain link identity
+  lla -l --no-symlink-target    # omit the "-> target" suffix
+  lla --files-only --show-symlinks
+  ```
+
 To make these defaults, add to your config (`~/.config/lla/config.toml`):
 
 ```toml
@@ -174,7 +205,7 @@ date_format = "%Y-%m-%d %H:%M"
 columns = ["permissions", "size", "modified", "user", "group", "name", "field:git_status", "field:tags"]
 ```
 
-The `date_format` value uses Chrono strftime syntax. The default is `%b %d %H:%M`, preserving the existing `Aug 16 00:18` style. The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `size`, `modified`, `user`, `group`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`).
+The `date_format` value uses Chrono strftime syntax. The default is `%b %d %H:%M`, preserving the existing `Aug 16 00:18` style. The `columns` array lets you control the precise column order. Use built-in keys (`permissions`, `inode`, `links`, `size`, `allocated`, `modified`, `created`, `accessed`, `user`, `group`, `xattrs`, `context`, `mount`, `name`, `path`, `plugins`) or reference any plugin-provided field with the `field:<name>` prefix (e.g., `field:git_status`, `field:complexity_score`). Expensive xattr, security-context, and mount lookups are only performed when their columns or flags are requested (machine output includes them automatically).
 
 #### Tree Structure
 
@@ -504,6 +535,13 @@ JSON/NDJSON schema (stable fields):
   "owner_group": "staff" | null,
   "inode": 1234567 | null,
   "hard_links": 1 | null,
+  "allocated_size_bytes": 4096 | null,
+  "xattrs": { "user.example": 12 },
+  "has_acl": false,
+  "security_context": "system_u:object_r:..." | null,
+  "mount_point": "/" | null,
+  "mount_source": "/dev/sda1" | null,
+  "filesystem": "ext4" | null,
   "symlink_target": "..." | null,
   "is_hidden": false,
   "git_status": "M." | null,
@@ -514,7 +552,7 @@ JSON/NDJSON schema (stable fields):
 CSV columns (v1):
 
 ```
-path,name,extension,file_type,size_bytes,modified,created,accessed,mode_octal,owner_user,owner_group,inode,hard_links,symlink_target,is_hidden,git_status
+path,name,extension,file_type,size_bytes,modified,created,accessed,mode_octal,owner_user,owner_group,inode,hard_links,allocated_size_bytes,xattrs,has_acl,security_context,mount_point,mount_source,filesystem,symlink_target,is_hidden,git_status
 ```
 
 Examples:
@@ -572,10 +610,22 @@ lla --csv
 | --------------------- | ------------------------------------------------------------------------------------- | ------------------------------- |
 | `--icons`             | Show icons for files and directories                                                  | `lla --icons`                   |
 | `--no-icons`          | Hide icons for files and directories                                                  | `lla --no-icons`                |
+| `--hyperlink`         | Emit OSC 8 links (`always`, `auto`, or `never`)                                       | `lla --hyperlink auto`          |
 | `--include-dirs`      | Include recursive directory sizes in metadata (expensive on large directory trees)   | `lla -l --include-dirs`         |
 | `--no-color`          | Disable all colors in the output                                                      | `lla --no-color`                |
 | `--permission-format` | Set the format for displaying permissions (symbolic, octal, binary, verbose, compact) | `lla --permission-format octal` |
 | `--date-format`       | Format absolute dates in long view using Chrono strftime syntax                       | `lla -l --date-format "%Y-%m-%d %H:%M"` |
+
+#### Filesystem Metadata
+
+| Command            | Short | Description                                      |
+| ------------------ | ----- | ------------------------------------------------ |
+| `--inode`          | `-i`  | Show inode numbers                               |
+| `--links`          | `-H`  | Show hard-link counts                            |
+| `--allocated-size` |       | Show allocated filesystem bytes in human form   |
+| `--extended`       | `-@`  | Show xattr names and value sizes                 |
+| `--context`        | `-Z`  | Show SELinux context or an ACL marker            |
+| `--mounts`         | `-M`  | Show mount source, point, and filesystem type    |
 
 ### Sort & Filter Options
 
@@ -661,6 +711,7 @@ lla --search "FIXME" --json
 | `--dirs-only`     | Show only directories               | `lla --dirs-only`     |
 | `--files-only`    | Show only regular files             | `lla --files-only`    |
 | `--symlinks-only` | Show only symbolic links            | `lla --symlinks-only` |
+| `--show-symlinks` | Include matching links with file/dir filters | `lla --files-only --show-symlinks` |
 | `--dotfiles-only` | Show only dot files and directories | `lla --dotfiles-only` |
 
 #### Hide Filters
@@ -670,6 +721,8 @@ lla --search "FIXME" --json
 | `--no-dirs`           | Hide directories                                | `lla --no-dirs`           |
 | `--no-files`          | Hide regular files                              | `lla --no-files`          |
 | `--no-symlinks`       | Hide symbolic links                             | `lla --no-symlinks`       |
+| `--dereference`       | Use target metadata while retaining link identity | `lla -l --dereference`   |
+| `--no-symlink-target` | Hide the rendered symlink target suffix         | `lla -l --no-symlink-target` |
 | `--no-dotfiles`       | Hide dot files and directories                  | `lla --no-dotfiles`       |
 | `--respect-gitignore` | Skip files excluded by .gitignore / git exclude | `lla --respect-gitignore` |
 
@@ -709,18 +762,23 @@ respect_gitignore = true
 | `--enable-plugin`  | Enable specific plugins    | `lla --enable-plugin name`                                                    |
 | `--disable-plugin` | Disable specific plugins   | `lla --disable-plugin name`                                                   |
 | `update`           | Update plugins             | `lla update` <br> `lla update file_tagger`                                    |
-| `plugin`           | Run plugin actions         | `lla plugin --name file_tagger --action add-tag --args README.md "important"` |
-| `plugin info`      | Inspect a v2 manifest      | `lla plugin info file_tagger`                                                   |
+| `plugin run`       | Run typed plugin actions   | `lla plugin run file_tagger add-tag -- README.md "important"`                  |
+| `plugin info`      | Inspect a v3 manifest      | `lla plugin info file_tagger`                                                   |
 | `plugin permissions` | Inspect declared access  | `lla plugin permissions file_tagger`                                            |
-| `plugin doctor`    | Validate v2 packages        | `lla plugin doctor`                                                             |
+| `plugin doctor`    | Validate v3 packages        | `lla plugin doctor`                                                             |
 
-Plugin Platform v2 packages place `plugin.toml` beside their native entrypoint.
+Plugin Platform v3 packages place schema-3 `plugin.toml` beside their native or
+WASM Component Model entrypoint. Run typed actions with
+`lla plugin run <plugin> <action> --output human|json|ndjson|csv -- <arguments>`.
 The manifest declares API compatibility, typed fields, capabilities, and access
 requirements before the library is loaded. `plugins_dir` remains the writable
 user location; additional package-manager-owned locations can be configured with
 `plugin_dirs = ["/path/to/plugins"]`. lla also searches the standard system
 locations for the current platform. Native permissions are declarations because
-native libraries are trusted code; sandboxed runtimes can enforce them in future.
+native libraries are trusted code; WASM permissions are enforced by the embedded
+Wasmtime/WASI Preview 2 runtime and persisted in `plugin-grants.toml`.
+See the [plugin documentation](docs/plugins/README.md) for installation,
+development, manifest, migration, and architecture guides.
 
 #### Shortcut Management
 

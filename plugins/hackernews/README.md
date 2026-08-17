@@ -24,58 +24,58 @@ lla use  # Select hackernews
 ### View Stories by Topic
 
 ```bash
-lla plugin hackernews top      # Top stories (front page)
-lla plugin hackernews best     # Best stories
-lla plugin hackernews new      # Newest stories
-lla plugin hackernews ask      # Ask HN
-lla plugin hackernews show     # Show HN
-lla plugin hackernews jobs     # Job postings
+lla plugin run hackernews top      # Top stories (front page)
+lla plugin run hackernews best     # Best stories
+lla plugin run hackernews new      # Newest stories
+lla plugin run hackernews ask      # Ask HN
+lla plugin run hackernews show     # Show HN
+lla plugin run hackernews jobs     # Job postings
 ```
 
 ### Open a Story
 
 ```bash
 # After viewing a list, open story #1
-lla plugin hackernews open 1
+lla plugin run hackernews open -- 1
 ```
 
 ### View Comments
 
 ```bash
 # Open HN comments for story #1
-lla plugin hackernews comments 1
+lla plugin run hackernews comments -- 1
 ```
 
 ### Copy Story URL
 
 ```bash
 # Copy URL of story #1 to clipboard
-lla plugin hackernews copy 1
+lla plugin run hackernews copy -- 1
 ```
 
 ### Interactive Browser
 
 ```bash
-lla plugin hackernews browse       # Browse default topic
-lla plugin hackernews browse top   # Browse specific topic
+lla plugin run hackernews browse --       # Browse default topic
+lla plugin run hackernews browse -- top   # Browse specific topic
 ```
 
 ### Interactive Menu
 
 ```bash
-lla plugin hackernews menu
+lla plugin run hackernews menu
 ```
 
 ### Clear Cache
 
 ```bash
-lla plugin hackernews clear-cache
+lla plugin run hackernews clear-cache
 ```
 
 ### Show Help
 
 ```bash
-lla plugin hackernews help
+lla plugin run hackernews help
 ```
 
 ## Configuration
@@ -149,4 +149,3 @@ This plugin uses the official [Hacker News API](https://github.com/HackerNews/AP
 2. **Job Hunting**: The `jobs` topic shows YC startup job postings
 3. **Quick Browse**: Use `browse` for a keyboard-driven experience
 4. **Clear Cache**: Use `clear-cache` if stories seem stale
-

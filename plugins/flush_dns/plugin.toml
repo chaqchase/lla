@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.flush-dns"
 name = "flush_dns"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "flush_dns"
 description = "Flush the operating system DNS cache"
@@ -11,7 +13,46 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["flush", "history", "clear-history", "preferences", "help"]
 
 [permissions]
 process = true
+
+[[actions]]
+id = "flush"
+description = "Flush DNS cache"
+examples = ["lla plugin run flush_dns flush"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "history"
+description = "View flush history"
+examples = ["lla plugin run flush_dns history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "clear-history"
+description = "Clear flush history"
+examples = ["lla plugin run flush_dns clear-history"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Configure preferences"
+examples = ["lla plugin run flush_dns preferences"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run flush_dns help"]
+interactive = true
+arguments = []
+output = { type = "none" }

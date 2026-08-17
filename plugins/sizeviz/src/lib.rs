@@ -1,10 +1,11 @@
 use colored::Colorize;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, Spinner},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name sizeviz --action help"],
+            ["lla plugin run sizeviz help"],
             |_| {
                 let mut help = HelpFormatter::new("Size Visualizer Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -32,7 +33,7 @@ lazy_static! {
                 help.add_section("Actions".to_string()).add_command(
                     "help".to_string(),
                     "Show this help information".to_string(),
-                    vec!["lla plugin --name sizeviz --action help".to_string()],
+                    vec!["lla plugin run sizeviz help".to_string()],
                 );
 
                 help.add_section("Formats".to_string())
@@ -200,7 +201,7 @@ impl FileSizeVisualizerPlugin {
 
     fn format_size_info(
         &self,
-        entry: &lla_plugin_interface::DecoratedEntry,
+        entry: &lla_plugin_utils::DecoratedEntry,
         format: &str,
     ) -> Option<String> {
         entry
@@ -263,53 +264,59 @@ impl FileSizeVisualizerPlugin {
 }
 
 impl Plugin for FileSizeVisualizerPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        let spinner = SPINNER.write();
-                        spinner.set_status("Calculating size...".to_string());
-
-                        if entry.path.is_file() {
-                            let size = entry.metadata.size;
-                            entry
-                                .custom_fields
-                                .insert("size".to_string(), size.to_string());
-                        }
-
-                        spinner.finish();
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_size_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
+    fn decorate_entry(&mut self, mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        let spinner = SPINNER.write();
+        spinner.set_status("Calculating size...".to_string());
+        if let Some(size) = entry
+            .metadata
+            .as_ref()
+            .filter(|metadata| metadata.is_file)
+            .map(|metadata| metadata.size)
+        {
+            entry.insert_field("size", value::bytes(size), size.to_string());
         }
+        spinner.finish();
+        entry
+    }
+
+    fn decorate_batch(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        let spinner = SPINNER.write();
+        spinner.set_status("Calculating size...".to_string());
+        for entry in &mut entries {
+            if let Some(size) = entry
+                .metadata
+                .as_ref()
+                .filter(|metadata| metadata.is_file)
+                .map(|metadata| metadata.size)
+            {
+                entry.insert_field("size", value::bytes(size), size.to_string());
+            }
+        }
+        spinner.finish();
+        entries
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_size_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -331,6 +338,4 @@ impl ConfigurablePlugin for FileSizeVisualizerPlugin {
     }
 }
 
-impl ProtobufHandler for FileSizeVisualizerPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileSizeVisualizerPlugin);
+lla_plugin_sdk::export_plugin!(FileSizeVisualizerPlugin);

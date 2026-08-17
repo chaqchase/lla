@@ -13,16 +13,16 @@ NPM package search plugin for `lla` with bundlephobia integration and favorites 
 
 ```bash
 # Search for npm packages
-lla plugin --name npm --action search
+lla plugin run npm search
 
 # View favorite packages
-lla plugin --name npm --action favorites
+lla plugin run npm favorites
 
 # Configure preferences (package manager)
-lla plugin --name npm --action preferences
+lla plugin run npm preferences
 
 # Show help
-lla plugin --name npm --action help
+lla plugin run npm help
 ```
 
 ## Configuration

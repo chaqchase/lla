@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.project-context"
 name = "project_context"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "project_context"
 description = "Detect project type, toolchains, dependency locks, artifacts, and repository health"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["inspect", "refresh", "help"]
 machine_output = true
 
 [permissions]
@@ -66,3 +67,27 @@ filterable = true
 name = "git_branch"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Inspect the nearest project and print ecosystem and repository health"
+examples = ["lla plugin run project_context inspect -- ."]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "refresh"
+description = "Clear cached project detection results"
+examples = ["lla plugin run project_context refresh"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show project context usage"
+examples = ["lla plugin run project_context help"]
+interactive = true
+arguments = []
+output = { type = "none" }

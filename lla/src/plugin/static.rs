@@ -1,3 +1,4 @@
+use crate::commands::args::PluginOutputFormat;
 use crate::config::Config;
 use crate::error::{LlaError, Result};
 use lla_plugin_interface::{proto, ActionInfo};
@@ -6,7 +7,11 @@ use std::path::PathBuf;
 
 pub const DYNAMIC_PLUGINS_AVAILABLE: bool = false;
 pub const DYNAMIC_PLUGINS_UNAVAILABLE: &str =
-    "Dynamic plugins are unavailable in the static musl build; use a GNU build for plugin support.";
+    "Dynamic plugins are unavailable in this build; install a full-featured lla binary.";
+
+pub(crate) fn wasm_runtime_supported(architecture: &str) -> bool {
+    matches!(architecture, "x86_64" | "aarch64")
+}
 
 pub struct PluginManager {
     pub enabled_plugins: HashSet<String>,
@@ -24,6 +29,16 @@ impl PluginManager {
         _plugin_name: &str,
         _action: &str,
         _args: &[String],
+    ) -> Result<()> {
+        Err(unavailable())
+    }
+
+    pub fn run_plugin_action(
+        &mut self,
+        _plugin_name: &str,
+        _action: &str,
+        _args: &[String],
+        _output: PluginOutputFormat,
     ) -> Result<()> {
         Err(unavailable())
     }
@@ -67,6 +82,8 @@ impl PluginManager {
     pub fn decorate_entry(&mut self, _entry: &mut proto::DecoratedEntry, _format: &str) {}
 
     pub fn decorate_entries(&mut self, _entries: &mut [proto::DecoratedEntry], _format: &str) {}
+
+    pub fn prepare_format_fields(&mut self, _entries: &[proto::DecoratedEntry], _format: &str) {}
 
     pub fn format_fields(&mut self, _entry: &proto::DecoratedEntry, _format: &str) -> Vec<String> {
         Vec::new()

@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-remover"
 name = "file_remover"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_remover"
 description = "Interactively trash files by default with explicit permanent deletion"
@@ -11,7 +13,30 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["remove", "purge", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:user-path", "delete:selection", "delete:quarantine"]
+
+[[actions]]
+id = "remove"
+description = "Move selected files/directories into recoverable trash"
+examples = ["lla plugin run file_remover remove", "lla plugin run file_remover remove -- /path/to/dir"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "purge"
+description = "Permanently delete selected files/directories after confirmation"
+examples = ["lla plugin run file_remover purge", "lla plugin run file_remover purge -- /path/to/dir"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0 }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run file_remover help"]
+interactive = true
+arguments = []
+output = { type = "none" }

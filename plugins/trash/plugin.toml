@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.trash"
 name = "trash"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "trash"
 description = "Cross-platform recoverable deletion with restore support"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["put", "list", "restore", "empty", "help"]
 machine_output = true
 
 [permissions]
@@ -27,3 +28,43 @@ filterable = true
 name = "trash_state"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "put"
+description = "Move one or more files or directories into recoverable trash"
+examples = ["lla plugin run trash put -- ./draft.txt ./old-folder"]
+interactive = true
+arguments = [{ name = "paths", type = "path", description = "One or more file or directory paths.", position = 0, required = true, repeatable = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "list"
+description = "List recoverable trash records and their original paths"
+examples = ["lla plugin run trash list"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "restore"
+description = "Restore a trashed item without overwriting an existing path"
+examples = ["lla plugin run trash restore -- 20260815T120000.000Z-123-0"]
+interactive = true
+arguments = [{ name = "id", type = "string", description = "Identifier of the item to process.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "empty"
+description = "Permanently delete old trash records after explicit confirmation"
+examples = ["lla plugin run trash empty -- 30 -- --yes"]
+interactive = true
+arguments = [{ name = "older_than_days", type = "integer", description = "Only include records older than this many days.", position = 0, min = 0 }, { name = "yes", type = "boolean", description = "Confirm the irreversible operation.", option = "--yes", required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show recoverable trash usage"
+examples = ["lla plugin run trash help"]
+interactive = true
+arguments = []
+output = { type = "none" }

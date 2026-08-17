@@ -1,12 +1,14 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, map_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -21,7 +23,7 @@ lazy_static! {
             "add-category",
             "add-category <name> <color> <ext1,ext2,...> [description]",
             "Add a new category",
-            ["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\""],
+            ["lla plugin run categorizer add-category -- Documents blue txt,doc,pdf \"Text documents\""],
             |args| {
                 if args.len() < 3 {
                     return Err("Usage: add-category <name> <color> <ext1,ext2,...> [description]".to_string());
@@ -45,7 +47,7 @@ lazy_static! {
             "add-subcategory",
             "add-subcategory <category> <subcategory> <ext1,ext2,...>",
             "Add a subcategory to an existing category",
-            ["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md"],
+            ["lla plugin run categorizer add-subcategory -- Documents Text txt,md"],
             |args| {
                 if args.len() != 3 {
                     return Err(
@@ -75,7 +77,7 @@ lazy_static! {
             "list-categories",
             "list-categories",
             "List all categories and their details",
-            ["lla plugin --name categorizer --action list-categories"],
+            ["lla plugin run categorizer list-categories"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut list = List::new();
@@ -118,7 +120,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name categorizer --action help"],
+            ["lla plugin run categorizer help"],
             |_| {
                 let plugin = FileCategoryPlugin::new();
                 let mut help = HelpFormatter::new("File Categorizer Plugin".to_string());
@@ -132,22 +134,22 @@ lazy_static! {
                     .add_command(
                         "add-category".to_string(),
                         "Add a new category".to_string(),
-                        vec!["lla plugin --name categorizer --action add-category --args Documents blue txt,doc,pdf \"Text documents\"".to_string()],
+                        vec!["lla plugin run categorizer add-category -- Documents blue txt,doc,pdf \"Text documents\"".to_string()],
                     )
                     .add_command(
                         "add-subcategory".to_string(),
                         "Add a subcategory to an existing category".to_string(),
-                        vec!["lla plugin --name categorizer --action add-subcategory --args Documents Text txt,md".to_string()],
+                        vec!["lla plugin run categorizer add-subcategory -- Documents Text txt,md".to_string()],
                     )
                     .add_command(
                         "list-categories".to_string(),
                         "List all categories and their details".to_string(),
-                        vec!["lla plugin --name categorizer --action list-categories".to_string()],
+                        vec!["lla plugin run categorizer list-categories".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name categorizer --action help".to_string()],
+                        vec!["lla plugin run categorizer help".to_string()],
                     );
 
                 println!(
@@ -389,60 +391,72 @@ impl FileCategoryPlugin {
 }
 
 impl Plugin for FileCategoryPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        let mut state = PLUGIN_STATE.write();
-                        if let Some((category, color, subcategory)) =
-                            PluginState::get_category_info(&self.config().rules, &entry)
-                        {
-                            entry
-                                .custom_fields
-                                .insert("category".to_string(), category.clone());
-                            entry
-                                .custom_fields
-                                .insert("category_color".to_string(), color);
-                            if let Some(sub) = &subcategory {
-                                entry
-                                    .custom_fields
-                                    .insert("subcategory".to_string(), sub.clone());
-                            }
-                            state.update_stats(&entry, &category, subcategory.as_deref());
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_file_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        decorate_v3(&self.config().rules, &mut PLUGIN_STATE.write(), entry)
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        let rules = &self.config().rules;
+        let mut state = PLUGIN_STATE.write();
+        entries
+            .into_iter()
+            .map(|entry| decorate_v3(rules, &mut state, entry))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_file_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
+    }
+}
+
+fn decorate_v3(
+    rules: &[CategoryRule],
+    state: &mut PluginState,
+    entry: proto::DecoratedEntry,
+) -> proto::DecoratedEntry {
+    let mut entry = map_decorated_entry(entry, |mut entry| {
+        if let Some((category, color, subcategory)) = PluginState::get_category_info(rules, &entry)
+        {
+            entry
+                .custom_fields
+                .insert("category".to_string(), category.clone());
+            entry
+                .custom_fields
+                .insert("category_color".to_string(), color);
+            if let Some(subcategory) = &subcategory {
+                entry
+                    .custom_fields
+                    .insert("subcategory".to_string(), subcategory.clone());
             }
-            Err(e) => self.encode_error(&e),
+            state.update_stats(&entry, &category, subcategory.as_deref());
+        }
+        entry
+    });
+    for name in ["category", "subcategory"] {
+        if let Some(display) = entry.custom_fields.get(name).cloned() {
+            entry.insert_field(name, value::string(&display), display);
         }
     }
+    entry
 }
 
 impl Default for FileCategoryPlugin {
@@ -463,6 +477,4 @@ impl ConfigurablePlugin for FileCategoryPlugin {
     }
 }
 
-impl ProtobufHandler for FileCategoryPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileCategoryPlugin);
+lla_plugin_sdk::export_plugin!(FileCategoryPlugin);

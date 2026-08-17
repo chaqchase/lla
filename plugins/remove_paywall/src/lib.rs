@@ -1,11 +1,12 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    typed_action_arguments_as_strings,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List, LlaDialoguerTheme},
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -793,47 +794,50 @@ impl RemovePaywallPlugin {
             .add_command(
                 "remove <url>".to_string(),
                 "Remove paywall from a URL using default service".to_string(),
-                vec!["lla plugin remove_paywall remove https://example.com/article".to_string()],
+                vec![
+                    "lla plugin run remove_paywall remove -- https://example.com/article"
+                        .to_string(),
+                ],
             )
             .add_command(
                 "clipboard".to_string(),
                 "Remove paywall from URL in clipboard".to_string(),
-                vec!["lla plugin remove_paywall clipboard".to_string()],
+                vec!["lla plugin run remove_paywall clipboard".to_string()],
             )
             .add_command(
                 "choose [url]".to_string(),
                 "Choose which service to use".to_string(),
-                vec!["lla plugin remove_paywall choose".to_string()],
+                vec!["lla plugin run remove_paywall choose".to_string()],
             )
             .add_command(
                 "try-all [url]".to_string(),
                 "Generate links for all services".to_string(),
-                vec!["lla plugin remove_paywall try-all".to_string()],
+                vec!["lla plugin run remove_paywall try-all".to_string()],
             )
             .add_command(
                 "services".to_string(),
                 "List available services".to_string(),
-                vec!["lla plugin remove_paywall services".to_string()],
+                vec!["lla plugin run remove_paywall services".to_string()],
             )
             .add_command(
                 "history".to_string(),
                 "View usage history".to_string(),
-                vec!["lla plugin remove_paywall history".to_string()],
+                vec!["lla plugin run remove_paywall history".to_string()],
             )
             .add_command(
                 "preferences".to_string(),
                 "Configure plugin preferences".to_string(),
-                vec!["lla plugin remove_paywall preferences".to_string()],
+                vec!["lla plugin run remove_paywall preferences".to_string()],
             )
             .add_command(
                 "menu".to_string(),
                 "Interactive menu".to_string(),
-                vec!["lla plugin remove_paywall menu".to_string()],
+                vec!["lla plugin run remove_paywall menu".to_string()],
             )
             .add_command(
                 "help".to_string(),
                 "Show this help information".to_string(),
-                vec!["lla plugin remove_paywall help".to_string()],
+                vec!["lla plugin run remove_paywall help".to_string()],
             );
 
         help.add_section("Services".to_string())
@@ -876,93 +880,81 @@ impl RemovePaywallPlugin {
 }
 
 impl Plugin for RemovePaywallPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        let args = match typed_action_arguments_as_strings(
+            &action,
+            &arguments,
+            include_str!("../plugin.toml"),
+        ) {
+            Ok(arguments) => arguments,
+            Err(error) => return response::error(error),
+        };
+        let result = match action.as_str() {
+            "remove" => {
+                if let Some(url) = args.first() {
+                    self.remove_paywall(url, None)
+                } else {
+                    self.remove_paywall_clipboard()
+                }
+            }
+            "clipboard" => self.remove_paywall_clipboard(),
+            "choose" => {
+                let url = args.first().map(|s| s.as_str());
+                self.choose_service(url)
+            }
+            "try-all" => {
+                let url = args.first().map(|s| s.as_str());
+                self.try_all_services(url)
+            }
+            "services" | "list" => self.list_services(),
+            "history" => self.show_history(),
+            "clear-history" => self.clear_history(),
+            "preferences" | "config" => self.configure_preferences(),
+            "set-default" => self.set_default_service(),
+            "menu" => self.interactive_menu(),
+            "help" => self.show_help(),
+            // Service-specific shortcuts
+            "12ft" => {
+                let url = args.first().map(|s| s.as_str());
+                if let Some(u) = url {
+                    self.remove_paywall(u, Some(PaywallService::TwelveFt))
+                } else {
+                    let clipboard_url = self.get_clipboard_url();
+                    if let Some(u) = clipboard_url {
+                        self.remove_paywall(&u, Some(PaywallService::TwelveFt))
+                    } else {
+                        Err("No URL provided".to_string())
                     }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
+                }
+            }
+            "archive" => {
+                let url = args.first().map(|s| s.as_str());
+                if let Some(u) = url {
+                    self.remove_paywall(u, Some(PaywallService::ArchiveIs))
+                } else {
+                    let clipboard_url = self.get_clipboard_url();
+                    if let Some(u) = clipboard_url {
+                        self.remove_paywall(&u, Some(PaywallService::ArchiveIs))
+                    } else {
+                        Err("No URL provided".to_string())
                     }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
+                }
+            }
+            "freedium" => {
+                let url = args.first().map(|s| s.as_str());
+                if let Some(u) = url {
+                    self.remove_paywall(u, Some(PaywallService::Freedium))
+                } else {
+                    let clipboard_url = self.get_clipboard_url();
+                    if let Some(u) = clipboard_url {
+                        self.remove_paywall(&u, Some(PaywallService::Freedium))
+                    } else {
+                        Err("No URL provided".to_string())
                     }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_entry, _format) => {
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = match action.as_str() {
-                            "remove" => {
-                                if let Some(url) = args.first() {
-                                    self.remove_paywall(url, None)
-                                } else {
-                                    self.remove_paywall_clipboard()
-                                }
-                            }
-                            "clipboard" => self.remove_paywall_clipboard(),
-                            "choose" => {
-                                let url = args.first().map(|s| s.as_str());
-                                self.choose_service(url)
-                            }
-                            "try-all" => {
-                                let url = args.first().map(|s| s.as_str());
-                                self.try_all_services(url)
-                            }
-                            "services" | "list" => self.list_services(),
-                            "history" => self.show_history(),
-                            "clear-history" => self.clear_history(),
-                            "preferences" | "config" => self.configure_preferences(),
-                            "set-default" => self.set_default_service(),
-                            "menu" => self.interactive_menu(),
-                            "help" => self.show_help(),
-                            // Service-specific shortcuts
-                            "12ft" => {
-                                let url = args.first().map(|s| s.as_str());
-                                if let Some(u) = url {
-                                    self.remove_paywall(u, Some(PaywallService::TwelveFt))
-                                } else {
-                                    let clipboard_url = self.get_clipboard_url();
-                                    if let Some(u) = clipboard_url {
-                                        self.remove_paywall(&u, Some(PaywallService::TwelveFt))
-                                    } else {
-                                        Err("No URL provided".to_string())
-                                    }
-                                }
-                            }
-                            "archive" => {
-                                let url = args.first().map(|s| s.as_str());
-                                if let Some(u) = url {
-                                    self.remove_paywall(u, Some(PaywallService::ArchiveIs))
-                                } else {
-                                    let clipboard_url = self.get_clipboard_url();
-                                    if let Some(u) = clipboard_url {
-                                        self.remove_paywall(&u, Some(PaywallService::ArchiveIs))
-                                    } else {
-                                        Err("No URL provided".to_string())
-                                    }
-                                }
-                            }
-                            "freedium" => {
-                                let url = args.first().map(|s| s.as_str());
-                                if let Some(u) = url {
-                                    self.remove_paywall(u, Some(PaywallService::Freedium))
-                                } else {
-                                    let clipboard_url = self.get_clipboard_url();
-                                    if let Some(u) = clipboard_url {
-                                        self.remove_paywall(&u, Some(PaywallService::Freedium))
-                                    } else {
-                                        Err("No URL provided".to_string())
-                                    }
-                                }
-                            }
-                            _ => Err(format!(
-                                "Unknown action: '{}'\n\n\
+                }
+            }
+            _ => Err(format!(
+                "Unknown action: '{}'\n\n\
                                 Available actions:\n  \
                                 • remove     - Remove paywall from URL\n  \
                                 • clipboard  - Remove paywall from clipboard URL\n  \
@@ -975,91 +967,15 @@ impl Plugin for RemovePaywallPlugin {
                                 • freedium   - Use Freedium for Medium\n  \
                                 • menu       - Interactive menu\n  \
                                 • help       - Show help\n\n\
-                                Example: lla plugin remove_paywall clipboard",
-                                action
-                            )),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "remove".to_string(),
-                                usage: "remove <url>".to_string(),
-                                description: "Remove paywall from URL".to_string(),
-                                examples: vec![
-                                    "lla plugin remove_paywall remove https://example.com"
-                                        .to_string(),
-                                ],
-                            },
-                            ActionInfo {
-                                name: "clipboard".to_string(),
-                                usage: "clipboard".to_string(),
-                                description: "Remove paywall from clipboard URL".to_string(),
-                                examples: vec!["lla plugin remove_paywall clipboard".to_string()],
-                            },
-                            ActionInfo {
-                                name: "choose".to_string(),
-                                usage: "choose [url]".to_string(),
-                                description: "Choose service interactively".to_string(),
-                                examples: vec!["lla plugin remove_paywall choose".to_string()],
-                            },
-                            ActionInfo {
-                                name: "try-all".to_string(),
-                                usage: "try-all [url]".to_string(),
-                                description: "Generate links for all services".to_string(),
-                                examples: vec!["lla plugin remove_paywall try-all".to_string()],
-                            },
-                            ActionInfo {
-                                name: "services".to_string(),
-                                usage: "services".to_string(),
-                                description: "List available services".to_string(),
-                                examples: vec!["lla plugin remove_paywall services".to_string()],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "View usage history".to_string(),
-                                examples: vec!["lla plugin remove_paywall history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "12ft".to_string(),
-                                usage: "12ft [url]".to_string(),
-                                description: "Use 12ft.io service".to_string(),
-                                examples: vec!["lla plugin remove_paywall 12ft".to_string()],
-                            },
-                            ActionInfo {
-                                name: "archive".to_string(),
-                                usage: "archive [url]".to_string(),
-                                description: "Use archive.is service".to_string(),
-                                examples: vec!["lla plugin remove_paywall archive".to_string()],
-                            },
-                            ActionInfo {
-                                name: "freedium".to_string(),
-                                usage: "freedium [url]".to_string(),
-                                description: "Use Freedium for Medium articles".to_string(),
-                                examples: vec!["lla plugin remove_paywall freedium".to_string()],
-                            },
-                            ActionInfo {
-                                name: "menu".to_string(),
-                                usage: "menu".to_string(),
-                                description: "Interactive menu".to_string(),
-                                examples: vec!["lla plugin remove_paywall menu".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin remove_paywall help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+                                Example: lla plugin run remove_paywall clipboard",
+                action
+            )),
+        };
+        response::from_result(result)
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -1081,6 +997,4 @@ impl ConfigurablePlugin for RemovePaywallPlugin {
     }
 }
 
-impl ProtobufHandler for RemovePaywallPlugin {}
-
-lla_plugin_interface::declare_plugin!(RemovePaywallPlugin);
+lla_plugin_sdk::export_plugin!(RemovePaywallPlugin);

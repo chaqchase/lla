@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.media-inspector"
 name = "media_inspector"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "media_inspector"
 description = "Inspect MIME, dimensions, EXIF, duration, codecs, and bitrate"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["inspect", "tools", "help"]
 machine_output = true
 
 [permissions]
@@ -64,3 +65,27 @@ filterable = true
 name = "exif"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Print complete media metadata for a file"
+examples = ["lla plugin run media_inspector inspect -- ./photo.jpg"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "tools"
+description = "Report optional media metadata tools available on PATH"
+examples = ["lla plugin run media_inspector tools"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show media inspector usage"
+examples = ["lla plugin run media_inspector help"]
+interactive = true
+arguments = []
+output = { type = "none" }

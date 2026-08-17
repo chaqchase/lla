@@ -1,13 +1,13 @@
 [package]
 name = "remove_paywall"
 description = "Remove paywalls from URLs using services like 12ft.io, archive.is, and removepaywall.com"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
 colored = "2.0.0"
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 dirs = "5.0.1"
 serde = { version = "1.0.200", features = ["derive"] }
 toml = "0.8.8"

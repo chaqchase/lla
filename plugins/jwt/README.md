@@ -16,19 +16,19 @@ JWT decoder and analyzer for `lla` with beautiful formatting, search capabilitie
 
 ```bash
 # Decode and view JWT token
-lla plugin --name jwt --action decode
+lla plugin run jwt decode
 
 # Search through JWT contents
-lla plugin --name jwt --action search
+lla plugin run jwt search
 
 # Manage JWT history
-lla plugin --name jwt --action history
+lla plugin run jwt history
 
 # Configure preferences
-lla plugin --name jwt --action preferences
+lla plugin run jwt preferences
 
 # Show help
-lla plugin --name jwt --action help
+lla plugin run jwt help
 ```
 
 ## Configuration

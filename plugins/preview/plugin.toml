@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.preview"
 name = "preview"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "preview"
 description = "Preview source text, Markdown, images, and archives in the terminal"
@@ -12,7 +14,6 @@ license = "MIT"
 [capabilities]
 decorates_entries = true
 formats = ["default", "long"]
-actions = ["show", "backends", "help"]
 machine_output = true
 
 [permissions]
@@ -29,3 +30,27 @@ filterable = true
 name = "preview_backend"
 type = "string"
 filterable = true
+
+[[actions]]
+id = "show"
+description = "Render a terminal preview using bat, chafa, archive tools, or built-in fallbacks"
+examples = ["lla plugin run preview show -- README.md", "lla plugin run preview show -- src/main.rs -- --lines 80"]
+interactive = true
+arguments = [{ name = "path", type = "path", description = "Path to the file or directory.", position = 0, required = true }, { name = "lines", type = "integer", description = "Maximum number of lines to render.", option = "--lines", min = 1, max = 10000 }]
+output = { type = "none" }
+
+[[actions]]
+id = "backends"
+description = "Report optional preview backends available on PATH"
+examples = ["lla plugin run preview backends"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show preview usage"
+examples = ["lla plugin run preview help"]
+interactive = true
+arguments = []
+output = { type = "none" }

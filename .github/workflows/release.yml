@@ -113,6 +113,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-wasip2
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -125,6 +126,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Build WASM component SDK fixture
+        run: cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
 
   build_core:
     name: Build CLI (${{ matrix.artifact_name }})
@@ -192,7 +196,7 @@ jobs:
       - name: Build release binary
         run: |
           if [[ "${{ matrix.libc }}" == "musl" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --no-default-features
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
             cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}" -p lla
           else
@@ -289,9 +293,9 @@ jobs:
           mapfile -t plugins < <(find "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}" -type f -name '*.so' | sort)
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
 
-      - name: Verify Plugin Platform v2
+      - name: Verify Plugin Platform v3
         if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
-        run: ./scripts/verify_plugins_v2.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
+        run: ./scripts/verify_plugins_v3.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
 
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
@@ -546,6 +550,8 @@ jobs:
           }
 
           publish_crate_if_needed "lla_plugin_interface" true
+          publish_crate_if_needed "lla_plugin_sdk_macros" true
+          publish_crate_if_needed "lla_plugin_sdk" true
           publish_crate_if_needed "lla_plugin_utils" true
           publish_crate_if_needed "lla" false
 

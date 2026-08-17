@@ -1,6 +1,8 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
-use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::{
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
+};
 use parking_lot::RwLock;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
@@ -14,8 +16,8 @@ lazy_static! {
             "audit <path> [--recursive]",
             "Audit a file or directory and print security findings",
             [
-                "lla plugin security_audit audit .",
-                "lla plugin security_audit audit . -- --recursive"
+                "lla plugin run security_audit audit -- .",
+                "lla plugin run security_audit audit -- . -- --recursive"
             ],
             SecurityAuditPlugin::audit_action
         );
@@ -24,7 +26,7 @@ lazy_static! {
             "help",
             "help",
             "Show security audit usage and risk rules",
-            ["lla plugin security_audit help"],
+            ["lla plugin run security_audit help"],
             |_| SecurityAuditPlugin::help_action()
         );
         actions
@@ -283,37 +285,51 @@ fn is_secret_name(path: &Path) -> bool {
 }
 
 impl Plugin for SecurityAuditPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        let response = match self.decode_request(request) {
-            Ok(PluginRequest::GetName) => PluginResponse::Name(env!("CARGO_PKG_NAME").into()),
-            Ok(PluginRequest::GetVersion) => {
-                PluginResponse::Version(env!("CARGO_PKG_VERSION").into())
-            }
-            Ok(PluginRequest::GetDescription) => {
-                PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").into())
-            }
-            Ok(PluginRequest::GetSupportedFormats) => {
-                PluginResponse::SupportedFormats(vec!["default".into(), "long".into()])
-            }
-            Ok(PluginRequest::Decorate(entry)) => PluginResponse::Decorated(Self::decorate(entry)),
-            Ok(PluginRequest::FormatField(entry, format)) => {
-                PluginResponse::FormattedField(Self::format(&entry, &format))
-            }
-            Ok(PluginRequest::PerformAction(action, args)) => {
-                PluginResponse::ActionResult(ACTIONS.read().handle(&action, &args))
-            }
-            Ok(PluginRequest::GetAvailableActions) => {
-                PluginResponse::AvailableActions(ACTIONS.read().list_actions())
-            }
-            Err(error) => return self.encode_error(&error),
-        };
-        self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| Self::format(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
-impl ProtobufHandler for SecurityAuditPlugin {}
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_string_field("security_risk");
+    entry.promote_integer_field("security_score");
+    entry.promote_string_field("security_findings");
+    entry.promote_boolean_field("suspicious_symlink");
+    entry.promote_boolean_field("secret_exposed");
+    entry
+}
 
-lla_plugin_interface::declare_plugin!(SecurityAuditPlugin);
+lla_plugin_sdk::export_plugin!(SecurityAuditPlugin);
 
 impl Default for SecurityAuditPlugin {
     fn default() -> Self {

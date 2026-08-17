@@ -26,6 +26,8 @@ fn command_requires_dynamic_plugins(args: &Args) -> bool {
                 | Command::ListPlugins
                 | Command::Use
                 | Command::PluginAction(_, _, _)
+                | Command::PluginRun(_, _, _, _)
+                | Command::PluginMigratePrebuilt
                 | Command::PluginDoctor
                 | Command::PluginInfo(_)
                 | Command::PluginPermissions(_)
@@ -233,13 +235,21 @@ pub fn handle_command(
                 plugin_manager.perform_plugin_action(&resolved_plugin, action, action_args)
             }
         }
+        Some(Command::PluginRun(plugin_name, action, output, action_args)) => {
+            let resolved_plugin = config.resolve_plugin_alias(plugin_name);
+            plugin_manager.run_plugin_action(&resolved_plugin, action, action_args, *output)
+        }
+        Some(Command::PluginMigratePrebuilt) => {
+            let installer = PluginInstaller::new(&args.plugins_dir, args);
+            installer.migrate_prebuilt()
+        }
         Some(Command::PluginDoctor) => {
             let plugin_paths = config.plugin_search_paths(Some(&args.plugins_dir));
             if plugin_manager.doctor(&plugin_paths)? {
                 Ok(())
             } else {
                 Err(LlaError::Plugin(
-                    "Plugin Platform v2 diagnostics found problems".to_string(),
+                    "Plugin Platform v3 diagnostics found problems".to_string(),
                 ))
             }
         }

@@ -1,11 +1,12 @@
 use colored::Colorize;
 use dialoguer::MultiSelect;
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
+    run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -102,8 +103,8 @@ lazy_static! {
             "add [path]",
             "Add files/directories to clipboard from current or specified directory",
             [
-                "lla plugin --name file_mover --action add",
-                "lla plugin --name file_mover --action add --args /path/to/dir"
+                "lla plugin run file_mover add",
+                "lla plugin run file_mover add -- /path/to/dir"
             ],
             FileMoverPlugin::add_action
         );
@@ -114,8 +115,8 @@ lazy_static! {
             "move-all [target_path]",
             "Move all items from clipboard to current or specified directory",
             [
-                "lla plugin --name file_mover --action move-all",
-                "lla plugin --name file_mover --action move-all --args /path/to/target"
+                "lla plugin run file_mover move-all",
+                "lla plugin run file_mover move-all -- /path/to/target"
             ],
             FileMoverPlugin::move_all_action
         );
@@ -126,8 +127,8 @@ lazy_static! {
             "move-partial [target_path]",
             "Move selected items from clipboard to current or specified directory",
             [
-                "lla plugin --name file_mover --action move-partial",
-                "lla plugin --name file_mover --action move-partial --args /path/to/target"
+                "lla plugin run file_mover move-partial",
+                "lla plugin run file_mover move-partial -- /path/to/target"
             ],
             FileMoverPlugin::move_partial_action
         );
@@ -137,7 +138,7 @@ lazy_static! {
             "clear",
             "clear",
             "Clear the clipboard",
-            ["lla plugin --name file_mover --action clear"],
+            ["lla plugin run file_mover clear"],
             |_| FileMoverPlugin::clear_action()
         );
 
@@ -146,7 +147,7 @@ lazy_static! {
             "show",
             "show",
             "Show clipboard contents",
-            ["lla plugin --name file_mover --action show"],
+            ["lla plugin run file_mover show"],
             |_| FileMoverPlugin::show_action()
         );
 
@@ -155,7 +156,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name file_mover --action help"],
+            ["lla plugin run file_mover help"],
             |_| FileMoverPlugin::help_action()
         );
 
@@ -371,26 +372,24 @@ impl FileMoverPlugin {
                 "Add files/directories to clipboard from current or specified directory"
                     .to_string(),
                 vec![
-                    "lla plugin --name file_mover --action add".to_string(),
-                    "lla plugin --name file_mover --action add --args /path/to/dir".to_string(),
+                    "lla plugin run file_mover add".to_string(),
+                    "lla plugin run file_mover add -- /path/to/dir".to_string(),
                 ],
             )
             .add_command(
                 "move-all [target_path]".to_string(),
                 "Move all items from clipboard to current or specified directory".to_string(),
                 vec![
-                    "lla plugin --name file_mover --action move-all".to_string(),
-                    "lla plugin --name file_mover --action move-all --args /path/to/target"
-                        .to_string(),
+                    "lla plugin run file_mover move-all".to_string(),
+                    "lla plugin run file_mover move-all -- /path/to/target".to_string(),
                 ],
             )
             .add_command(
                 "move-partial [target_path]".to_string(),
                 "Move selected items from clipboard to current or specified directory".to_string(),
                 vec![
-                    "lla plugin --name file_mover --action move-partial".to_string(),
-                    "lla plugin --name file_mover --action move-partial --args /path/to/target"
-                        .to_string(),
+                    "lla plugin run file_mover move-partial".to_string(),
+                    "lla plugin run file_mover move-partial -- /path/to/target".to_string(),
                 ],
             );
 
@@ -398,12 +397,12 @@ impl FileMoverPlugin {
             .add_command(
                 "show".to_string(),
                 "Show clipboard contents with option to remove items".to_string(),
-                vec!["lla plugin --name file_mover --action show".to_string()],
+                vec!["lla plugin run file_mover show".to_string()],
             )
             .add_command(
                 "clear".to_string(),
                 "Clear the clipboard".to_string(),
-                vec!["lla plugin --name file_mover --action clear".to_string()],
+                vec!["lla plugin run file_mover clear".to_string()],
             );
 
         println!(
@@ -426,36 +425,17 @@ impl Deref for FileMoverPlugin {
 }
 
 impl Plugin for FileMoverPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_, _) => PluginResponse::FormattedField(None),
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -471,9 +451,7 @@ impl ConfigurablePlugin for FileMoverPlugin {
     }
 }
 
-impl ProtobufHandler for FileMoverPlugin {}
-
-lla_plugin_interface::declare_plugin!(FileMoverPlugin);
+lla_plugin_sdk::export_plugin!(FileMoverPlugin);
 
 impl Default for FileMoverPlugin {
     fn default() -> Self {

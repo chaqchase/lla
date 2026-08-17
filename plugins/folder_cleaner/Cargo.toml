@@ -1,6 +1,6 @@
 [package]
 name = "folder_cleaner"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 description = "Safety-first folder organization and cleanup plugin for lla"
 
@@ -8,8 +8,8 @@ description = "Safety-first folder organization and cleanup plugin for lla"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 chrono = { workspace = true }
 colored = { workspace = true }
 dialoguer = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
 name = "trash"
-version = "0.5.12"
+version = "0.6.0"
 edition = "2021"
 description = "Cross-platform recoverable deletion with listing, restoration, and explicit emptying"
 
@@ -8,7 +8,7 @@ description = "Cross-platform recoverable deletion with listing, restoration, an
 crate-type = ["cdylib"]
 
 [dependencies]
-lla_plugin_interface = { path = "../../lla_plugin_interface" }
-lla_plugin_utils = { path = "../../lla_plugin_utils" }
+lla_plugin_sdk = { path = "../../sdk" }
+lla_plugin_utils = { path = "../../utils" }
 lazy_static = "1.4"
 parking_lot = "0.12"

@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.file-organizer"
 name = "file_organizer"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "file_organizer"
 description = "Organize files using configurable strategies"
@@ -11,7 +13,30 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["organize", "preview", "help"]
 
 [permissions]
 filesystem = ["read:tree", "write:tree", "delete:selection"]
+
+[[actions]]
+id = "organize"
+description = "Organize files in the specified directory using the given strategy (defaults to extension)"
+examples = ["lla plugin run file_organizer organize -- /path/to/dir", "lla plugin run file_organizer organize -- /path/to/dir extension", "lla plugin run file_organizer organize -- /path/to/dir date", "lla plugin run file_organizer organize -- /path/to/dir type", "lla plugin run file_organizer organize -- /path/to/dir size"]
+interactive = true
+arguments = [{ name = "directory", type = "path", description = "Directory to process.", position = 0, required = true }, { name = "strategy", type = "string", description = "Organization strategy to apply.", position = 1, choices = ["extension", "date", "type", "size"] }]
+output = { type = "none" }
+
+[[actions]]
+id = "preview"
+description = "Preview organization changes without applying them"
+examples = ["lla plugin run file_organizer preview -- /path/to/dir", "lla plugin run file_organizer preview -- /path/to/dir extension", "lla plugin run file_organizer preview -- /path/to/dir date", "lla plugin run file_organizer preview -- /path/to/dir type", "lla plugin run file_organizer preview -- /path/to/dir size"]
+interactive = true
+arguments = [{ name = "directory", type = "path", description = "Directory to process.", position = 0, required = true }, { name = "strategy", type = "string", description = "Organization strategy to apply.", position = 1, choices = ["extension", "date", "type", "size"] }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run file_organizer help"]
+interactive = true
+arguments = []
+output = { type = "none" }

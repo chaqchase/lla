@@ -1,14 +1,17 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, value, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::DecoratedEntry;
 use lla_plugin_utils::{
     config::PluginConfig,
+    decode_decorated_entry, run_cli_action,
     ui::{
         components::{BoxComponent, BoxStyle, HelpFormatter, KeyValue, List},
         TextBlock,
     },
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -26,7 +29,7 @@ lazy_static! {
             "set-thresholds",
             "set-thresholds <low> <medium> <high> <very-high>",
             "Set complexity thresholds",
-            ["lla plugin --name code_complexity --action set-thresholds --args 10 20 30 40"],
+            ["lla plugin run code_complexity set-thresholds -- 10 20 30 40"],
             |args| {
                 if args.len() != 4 {
                     return Err(
@@ -65,7 +68,7 @@ lazy_static! {
             "show-report",
             "show-report",
             "Show detailed complexity report",
-            ["lla plugin --name code_complexity --action show-report"],
+            ["lla plugin run code_complexity show-report"],
             |_| {
                 let state = PLUGIN_STATE.read();
                 println!("{}", state.generate_report());
@@ -78,7 +81,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name code_complexity --action help"],
+            ["lla plugin run code_complexity help"],
             |_| {
                 let mut help = HelpFormatter::new("Code Complexity Plugin".to_string());
                 help.add_section("Description".to_string()).add_command(
@@ -92,19 +95,19 @@ lazy_static! {
                         "set-thresholds".to_string(),
                         "Set complexity thresholds".to_string(),
                         vec![
-                            "lla plugin --name code_complexity --action set-thresholds --args 10 20 30 40"
+                            "lla plugin run code_complexity set-thresholds -- 10 20 30 40"
                                 .to_string(),
                         ],
                     )
                     .add_command(
                         "show-report".to_string(),
                         "Show detailed complexity report".to_string(),
-                        vec!["lla plugin --name code_complexity --action show-report".to_string()],
+                        vec!["lla plugin run code_complexity show-report".to_string()],
                     )
                     .add_command(
                         "help".to_string(),
                         "Show this help information".to_string(),
-                        vec!["lla plugin --name code_complexity --action help".to_string()],
+                        vec!["lla plugin run code_complexity help".to_string()],
                     );
 
                 help.add_section("Formats".to_string())
@@ -566,6 +569,7 @@ impl PluginState {
 
 pub struct CodeComplexityEstimatorPlugin {
     base: BasePlugin<ComplexityConfig>,
+    analysis_cache: lla_plugin_utils::PersistentCache<Option<ComplexityMetrics>>,
 }
 
 impl CodeComplexityEstimatorPlugin {
@@ -573,6 +577,12 @@ impl CodeComplexityEstimatorPlugin {
         let plugin_name = env!("CARGO_PKG_NAME");
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
+            analysis_cache: lla_plugin_utils::PersistentCache::for_plugin(
+                plugin_name,
+                "analysis-cache.toml",
+                1,
+                50_000,
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!(
@@ -594,77 +604,114 @@ impl CodeComplexityEstimatorPlugin {
                     .format_metrics(&metrics, format == "long")
             })
     }
+
+    fn decorate_batch_entries(
+        &mut self,
+        mut entries: Vec<proto::DecoratedEntry>,
+    ) -> Vec<proto::DecoratedEntry> {
+        let config_fingerprint = {
+            let state = PLUGIN_STATE.read();
+            lla_plugin_utils::text_fingerprint(&toml::to_string(&state.config).unwrap_or_default())
+        };
+        let mut metrics = vec![None; entries.len()];
+        let mut misses = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if !entry
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.is_file)
+            {
+                continue;
+            }
+            let path = std::path::PathBuf::from(&entry.path);
+            let Ok(file_fingerprint) = lla_plugin_utils::file_fingerprint(&path) else {
+                continue;
+            };
+            let fingerprint = format!("{file_fingerprint}:{config_fingerprint}");
+            let key = lla_plugin_utils::canonical_cache_key(&path);
+            if let Some(cached) = self.analysis_cache.get(&key, &fingerprint) {
+                metrics[index] = cached;
+            } else {
+                misses.push((index, path, key, fingerprint));
+            }
+        }
+
+        let analyzed = misses
+            .par_iter()
+            .map(|(_, path, _, _)| PLUGIN_STATE.read().analyze_file(path))
+            .collect::<Vec<_>>();
+        for ((index, _path, key, fingerprint), analyzed) in misses.into_iter().zip(analyzed) {
+            metrics[index] = analyzed.clone();
+            self.analysis_cache
+                .insert(key, fingerprint, analyzed.clone());
+        }
+
+        for (entry, metrics) in entries.iter_mut().zip(metrics) {
+            if let Some(metrics) = metrics {
+                let display = toml::to_string(&metrics).unwrap_or_default();
+                entry.insert_field("complexity_metrics", value::string(&display), display);
+                let path = std::path::PathBuf::from(&entry.path);
+                if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+                    let language = {
+                        let state = PLUGIN_STATE.read();
+                        state
+                            .config
+                            .languages
+                            .iter()
+                            .find(|(_, rules)| {
+                                rules.extensions.iter().any(|item| item == extension)
+                            })
+                            .map(|(language, _)| language.clone())
+                    };
+                    if let Some(language) = language {
+                        PLUGIN_STATE
+                            .write()
+                            .stats
+                            .entry(language)
+                            .or_default()
+                            .push((path, metrics));
+                    }
+                }
+            }
+        }
+        let _ = self.analysis_cache.persist();
+        entries
+    }
 }
 
 impl Plugin for CodeComplexityEstimatorPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => PluginResponse::SupportedFormats(vec![
-                        "default".to_string(),
-                        "long".to_string(),
-                    ]),
-                    PluginRequest::Decorate(mut entry) => {
-                        if entry.path.is_file() {
-                            let metrics = PLUGIN_STATE.read().analyze_file(&entry.path);
-                            if let Some(metrics) = metrics {
-                                entry.custom_fields.insert(
-                                    "complexity_metrics".to_string(),
-                                    toml::to_string(&metrics).unwrap_or_default(),
-                                );
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        self.decorate_batch(vec![entry], "default")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+    }
 
-                                if let Some(ext) = entry.path.extension().and_then(|e| e.to_str()) {
-                                    let lang = {
-                                        let state = PLUGIN_STATE.read();
-                                        state
-                                            .config
-                                            .languages
-                                            .iter()
-                                            .find(|(_, rules)| {
-                                                rules.extensions.iter().any(|e| e == ext)
-                                            })
-                                            .map(|(lang, _)| lang.clone())
-                                    };
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        self.decorate_batch_entries(entries)
+    }
 
-                                    if let Some(lang) = lang {
-                                        PLUGIN_STATE
-                                            .write()
-                                            .stats
-                                            .entry(lang)
-                                            .or_default()
-                                            .push((entry.path.clone(), metrics));
-                                    }
-                                }
-                            }
-                        }
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(entry, format) => {
-                        let field = self.format_file_info(&entry, &format);
-                        PluginResponse::FormattedField(field)
-                    }
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| self.format_file_info(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -686,6 +733,4 @@ impl ConfigurablePlugin for CodeComplexityEstimatorPlugin {
     }
 }
 
-impl ProtobufHandler for CodeComplexityEstimatorPlugin {}
-
-lla_plugin_interface::declare_plugin!(CodeComplexityEstimatorPlugin);
+lla_plugin_sdk::export_plugin!(CodeComplexityEstimatorPlugin);

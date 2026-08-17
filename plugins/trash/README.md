@@ -6,12 +6,12 @@ path, deletion time, size, and restore id. If a restore target exists, a conflic
 `(restored N)` name is chosen instead of overwriting it.
 
 ```bash
-lla plugin trash put ./draft.txt ./old-directory
-lla plugin trash list
-lla plugin trash restore <id>
+lla plugin run trash put -- ./draft.txt ./old-directory
+lla plugin run trash list
+lla plugin run trash restore -- <id>
 
 # Irreversible and intentionally requires --yes
-lla plugin trash empty 30 -- --yes
+lla plugin run trash empty -- 30 -- --yes
 ```
 
 The existing `file_remover remove` action uses this same store. Its `purge` action is

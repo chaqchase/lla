@@ -1,12 +1,12 @@
 use arboard::Clipboard;
 use colored::Colorize;
 use dialoguer::{Input, MultiSelect, Select};
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, response, ActionArguments, Plugin};
 use lla_plugin_utils::{
     config::PluginConfig,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
     ui::interactive_suggest,
-    BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    BasePlugin, ConfigurablePlugin,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -70,6 +70,7 @@ impl PluginConfig for YouTubeConfig {}
 pub struct YouTubePlugin {
     base: BasePlugin<YouTubeConfig>,
     http: Client,
+    suggestion_cache: std::cell::RefCell<lla_plugin_utils::PersistentCache<Vec<String>>>,
 }
 
 impl YouTubePlugin {
@@ -82,6 +83,14 @@ impl YouTubePlugin {
         let plugin = Self {
             base: BasePlugin::with_name(plugin_name),
             http: client,
+            suggestion_cache: std::cell::RefCell::new(
+                lla_plugin_utils::PersistentCache::for_plugin(
+                    plugin_name,
+                    "suggestion-cache.toml",
+                    1,
+                    2_000,
+                ),
+            ),
         };
         if let Err(e) = plugin.base.save_config() {
             eprintln!("[YouTubePlugin] Failed to save config: {}", e);
@@ -145,6 +154,14 @@ impl YouTubePlugin {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
+        let cache_key = query.trim().to_lowercase();
+        if let Some(suggestions) = self
+            .suggestion_cache
+            .borrow_mut()
+            .get_fresh(&cache_key, Duration::from_secs(60 * 60))
+        {
+            return Ok(suggestions);
+        }
 
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
@@ -169,6 +186,9 @@ impl YouTubePlugin {
                 .filter_map(|s| s.as_str().map(|s| s.to_string()))
                 .take(10)
                 .collect();
+            let mut cache = self.suggestion_cache.borrow_mut();
+            cache.insert(cache_key, "suggestions-v1", results.clone());
+            let _ = cache.persist();
             Ok(results)
         } else {
             Ok(Vec::new())
@@ -577,81 +597,19 @@ impl YouTubePlugin {
 }
 
 impl Plugin for YouTubePlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => {
-                        // This plugin doesn't decorate entries
-                        PluginResponse::Decorated(entry)
-                    }
-                    PluginRequest::FormatField(_entry, _format) => {
-                        // This plugin doesn't format fields
-                        PluginResponse::FormattedField(None)
-                    }
-                    PluginRequest::PerformAction(action, _args) => {
-                        let result = match action.as_str() {
-                            "search" => self.perform_search(None),
-                            "search-selected" => self.search_selected_text(),
-                            "history" => self.manage_history(),
-                            "preferences" => self.configure_preferences(),
-                            "help" => self.show_help(),
-                            _ => Err(format!("Unknown action: {}", action)),
-                        };
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        use lla_plugin_interface::ActionInfo;
-                        PluginResponse::AvailableActions(vec![
-                            ActionInfo {
-                                name: "search".to_string(),
-                                usage: "search".to_string(),
-                                description: "Search YouTube videos".to_string(),
-                                examples: vec!["lla plugin youtube search".to_string()],
-                            },
-                            ActionInfo {
-                                name: "search-selected".to_string(),
-                                usage: "search-selected".to_string(),
-                                description: "Search selected text on YouTube".to_string(),
-                                examples: vec!["lla plugin youtube search-selected".to_string()],
-                            },
-                            ActionInfo {
-                                name: "history".to_string(),
-                                usage: "history".to_string(),
-                                description: "Manage search history".to_string(),
-                                examples: vec!["lla plugin youtube history".to_string()],
-                            },
-                            ActionInfo {
-                                name: "preferences".to_string(),
-                                usage: "preferences".to_string(),
-                                description: "Configure preferences".to_string(),
-                                examples: vec!["lla plugin youtube preferences".to_string()],
-                            },
-                            ActionInfo {
-                                name: "help".to_string(),
-                                usage: "help".to_string(),
-                                description: "Show help information".to_string(),
-                                examples: vec!["lla plugin youtube help".to_string()],
-                            },
-                        ])
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, _arguments: ActionArguments) -> proto::ActionResponse {
+        response::from_result(match action.as_str() {
+            "search" => self.perform_search(None),
+            "search-selected" => self.search_selected_text(),
+            "history" => self.manage_history(),
+            "preferences" => self.configure_preferences(),
+            "help" => self.show_help(),
+            _ => Err(format!("Unknown action: {action}")),
+        })
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
@@ -673,6 +631,4 @@ impl ConfigurablePlugin for YouTubePlugin {
     }
 }
 
-impl ProtobufHandler for YouTubePlugin {}
-
-lla_plugin_interface::declare_plugin!(YouTubePlugin);
+lla_plugin_sdk::export_plugin!(YouTubePlugin);

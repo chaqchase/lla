@@ -1,6 +1,8 @@
 use lazy_static::lazy_static;
-use lla_plugin_interface::{DecoratedEntry, Plugin, PluginRequest, PluginResponse};
-use lla_plugin_utils::{ActionRegistry, ProtobufHandler};
+use lla_plugin_sdk::{interface::proto, ActionArguments, DecoratedEntryExt, Plugin};
+use lla_plugin_utils::{
+    decode_decorated_entry, map_decorated_entry, run_cli_action, ActionRegistry, DecoratedEntry,
+};
 use parking_lot::RwLock;
 use std::{
     fs::File,
@@ -24,8 +26,8 @@ lazy_static! {
             "show <path> [--lines <count>]",
             "Render a terminal preview using bat, chafa, archive tools, or built-in fallbacks",
             [
-                "lla plugin preview show README.md",
-                "lla plugin preview show src/main.rs -- --lines 80"
+                "lla plugin run preview show -- README.md",
+                "lla plugin run preview show -- src/main.rs -- --lines 80"
             ],
             PreviewPlugin::show_action
         );
@@ -34,7 +36,7 @@ lazy_static! {
             "backends",
             "backends",
             "Report optional preview backends available on PATH",
-            ["lla plugin preview backends"],
+            ["lla plugin run preview backends"],
             |_| PreviewPlugin::backends_action()
         );
         lla_plugin_utils::define_action!(
@@ -42,7 +44,7 @@ lazy_static! {
             "help",
             "help",
             "Show preview usage",
-            ["lla plugin preview help"],
+            ["lla plugin run preview help"],
             |_| PreviewPlugin::help_action()
         );
         actions
@@ -424,37 +426,48 @@ fn command_available(program: &str) -> bool {
 }
 
 impl Plugin for PreviewPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        let response = match self.decode_request(request) {
-            Ok(PluginRequest::GetName) => PluginResponse::Name(env!("CARGO_PKG_NAME").into()),
-            Ok(PluginRequest::GetVersion) => {
-                PluginResponse::Version(env!("CARGO_PKG_VERSION").into())
-            }
-            Ok(PluginRequest::GetDescription) => {
-                PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").into())
-            }
-            Ok(PluginRequest::GetSupportedFormats) => {
-                PluginResponse::SupportedFormats(vec!["default".into(), "long".into()])
-            }
-            Ok(PluginRequest::Decorate(entry)) => PluginResponse::Decorated(Self::decorate(entry)),
-            Ok(PluginRequest::FormatField(entry, format)) => {
-                PluginResponse::FormattedField(Self::format(&entry, &format))
-            }
-            Ok(PluginRequest::PerformAction(action, args)) => {
-                PluginResponse::ActionResult(ACTIONS.read().handle(&action, &args))
-            }
-            Ok(PluginRequest::GetAvailableActions) => {
-                PluginResponse::AvailableActions(ACTIONS.read().list_actions())
-            }
-            Err(error) => return self.encode_error(&error),
-        };
-        self.encode_response(response)
+    fn decorate_entry(&mut self, entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+        promote_v3_fields(map_decorated_entry(entry, Self::decorate))
+    }
+
+    fn decorate_batch(
+        &mut self,
+        entries: Vec<proto::DecoratedEntry>,
+        _format: &str,
+    ) -> Vec<proto::DecoratedEntry> {
+        entries
+            .into_iter()
+            .map(|entry| promote_v3_fields(map_decorated_entry(entry, Self::decorate)))
+            .collect()
+    }
+
+    fn format_field(&mut self, entry: proto::DecoratedEntry, format: String) -> Option<String> {
+        decode_decorated_entry(entry)
+            .ok()
+            .and_then(|entry| Self::format(&entry, &format))
+    }
+
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTIONS.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
-impl ProtobufHandler for PreviewPlugin {}
+fn promote_v3_fields(mut entry: proto::DecoratedEntry) -> proto::DecoratedEntry {
+    entry.promote_string_field("preview_kind");
+    entry.promote_string_field("preview_backend");
+    entry
+}
 
-lla_plugin_interface::declare_plugin!(PreviewPlugin);
+lla_plugin_sdk::export_plugin!(PreviewPlugin);
 
 impl Default for PreviewPlugin {
     fn default() -> Self {

@@ -27,6 +27,14 @@ sed 's/enabled_plugins = \[\]/enabled_plugins = ["missing_plugin"]/' \
   "$config_file" >"$config_file.tmp"
 mv "$config_file.tmp" "$config_file"
 
+"$binary" "$fixture_dir/files" >/dev/null 2>"$fixture_dir/missing-plugin.stderr"
+grep -qF \
+  'Warning: Enabled plugin not found: missing_plugin' \
+  "$fixture_dir/missing-plugin.stderr"
+sed 's/enabled_plugins = \["missing_plugin"\]/enabled_plugins = []/' \
+  "$config_file" >"$config_file.tmp"
+mv "$config_file.tmp" "$config_file"
+
 "$binary" "$fixture_dir/files" >/dev/null 2>"$fixture_dir/default.stderr"
 [[ ! -s "$fixture_dir/default.stderr" ]]
 "$binary" "$fixture_dir/files" --long >/dev/null 2>"$fixture_dir/long.stderr"
@@ -47,19 +55,8 @@ grep -q 'example.txt' "$fixture_dir/archive.txt"
 "$binary" config show-effective >/dev/null
 "$binary" theme preview default >/dev/null
 
-plugin_output="$fixture_dir/plugin-error.txt"
-assert_plugin_unavailable() {
-  if "$binary" "$@" >"$plugin_output" 2>&1; then
-    echo "Static musl plugin command unexpectedly succeeded: $*" 1>&2
-    exit 1
-  fi
-  grep -qF \
-    'Dynamic plugins are unavailable in the static musl build; use a GNU build for plugin support.' \
-    "$plugin_output"
-}
+"$binary" list-plugins >/dev/null
+"$binary" plugin doctor >"$fixture_dir/plugin-doctor.txt"
+grep -q 'Plugin Platform v3 diagnostics' "$fixture_dir/plugin-doctor.txt"
 
-assert_plugin_unavailable install --prebuilt
-assert_plugin_unavailable list-plugins
-assert_plugin_unavailable "$fixture_dir/files" --enable-plugin missing_plugin
-
-echo "Static musl smoke tests passed"
+echo "Static musl + Wasmtime smoke tests passed"

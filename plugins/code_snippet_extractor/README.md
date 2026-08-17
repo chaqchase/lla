@@ -33,32 +33,32 @@ default = "Solarized (dark)"
 
 ```bash
 # Extract snippet with context
-lla plugin --name code_snippet_extractor --action extract --args "file.rs" "function_name" 10 20 3
+lla plugin run code_snippet_extractor extract -- "file.rs" "function_name" 10 20 3
 
 # List snippets
-lla plugin --name code_snippet_extractor --action list
+lla plugin run code_snippet_extractor list
 
 # View snippet
-lla plugin --name code_snippet_extractor --action get --args "snippet_id"
+lla plugin run code_snippet_extractor get -- "snippet_id"
 ```
 
 ### Organization
 
 ```bash
 # Add/remove tags
-lla plugin --name code_snippet_extractor --action add-tags --args "snippet_id" "tag1" "tag2"
-lla plugin --name code_snippet_extractor --action remove-tags --args "snippet_id" "tag1"
+lla plugin run code_snippet_extractor add-tags -- "snippet_id" "tag1" "tag2"
+lla plugin run code_snippet_extractor remove-tags -- "snippet_id" "tag1"
 
 # Category management
-lla plugin --name code_snippet_extractor --action set-category --args "snippet_id" "category_name"
+lla plugin run code_snippet_extractor set-category -- "snippet_id" "category_name"
 ```
 
 ### Import/Export
 
 ```bash
 # Export/Import snippets
-lla plugin --name code_snippet_extractor --action export --args "snippets.json"
-lla plugin --name code_snippet_extractor --action import --args "snippets.json"
+lla plugin run code_snippet_extractor export -- "snippets.json"
+lla plugin run code_snippet_extractor import -- "snippets.json"
 ```
 
 ## Display Format

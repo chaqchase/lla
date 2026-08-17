@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.kill-process"
 name = "kill_process"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "kill_process"
 description = "Inspect and terminate operating-system processes"
@@ -11,7 +13,70 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["list", "kill", "force-kill", "kill-by-name", "force-kill-by-name", "kill-by-pid", "force-kill-by-pid", "help"]
 
 [permissions]
 process = true
+
+[[actions]]
+id = "list"
+description = "List all running processes with detailed information"
+examples = ["lla plugin run kill_process list"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "kill"
+description = "Interactively select and kill a process"
+examples = ["lla plugin run kill_process kill"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill"
+description = "Forcefully terminate a process (SIGKILL on Unix, /F on Windows)"
+examples = ["lla plugin run kill_process force-kill"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "kill-by-name"
+description = "Kill processes matching a specific name pattern"
+examples = ["lla plugin run kill_process kill-by-name -- chrome", "lla plugin run kill_process kill-by-name -- firefox"]
+interactive = true
+arguments = [{ name = "name", type = "string", description = "Name of the item to create or select.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill-by-name"
+description = "Forcefully kill processes matching a specific name pattern"
+examples = ["lla plugin run kill_process force-kill-by-name -- chrome"]
+interactive = true
+arguments = [{ name = "name", type = "string", description = "Name of the item to create or select.", position = 0, required = true }]
+output = { type = "none" }
+
+[[actions]]
+id = "kill-by-pid"
+description = "Kill a specific process by its PID"
+examples = ["lla plugin run kill_process kill-by-pid -- 1234"]
+interactive = true
+arguments = [{ name = "pid", type = "integer", description = "Operating-system process identifier.", position = 0, required = true, min = 1 }]
+output = { type = "none" }
+
+[[actions]]
+id = "force-kill-by-pid"
+description = "Forcefully kill a specific process by its PID"
+examples = ["lla plugin run kill_process force-kill-by-pid -- 1234"]
+interactive = true
+arguments = [{ name = "pid", type = "integer", description = "Operating-system process identifier.", position = 0, required = true, min = 1 }]
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run kill_process help"]
+interactive = true
+arguments = []
+output = { type = "none" }

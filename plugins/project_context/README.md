@@ -7,8 +7,8 @@ Multi-ecosystem repositories are reported as combined project types.
 ```bash
 lla --enable-plugin project_context --long .
 lla --enable-plugin project_context --json --pretty .
-lla plugin project_context inspect .
-lla plugin project_context refresh
+lla plugin run project_context inspect -- .
+lla plugin run project_context refresh
 ```
 
 The cache avoids running toolchain and Git probes once per displayed entry; use

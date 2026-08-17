@@ -1,9 +1,11 @@
+schema_version = 3
+
 [plugin]
 id = "dev.lla.npm"
 name = "npm"
-version = "0.5.12"
-api_min = 2
-api_max = 2
+version = "0.6.0"
+api_min = 3
+api_max = 3
 runtime = "native"
 entrypoint = "npm"
 description = "Search npm packages and inspect bundle size"
@@ -11,9 +13,40 @@ license = "MIT"
 
 [capabilities]
 formats = ["default"]
-actions = ["search", "favorites", "preferences", "help"]
 
 [permissions]
 network = ["registry.npmjs.org", "bundlephobia.com"]
 clipboard = true
 open_url = true
+
+[[actions]]
+id = "search"
+description = "Search npm packages"
+examples = ["lla plugin run npm search"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "favorites"
+description = "View favorite packages"
+examples = ["lla plugin run npm favorites"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "preferences"
+description = "Configure preferences"
+examples = ["lla plugin run npm preferences"]
+interactive = true
+arguments = []
+output = { type = "none" }
+
+[[actions]]
+id = "help"
+description = "Show help information"
+examples = ["lla plugin run npm help"]
+interactive = true
+arguments = []
+output = { type = "none" }

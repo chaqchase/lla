@@ -5,6 +5,7 @@ use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
 use crate::utils::icons::format_with_icon;
+use crate::utils::{fs_metadata, hyperlink};
 use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, Local};
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
@@ -76,6 +77,7 @@ impl FileFormatter for LongFormatter {
         if files.is_empty() {
             return Ok(String::new());
         }
+        plugin_manager.prepare_format_fields(files, "long");
 
         let mut widths = vec![0usize; self.columns.len()];
         let mut rendered_rows: Vec<Vec<String>> = Vec::with_capacity(files.len());
@@ -130,9 +132,16 @@ impl LongFormatter {
         match column {
             ColumnKey::Permissions => {
                 let perms = Permissions::from_mode(metadata.permissions);
-                colorize_permissions(&perms, Some(&self.permission_format))
+                let mut rendered = colorize_permissions(&perms, Some(&self.permission_format));
+                if metadata.has_acl {
+                    rendered.push('+');
+                }
+                rendered
             }
+            ColumnKey::Inode => metadata.inode.to_string(),
+            ColumnKey::HardLinks => metadata.hard_links.to_string(),
             ColumnKey::Size => colorize_size(metadata.size).to_string(),
+            ColumnKey::AllocatedSize => colorize_size(metadata.allocated_size).to_string(),
             ColumnKey::Modified => self.format_timestamp(metadata.modified),
             ColumnKey::Created => self.format_timestamp(metadata.created),
             ColumnKey::Accessed => self.format_timestamp(metadata.accessed),
@@ -144,6 +153,9 @@ impl LongFormatter {
                     colorize_group(&lookup_group(metadata.gid)).to_string()
                 }
             }
+            ColumnKey::Xattrs => fs_metadata::format_xattrs(metadata),
+            ColumnKey::Context => fs_metadata::format_context(metadata),
+            ColumnKey::Mount => fs_metadata::format_mount(metadata),
             ColumnKey::Name => self.render_name(entry, metadata, plugin_text),
             ColumnKey::Path => entry.path.clone(),
             ColumnKey::Plugins => plugin_text.to_string(),
@@ -168,28 +180,36 @@ impl LongFormatter {
             format_with_icon(path, colored_name, self.show_icons),
         )
         .to_string();
+        let base_name = hyperlink::link_path(path, base_name);
 
-        let with_target = if metadata.is_symlink {
-            if let Some(target) = entry.custom_fields.get("symlink_target") {
-                if entry.custom_fields.contains_key("invalid_symlink") {
-                    let broken_target = console::style(target).red().bold();
-                    format!("{} -> {} (broken)", base_name, broken_target)
+        let with_target =
+            if metadata.is_symlink && !entry.custom_fields.contains_key("hide_symlink_target") {
+                if let Some(target) = entry.custom_fields.get("symlink_target") {
+                    if entry.custom_fields.contains_key("invalid_symlink") {
+                        let broken_target = console::style(target).red().bold();
+                        format!("{} -> {} (broken)", base_name, broken_target)
+                    } else {
+                        let target_path = Path::new(target);
+                        let resolved_target = if target_path.is_absolute() {
+                            target_path.to_path_buf()
+                        } else {
+                            path.parent()
+                                .unwrap_or_else(|| Path::new("."))
+                                .join(target_path)
+                        };
+                        let target_label = colorize_symlink_target(target_path).to_string();
+                        let target_label = hyperlink::link_path(&resolved_target, target_label);
+                        format!("{} -> {}", base_name, target_label)
+                    }
+                } else if entry.custom_fields.contains_key("invalid_symlink") {
+                    let broken_indicator = console::style("(broken link)").red().bold();
+                    format!("{} -> {}", base_name, broken_indicator)
                 } else {
-                    format!(
-                        "{} -> {}",
-                        base_name,
-                        colorize_symlink_target(Path::new(target))
-                    )
+                    base_name
                 }
-            } else if entry.custom_fields.contains_key("invalid_symlink") {
-                let broken_indicator = console::style("(broken link)").red().bold();
-                format!("{} -> {}", base_name, broken_indicator)
             } else {
                 base_name
-            }
-        } else {
-            base_name
-        };
+            };
 
         if self.has_plugins_column || plugin_text.is_empty() {
             with_target

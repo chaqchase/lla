@@ -13,10 +13,11 @@ use executor::{
     orphaned_quarantine_items, quarantine_items, restore_run, save_plan,
 };
 use lazy_static::lazy_static;
-use lla_plugin_interface::{Plugin, PluginRequest, PluginResponse};
+use lla_plugin_sdk::{interface::proto, ActionArguments, Plugin};
 use lla_plugin_utils::{
+    run_cli_action,
     ui::components::{BoxComponent, BoxStyle, HelpFormatter, LlaDialoguerTheme},
-    ActionRegistry, BasePlugin, ConfigurablePlugin, ProtobufHandler,
+    ActionRegistry, BasePlugin, ConfigurablePlugin,
 };
 use model::{CleanupPlan, OperationKind, PlanAction, ScanReport};
 use parking_lot::RwLock;
@@ -47,7 +48,7 @@ lazy_static! {
             "scan",
             "scan [directory]",
             "Analyze folder clutter and print a summary without saving a plan",
-            ["lla plugin --name folder_cleaner --action scan --args ~/Downloads"],
+            ["lla plugin run folder_cleaner scan -- ~/Downloads"],
             FolderCleanerPlugin::scan_action
         );
 
@@ -57,8 +58,8 @@ lazy_static! {
             "preview [directory] [profile]",
             "Show proposed organization and cleanup actions, then save the plan",
             [
-                "lla plugin --name folder_cleaner --action preview --args ~/Downloads",
-                "lla plugin --name folder_cleaner --action preview --args ~/Downloads project"
+                "lla plugin run folder_cleaner preview -- ~/Downloads",
+                "lla plugin run folder_cleaner preview -- ~/Downloads project"
             ],
             FolderCleanerPlugin::preview_action
         );
@@ -68,7 +69,7 @@ lazy_static! {
             "clean",
             "clean [directory] [profile]",
             "Preview, interactively approve, then execute selected safe actions",
-            ["lla plugin --name folder_cleaner --action clean --args ~/Downloads downloads"],
+            ["lla plugin run folder_cleaner clean -- ~/Downloads downloads"],
             FolderCleanerPlugin::clean_action
         );
 
@@ -77,7 +78,7 @@ lazy_static! {
             "apply",
             "apply <plan_id>",
             "Apply a saved plan after validation and confirmation",
-            ["lla plugin --name folder_cleaner --action apply --args plan-20260508090000000"],
+            ["lla plugin run folder_cleaner apply -- plan-20260508090000000"],
             FolderCleanerPlugin::apply_action
         );
 
@@ -86,7 +87,7 @@ lazy_static! {
             "restore",
             "restore [run_id]",
             "Restore files moved by a previous run",
-            ["lla plugin --name folder_cleaner --action restore --args run-20260508090000000"],
+            ["lla plugin run folder_cleaner restore -- run-20260508090000000"],
             FolderCleanerPlugin::restore_action
         );
 
@@ -95,7 +96,7 @@ lazy_static! {
             "quarantine-list",
             "quarantine-list",
             "List files currently held in quarantine",
-            ["lla plugin --name folder_cleaner --action quarantine-list"],
+            ["lla plugin run folder_cleaner quarantine-list"],
             |_| FolderCleanerPlugin::quarantine_list_action()
         );
 
@@ -104,7 +105,7 @@ lazy_static! {
             "quarantine-empty",
             "quarantine-empty [older_than_days]",
             "Permanently remove quarantined files older than the given number of days",
-            ["lla plugin --name folder_cleaner --action quarantine-empty --args 30"],
+            ["lla plugin run folder_cleaner quarantine-empty -- 30"],
             FolderCleanerPlugin::quarantine_empty_action
         );
 
@@ -113,7 +114,7 @@ lazy_static! {
             "history",
             "history",
             "List saved plans and completed or partial runs",
-            ["lla plugin --name folder_cleaner --action history"],
+            ["lla plugin run folder_cleaner history"],
             |_| FolderCleanerPlugin::history_action()
         );
 
@@ -122,7 +123,7 @@ lazy_static! {
             "show-plan",
             "show-plan <plan_id>",
             "Render a saved plan preview",
-            ["lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000"],
+            ["lla plugin run folder_cleaner show-plan -- plan-20260508090000000"],
             FolderCleanerPlugin::show_plan_action
         );
 
@@ -131,8 +132,10 @@ lazy_static! {
             "doctor",
             "doctor [run_id] [--repair]",
             "Inspect run manifests and recover restorable items when requested",
-            ["lla plugin --name folder_cleaner --action doctor",
-                "lla plugin --name folder_cleaner --action doctor --args run-20260508090000000 --repair"],
+            [
+                "lla plugin run folder_cleaner doctor",
+                "lla plugin run folder_cleaner doctor -- run-20260508090000000 --repair"
+            ],
             FolderCleanerPlugin::doctor_action
         );
 
@@ -141,7 +144,7 @@ lazy_static! {
             "config-wizard",
             "config-wizard",
             "Interactively adjust common folder cleaner settings",
-            ["lla plugin --name folder_cleaner --action config-wizard"],
+            ["lla plugin run folder_cleaner config-wizard"],
             |_| FolderCleanerPlugin::config_wizard_action()
         );
 
@@ -150,7 +153,7 @@ lazy_static! {
             "help",
             "help",
             "Show help information",
-            ["lla plugin --name folder_cleaner --action help"],
+            ["lla plugin run folder_cleaner help"],
             |_| FolderCleanerPlugin::help_action()
         );
 
@@ -552,57 +555,59 @@ impl FolderCleanerPlugin {
             .add_command(
                 "scan [directory]",
                 "Analyze clutter without saving or moving anything",
-                vec!["lla plugin --name folder_cleaner --action scan --args ~/Downloads".to_string()],
+                vec!["lla plugin run folder_cleaner scan -- ~/Downloads".to_string()],
             )
             .add_command(
                 "preview [directory] [profile]",
                 "Save and display a proposed plan",
-                vec!["lla plugin --name folder_cleaner --action preview --args ~/Downloads downloads".to_string()],
+                vec!["lla plugin run folder_cleaner preview -- ~/Downloads downloads".to_string()],
             )
             .add_command(
                 "clean [directory] [profile]",
                 "Interactively approve and apply selected actions",
-                vec!["lla plugin --name folder_cleaner --action clean --args ~/Downloads".to_string()],
+                vec!["lla plugin run folder_cleaner clean -- ~/Downloads".to_string()],
             )
             .add_command(
                 "apply <plan_id>",
                 "Apply a saved plan",
-                vec!["lla plugin --name folder_cleaner --action apply --args plan-20260508090000000".to_string()],
+                vec!["lla plugin run folder_cleaner apply -- plan-20260508090000000".to_string()],
             )
             .add_command(
                 "restore <run_id>",
                 "Restore files moved by a completed run",
-                vec!["lla plugin --name folder_cleaner --action restore --args run-20260508090000000".to_string()],
+                vec!["lla plugin run folder_cleaner restore -- run-20260508090000000".to_string()],
             )
             .add_command(
                 "quarantine-list",
                 "Show files currently held in quarantine",
-                vec!["lla plugin --name folder_cleaner --action quarantine-list".to_string()],
+                vec!["lla plugin run folder_cleaner quarantine-list".to_string()],
             )
             .add_command(
                 "quarantine-empty [older_than_days]",
                 "Permanently empty old quarantined files after confirmation",
-                vec!["lla plugin --name folder_cleaner --action quarantine-empty --args 30".to_string()],
+                vec!["lla plugin run folder_cleaner quarantine-empty -- 30".to_string()],
             )
             .add_command(
                 "history",
                 "List saved plans and run manifests",
-                vec!["lla plugin --name folder_cleaner --action history".to_string()],
+                vec!["lla plugin run folder_cleaner history".to_string()],
             )
             .add_command(
                 "show-plan <plan_id>",
                 "Render a saved plan preview",
-                vec!["lla plugin --name folder_cleaner --action show-plan --args plan-20260508090000000".to_string()],
+                vec![
+                    "lla plugin run folder_cleaner show-plan -- plan-20260508090000000".to_string(),
+                ],
             )
             .add_command(
                 "doctor [run_id] [--repair]",
                 "Inspect run health and optionally restore recoverable items",
-                vec!["lla plugin --name folder_cleaner --action doctor --args run-20260508090000000".to_string()],
+                vec!["lla plugin run folder_cleaner doctor -- run-20260508090000000".to_string()],
             )
             .add_command(
                 "config-wizard",
                 "Edit common profile options interactively",
-                vec!["lla plugin --name folder_cleaner --action config-wizard".to_string()],
+                vec!["lla plugin run folder_cleaner config-wizard".to_string()],
             );
 
         println!(
@@ -1080,42 +1085,21 @@ impl ConfigurablePlugin for FolderCleanerPlugin {
 }
 
 impl Plugin for FolderCleanerPlugin {
-    fn handle_raw_request(&mut self, request: &[u8]) -> Vec<u8> {
-        match self.decode_request(request) {
-            Ok(request) => {
-                let response = match request {
-                    PluginRequest::GetName => {
-                        PluginResponse::Name(env!("CARGO_PKG_NAME").to_string())
-                    }
-                    PluginRequest::GetVersion => {
-                        PluginResponse::Version(env!("CARGO_PKG_VERSION").to_string())
-                    }
-                    PluginRequest::GetDescription => {
-                        PluginResponse::Description(env!("CARGO_PKG_DESCRIPTION").to_string())
-                    }
-                    PluginRequest::GetSupportedFormats => {
-                        PluginResponse::SupportedFormats(vec!["default".to_string()])
-                    }
-                    PluginRequest::Decorate(entry) => PluginResponse::Decorated(entry),
-                    PluginRequest::FormatField(_, _) => PluginResponse::FormattedField(None),
-                    PluginRequest::PerformAction(action, args) => {
-                        let result = ACTION_REGISTRY.read().handle(&action, &args);
-                        PluginResponse::ActionResult(result)
-                    }
-                    PluginRequest::GetAvailableActions => {
-                        PluginResponse::AvailableActions(ACTION_REGISTRY.read().list_actions())
-                    }
-                };
-                self.encode_response(response)
-            }
-            Err(e) => self.encode_error(&e),
-        }
+    fn run_action(&mut self, action: String, arguments: ActionArguments) -> proto::ActionResponse {
+        run_cli_action(
+            &action,
+            arguments,
+            include_str!("../plugin.toml"),
+            |arguments| ACTION_REGISTRY.read().handle(&action, arguments),
+        )
+    }
+
+    fn registered_actions(&mut self) -> Vec<proto::ActionInfo> {
+        lla_plugin_utils::manifest_action_infos(include_str!("../plugin.toml"))
     }
 }
 
-impl ProtobufHandler for FolderCleanerPlugin {}
-
-lla_plugin_interface::declare_plugin!(FolderCleanerPlugin);
+lla_plugin_sdk::export_plugin!(FolderCleanerPlugin);
 
 #[cfg(test)]
 mod tests {

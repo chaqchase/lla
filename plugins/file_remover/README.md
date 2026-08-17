@@ -29,16 +29,16 @@ path = "bright_yellow"
 
 ```bash
 # Move files/directories from the current directory to recoverable trash
-lla plugin --name file_remover --action remove
+lla plugin run file_remover remove
 
 # Move files/directories from a specified directory to recoverable trash
-lla plugin --name file_remover --action remove --args /path/to/directory
+lla plugin run file_remover remove -- /path/to/directory
 
 # Permanently delete selected entries (cannot be restored)
-lla plugin --name file_remover --action purge --args /path/to/directory
+lla plugin run file_remover purge -- /path/to/directory
 
 # Show help information
-lla plugin --name file_remover --action help
+lla plugin run file_remover help
 ```
 
 ## Common Workflows
@@ -48,7 +48,7 @@ lla plugin --name file_remover --action help
 ```bash
 # In target directory
 cd /path/to/directory
-lla plugin --name file_remover --action remove
+lla plugin run file_remover remove
 # Select files to trash using space, confirm with enter
 ```
 
@@ -56,7 +56,7 @@ lla plugin --name file_remover --action remove
 
 ```bash
 # Trash files from a specific directory without changing location
-lla plugin --name file_remover --action remove --args /path/to/directory
+lla plugin run file_remover remove -- /path/to/directory
 # Select files to trash using space, confirm with enter
 ```
 
