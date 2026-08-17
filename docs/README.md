@@ -5,6 +5,13 @@ README remains the product overview; detailed guides and maintainer procedures
 live here so that the repository, crates.io packages, and release workflow can
 link to one canonical source.
 
+## Complete handbook
+
+- [lla architecture and Plugin Platform handbook](handbook.md) — complete host
+  architecture, plugin lifecycle, native and WebAssembly creation, manifest and
+  SDK references, usage, packaging, security, testing, troubleshooting, and
+  releases.
+
 ## Plugin users
 
 - [Installing and managing plugins](plugins/README.md)

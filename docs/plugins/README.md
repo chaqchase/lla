@@ -1,5 +1,9 @@
 # Plugins
 
+For the complete system design and end-to-end authoring tutorial, read the
+[lla architecture and Plugin Platform handbook](../handbook.md). This page is a
+concise user guide.
+
 Plugin Platform v3 packages are self-contained directories containing a
 schema-3 manifest, a native dynamic library or WebAssembly component, and a
 SHA-256 inventory.

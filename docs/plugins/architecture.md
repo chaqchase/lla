@@ -1,5 +1,9 @@
 # Plugin Platform v3 architecture
 
+For the full host execution architecture, plugin lifecycle, creation tutorial,
+security model, and release flow, see the
+[architecture and Plugin Platform handbook](../handbook.md).
+
 Plugin Platform v3 separates the authoring API, wire contract, runtime, and
 packaging responsibilities.
 

@@ -25,6 +25,11 @@ lla is a modern `ls` replacement that transforms how developers interact with th
 
 ## Documentation
 
+The [complete architecture and Plugin Platform handbook](docs/handbook.md)
+documents the host pipeline, plugin creation for native and WebAssembly
+runtimes, manifests, SDK APIs, usage, permissions, packaging, testing,
+troubleshooting, and releases.
+
 - [Documentation index](docs/README.md)
 - [Installing and managing plugins](docs/plugins/README.md)
 - [Developing plugins with the Rust SDK](docs/plugins/developing.md)
