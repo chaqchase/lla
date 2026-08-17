@@ -107,6 +107,7 @@ jobs:
       - name: Setup Protoc
         uses: arduino/setup-protoc@v3
         with:
+          version: "35.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
@@ -172,6 +173,7 @@ jobs:
       - name: Setup Protoc
         uses: arduino/setup-protoc@v3
         with:
+          version: "35.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
@@ -506,6 +508,7 @@ jobs:
       - name: Setup Protoc
         uses: arduino/setup-protoc@v3
         with:
+          version: "35.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
