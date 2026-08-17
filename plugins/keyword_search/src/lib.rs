@@ -260,8 +260,7 @@ impl KeywordSearchPlugin {
             .par_iter()
             .map(|(_, path, _, _)| search_file_with(path, &config, &patterns))
             .collect::<Vec<_>>();
-        for ((index, _, key, fingerprint), searched) in misses.into_iter().zip(searched.into_iter())
-        {
+        for ((index, _, key, fingerprint), searched) in misses.into_iter().zip(searched) {
             matches[index] = searched.clone();
             self.search_cache.insert(key, fingerprint, searched);
         }

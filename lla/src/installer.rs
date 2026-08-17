@@ -1401,7 +1401,7 @@ impl PluginInstaller {
                     path.display()
                 )));
             }
-            files.insert(name.to_string(), Self::calculate_sha256(&path)?);
+            files.insert(name.to_string(), Self::calculate_sha256(path)?);
         }
 
         #[derive(Serialize)]

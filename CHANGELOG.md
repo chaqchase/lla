@@ -7,16 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-17
+
 ### Added
 
 - OSC 8 file hyperlinks with `--hyperlink=always|auto|never` across human-readable views.
 - Long-view columns and machine-output fields for inode numbers, hard-link counts, allocated size, extended attributes, ACL/SELinux context, and mount details.
 - Symlink controls for target metadata (`--dereference`), target visibility (`--no-symlink-target`), and inclusion alongside file/directory filters (`--show-symlinks`).
-
-## [0.6.0] - 2026-08-16
-
-### Added
-
 - Plugin Platform v3 with public `lla_plugin_sdk` and `lla_plugin_sdk_macros` crates, embedded manifest contracts, a Component Model WIT world, and overridable native batch decoration.
 - Native batch formatting plus bounded persistent plugin caches with metadata-, repository-, configuration-, and TTL-based invalidation.
 - Typed action arguments and structured `none`, `text`, `value`, and `table` results with host-rendered human, JSON, NDJSON, and CSV output through `lla plugin run`.
@@ -34,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Local source installs checksum only the immutable manifest and resolved runtime entrypoint, so first-run plugin configuration and cache writes no longer invalidate packages and logical native entrypoints resolve correctly on each platform.
 - Local source installation on macOS disables native-plugin stripping, preventing malformed Mach-O `LINKEDIT` string pools.
 - Code-complexity batch decoration no longer deadlocks while recording report statistics.
 - Git status no longer enumerates ignored files that cannot contribute to its displayed status, avoiding oversized caches for repositories with large build directories.
