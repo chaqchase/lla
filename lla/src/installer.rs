@@ -1319,23 +1319,89 @@ impl PluginInstaller {
     }
 
     fn write_package_checksums(package_dir: &Path) -> Result<()> {
-        let mut files = BTreeMap::new();
-        for entry in fs::read_dir(package_dir)? {
-            let path = entry?.path();
-            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            if name == "checksums.toml" || !path.is_file() {
-                continue;
-            }
-            files.insert(name.to_string(), Self::calculate_sha256(&path)?);
+        let manifest_path = package_dir.join("plugin.toml");
+        let manifest_source = fs::read_to_string(&manifest_path).map_err(|error| {
+            LlaError::Plugin(format!(
+                "Failed to read plugin manifest {}: {error}",
+                manifest_path.display()
+            ))
+        })?;
+        let manifest: Value = toml::from_str(&manifest_source).map_err(|error| {
+            LlaError::Plugin(format!(
+                "Failed to parse plugin manifest {}: {error}",
+                manifest_path.display()
+            ))
+        })?;
+        let entrypoint = manifest
+            .get("plugin")
+            .and_then(|plugin| plugin.get("entrypoint"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                LlaError::Plugin(format!(
+                    "Plugin manifest {} is missing plugin.entrypoint",
+                    manifest_path.display()
+                ))
+            })?;
+        let logical_entrypoint = Path::new(entrypoint);
+        if logical_entrypoint.is_absolute()
+            || !matches!(
+                logical_entrypoint
+                    .components()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                [std::path::Component::Normal(_)]
+            )
+        {
+            return Err(LlaError::Plugin(format!(
+                "Plugin manifest {} has an invalid package entrypoint '{}'",
+                manifest_path.display(),
+                entrypoint
+            )));
         }
 
-        if files.is_empty() {
-            return Err(LlaError::Plugin(format!(
-                "Cannot create a checksum inventory for empty package {}",
+        let platform_entrypoint = format!(
+            "{}{}{}",
+            std::env::consts::DLL_PREFIX,
+            entrypoint,
+            std::env::consts::DLL_SUFFIX
+        );
+        let entrypoint_without_prefix = format!("{}{}", entrypoint, std::env::consts::DLL_SUFFIX);
+        let entrypoint_path = [
+            package_dir.join(entrypoint),
+            package_dir.join(platform_entrypoint),
+            package_dir.join(entrypoint_without_prefix),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            LlaError::Plugin(format!(
+                "Cannot find runtime entrypoint '{}' in plugin package {}",
+                entrypoint,
                 package_dir.display()
-            )));
+            ))
+        })?;
+        let entrypoint_name = entrypoint_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                LlaError::Plugin(format!(
+                    "Plugin package entrypoint {} has an invalid file name",
+                    entrypoint_path.display()
+                ))
+            })?;
+
+        let mut files = BTreeMap::new();
+        for (name, path) in [
+            ("plugin.toml", manifest_path.as_path()),
+            (entrypoint_name, entrypoint_path.as_path()),
+        ] {
+            if !path.is_file() {
+                return Err(LlaError::Plugin(format!(
+                    "Cannot checksum missing plugin package file {}",
+                    path.display()
+                )));
+            }
+            files.insert(name.to_string(), Self::calculate_sha256(&path)?);
         }
 
         #[derive(Serialize)]
@@ -3122,13 +3188,39 @@ mod tests {
     #[cfg(feature = "dynamic-plugins")]
     fn source_packages_receive_checksum_inventories() {
         let root = tempfile::tempdir().unwrap();
-        fs::write(root.path().join("plugin.toml"), b"manifest").unwrap();
-        fs::write(root.path().join("libexample.so"), b"plugin").unwrap();
+        fs::write(
+            root.path().join("plugin.toml"),
+            b"[plugin]\nentrypoint = \"example\"\n",
+        )
+        .unwrap();
+        let entrypoint_name = format!(
+            "{}example{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        );
+        let entrypoint = root.path().join(&entrypoint_name);
+        fs::write(&entrypoint, b"plugin").unwrap();
+        fs::write(root.path().join("config.toml"), b"first_run = false").unwrap();
+        fs::write(root.path().join("cache.toml"), b"entries = []").unwrap();
 
         PluginInstaller::write_package_checksums(root.path()).unwrap();
 
+        let inventory = fs::read_to_string(root.path().join("checksums.toml")).unwrap();
+        let inventory: toml::Value = toml::from_str(&inventory).unwrap();
+        let files = inventory
+            .get("files")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.contains_key("plugin.toml"));
+        assert!(files.contains_key(&entrypoint_name));
+        assert!(!files.contains_key("config.toml"));
+        assert!(!files.contains_key("cache.toml"));
+
+        fs::write(root.path().join("config.toml"), b"first_run = true").unwrap();
+        fs::write(root.path().join("cache.toml"), b"entries = [1]").unwrap();
         assert_eq!(
-            PluginInstaller::verify_plugin_package(&root.path().join("libexample.so")).unwrap(),
+            PluginInstaller::verify_plugin_package(&entrypoint).unwrap(),
             ()
         );
     }
