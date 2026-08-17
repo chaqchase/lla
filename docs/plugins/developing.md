@@ -1,5 +1,10 @@
 # Developing plugins
 
+This is the short development guide. The canonical
+[architecture and Plugin Platform handbook](../handbook.md) contains a complete
+native plugin implementation, WebAssembly conversion, SDK reference, package
+lifecycle, testing matrix, performance guidance, and troubleshooting.
+
 Rust is the maintained SDK language for lla 0.6.0. Native plugins and Rust
 WebAssembly components use the same high-level `Plugin` trait. Other languages
 may generate Component Model bindings from the published WIT world.

@@ -1,0 +1,46 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.reclaimable-space"
+name = "reclaimable_space"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "reclaimable_space"
+description = "Identify generated, cached, and temporary files that can be reclaimed"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["sizemap"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:tree"]
+
+[[fields]]
+name = "reclaimable_bytes"
+type = "bytes"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "reclaim_reason"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "reclaim_confidence"
+type = "string"
+sortable = true
+filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Explain whether a path is safely reclaimable"
+examples = ["lla plugin run reclaimable_space inspect -- ./target"]
+interactive = false
+arguments = [{ name = "path", type = "path", description = "Path to inspect.", position = 0, required = true }]
+output = { type = "value" }

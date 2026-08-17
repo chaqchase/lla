@@ -128,6 +128,13 @@ fn normalize_plugin_format(format: &str) -> Option<&'static str> {
         "default" => Some("default"),
         "long" => Some("long"),
         "table" => Some("long"),
+        "tree" => Some("tree"),
+        "grid" => Some("grid"),
+        "recursive" => Some("recursive"),
+        "sizemap" => Some("sizemap"),
+        "timeline" => Some("timeline"),
+        "git" => Some("git"),
+        "fuzzy" => Some("fuzzy"),
         _ => None,
     }
 }
@@ -1949,6 +1956,25 @@ fn is_regular_directory(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_all_human_plugin_formats() {
+        for format in [
+            "default",
+            "long",
+            "tree",
+            "grid",
+            "recursive",
+            "sizemap",
+            "timeline",
+            "git",
+            "fuzzy",
+        ] {
+            assert_eq!(normalize_plugin_format(format), Some(format));
+        }
+        assert_eq!(normalize_plugin_format("table"), Some("long"));
+        assert_eq!(normalize_plugin_format("unknown"), None);
+    }
 
     #[test]
     fn plugin_name_hint_handles_platform_library_prefix() {

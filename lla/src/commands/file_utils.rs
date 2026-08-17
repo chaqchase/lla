@@ -236,6 +236,12 @@ pub fn get_format(args: &Args) -> &'static str {
         "table"
     } else if args.grid_format {
         "grid"
+    } else if args.sizemap_format {
+        "sizemap"
+    } else if args.timeline_format {
+        "timeline"
+    } else if args.git_format {
+        "git"
     } else if args.recursive_format {
         "recursive"
     } else {
@@ -1196,6 +1202,21 @@ mod tests {
 
         let context = ListingContext::from_args(&args, &config);
         assert!(!context.include_dir_sizes);
+    }
+
+    #[test]
+    fn resolves_specialized_plugin_formats() {
+        let mut args = args_with_include_dirs();
+        args.sizemap_format = true;
+        assert_eq!(get_format(&args), "sizemap");
+
+        args.sizemap_format = false;
+        args.timeline_format = true;
+        assert_eq!(get_format(&args), "timeline");
+
+        args.timeline_format = false;
+        args.git_format = true;
+        assert_eq!(get_format(&args), "git");
     }
 
     #[test]

@@ -1,0 +1,46 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.tree-summary"
+name = "tree_summary"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "tree_summary"
+description = "Add recursive directory totals to tree listings"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["tree"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:tree"]
+
+[[fields]]
+name = "tree_file_count"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "tree_directory_count"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "tree_total_bytes"
+type = "bytes"
+sortable = true
+filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Calculate recursive totals for a directory"
+examples = ["lla plugin run tree_summary inspect -- ."]
+interactive = false
+arguments = [{ name = "path", type = "path", description = "Directory to summarize.", position = 0, required = true }]
+output = { type = "value" }

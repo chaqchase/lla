@@ -1,0 +1,58 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.change-risk"
+name = "change_risk"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "change_risk"
+description = "Estimate per-file change risk from size, complexity, Git churn, and worktree state"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["git"]
+machine_output = true
+
+[permissions]
+filesystem = ["read:selection"]
+process = true
+
+[[fields]]
+name = "change_risk_level"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "change_risk_score"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "change_churn"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "change_commits"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "change_risk_reasons"
+type = "string"
+filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Explain the change-risk score for a file"
+examples = ["lla plugin run change_risk inspect -- ./src/main.rs"]
+interactive = false
+arguments = [{ name = "path", type = "path", description = "File to score.", position = 0, required = true }]
+output = { type = "value" }

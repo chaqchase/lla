@@ -153,16 +153,13 @@ impl FileFormatter for TimelineFormatter {
                 let name = hyperlink::link_path(path, name);
 
                 let plugin_fields = plugin_manager.format_fields(entry, "timeline").join(" ");
-                let git_info = if let Some(git_field) = plugin_fields
-                    .split_whitespace()
-                    .find(|s| s.contains("commit:"))
-                {
-                    format!(" {}", git_field.color(Self::get_commit_color()))
-                } else {
+                let plugin_info = if plugin_fields.is_empty() {
                     String::new()
+                } else {
+                    format!(" {}", plugin_fields.color(Self::get_commit_color()))
                 };
 
-                output.push_str(&format!("{} • {}{}\n", name, time_str, git_info));
+                output.push_str(&format!("{} • {}{}\n", name, time_str, plugin_info));
             }
             output.push('\n');
         }

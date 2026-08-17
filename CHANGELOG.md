@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `reclaimable_space`, `activity_history`, `tree_summary`, and `change_risk` plugins for sizemap, timeline, tree, and Git views.
+- Plugin decoration and formatting support across specialized human-readable views, including directory summaries in tree output and complete plugin annotations in timeline output.
+
 ## [0.6.0] - 2026-08-17
 
 ### Added
