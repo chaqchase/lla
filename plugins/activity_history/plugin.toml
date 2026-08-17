@@ -1,0 +1,59 @@
+schema_version = 3
+
+[plugin]
+id = "dev.lla.activity-history"
+name = "activity_history"
+version = "0.6.0"
+api_min = 3
+api_max = 3
+runtime = "native"
+entrypoint = "activity_history"
+description = "Add Git-backed file activity history to timeline listings"
+license = "MIT"
+
+[capabilities]
+decorates_entries = true
+formats = ["timeline"]
+machine_output = true
+
+[permissions]
+filesystem = ["metadata:selection"]
+process = true
+
+[[fields]]
+name = "activity_commits"
+type = "integer"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "activity_last_commit"
+type = "timestamp"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "activity_author"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "activity_commit"
+type = "string"
+sortable = true
+filterable = true
+
+[[fields]]
+name = "activity_days_since"
+type = "integer"
+sortable = true
+filterable = true
+
+[[actions]]
+id = "inspect"
+description = "Show Git activity history for a path"
+examples = ["lla plugin run activity_history inspect -- ./src/main.rs"]
+interactive = false
+arguments = [{ name = "path", type = "path", description = "Tracked file or directory to inspect.", position = 0, required = true }]
+output = { type = "value" }

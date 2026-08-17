@@ -4,8 +4,10 @@
 
 These plugins are built and verified as part of every lla release.
 
+- [`activity_history`](../../plugins/activity_history/README.md) — Add Git-backed file activity history to timeline listings (`dev.lla.activity-history`)
 - [`brew`](../../plugins/brew/README.md) — Manage Homebrew packages (`dev.lla.brew`)
 - [`categorizer`](../../plugins/categorizer/README.md) — Categorize files from extensions and metadata (`dev.lla.categorizer`)
+- [`change_risk`](../../plugins/change_risk/README.md) — Estimate per-file change risk from size, complexity, Git churn, and worktree state (`dev.lla.change-risk`)
 - [`code_complexity`](../../plugins/code_complexity/README.md) — Analyze source-code complexity (`dev.lla.code-complexity`)
 - [`code_snippet_extractor`](../../plugins/code_snippet_extractor/README.md) — Extract and manage tagged code snippets (`dev.lla.code-snippet-extractor`)
 - [`dirs_meta`](../../plugins/dirs_meta/README.md) — Calculate directory counts and sizes (`dev.lla.dirs-meta`)
@@ -31,9 +33,11 @@ These plugins are built and verified as part of every lla release.
 - [`npm`](../../plugins/npm/README.md) — Search npm packages and inspect bundle size (`dev.lla.npm`)
 - [`preview`](../../plugins/preview/README.md) — Preview source text, Markdown, images, and archives in the terminal (`dev.lla.preview`)
 - [`project_context`](../../plugins/project_context/README.md) — Detect project type, toolchains, dependency locks, artifacts, and repository health (`dev.lla.project-context`)
+- [`reclaimable_space`](../../plugins/reclaimable_space/README.md) — Identify generated, cached, and temporary files that can be reclaimed (`dev.lla.reclaimable-space`)
 - [`remove_paywall`](../../plugins/remove_paywall/README.md) — Create archival and reader links for URLs (`dev.lla.remove-paywall`)
 - [`security_audit`](../../plugins/security_audit/README.md) — Audit unsafe permissions, privileged bits, risky symlinks, and exposed secrets (`dev.lla.security-audit`)
 - [`sizeviz`](../../plugins/sizeviz/README.md) — Visualize file sizes (`dev.lla.sizeviz`)
 - [`speed_test`](../../plugins/speed_test/README.md) — Measure network latency and throughput (`dev.lla.speed-test`)
 - [`trash`](../../plugins/trash/README.md) — Cross-platform recoverable deletion with restore support (`dev.lla.trash`)
+- [`tree_summary`](../../plugins/tree_summary/README.md) — Add recursive directory totals to tree listings (`dev.lla.tree-summary`)
 - [`youtube`](../../plugins/youtube/README.md) — Search and open YouTube videos (`dev.lla.youtube`)

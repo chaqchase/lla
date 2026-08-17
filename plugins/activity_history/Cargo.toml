@@ -1,0 +1,14 @@
+[package]
+name = "activity_history"
+version = "0.6.0"
+edition = "2021"
+description = "Add Git-backed file activity history to timeline listings"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_sdk = { path = "../../sdk" }
+
+[dev-dependencies]
+tempfile.workspace = true

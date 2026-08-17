@@ -21,14 +21,18 @@ impl TreeFormatter {
         Self { show_icons }
     }
 
-    fn format_entry(&self, path: &Path) -> String {
+    fn format_entry(&self, path: &Path, plugin_field: Option<&str>) -> String {
         let colored_name = colorize_file_name(path).to_string();
         let name = if self.show_icons {
             format_with_icon(path, colored_name, true)
         } else {
             colored_name
         };
-        hyperlink::link_path(path, name)
+        let name = hyperlink::link_path(path, name);
+        match plugin_field.filter(|field| !field.is_empty()) {
+            Some(field) => format!("{name} {field}"),
+            None => name,
+        }
     }
 
     fn build_tree(
@@ -72,6 +76,7 @@ impl TreeFormatter {
         prefix: &str,
         is_last: bool,
         tree: &HashMap<PathBuf, Vec<PathBuf>>,
+        plugin_fields: &HashMap<PathBuf, String>,
         writer: &mut impl Write,
         current_depth: usize,
         max_depth: Option<usize>,
@@ -85,7 +90,7 @@ impl TreeFormatter {
         let node_prefix = if is_last { "└── " } else { "├── " };
         let child_prefix = if is_last { "    " } else { "│   " };
 
-        let formatted_name = self.format_entry(path);
+        let formatted_name = self.format_entry(path, plugin_fields.get(path).map(String::as_str));
         writeln!(
             writer,
             "{}{}{}",
@@ -104,6 +109,7 @@ impl TreeFormatter {
                     &new_prefix,
                     is_last_child,
                     tree,
+                    plugin_fields,
                     writer,
                     current_depth + 1,
                     max_depth,
@@ -118,7 +124,7 @@ impl FileFormatter for TreeFormatter {
     fn format_files(
         &self,
         files: &[DecoratedEntry],
-        _plugin_manager: &mut PluginManager,
+        plugin_manager: &mut PluginManager,
         depth: Option<usize>,
     ) -> Result<String> {
         if files.is_empty() {
@@ -129,13 +135,31 @@ impl FileFormatter for TreeFormatter {
             return Ok(String::new());
         }
 
+        plugin_manager.prepare_format_fields(files, "tree");
+        let plugin_fields = files
+            .iter()
+            .filter_map(|entry| {
+                let fields = plugin_manager.format_fields(entry, "tree").join(" ");
+                (!fields.is_empty()).then(|| (PathBuf::from(&entry.path), fields))
+            })
+            .collect::<HashMap<_, _>>();
+
         let (root_paths, tree) = self.build_tree(files);
         let mut buffer = Vec::with_capacity(BUFFER_SIZE);
 
         let last_idx = root_paths.len().saturating_sub(1);
         for (i, path) in root_paths.iter().enumerate() {
             let is_last = i == last_idx;
-            self.write_tree_recursive(path, "", is_last, &tree, &mut buffer, 0, depth)?;
+            self.write_tree_recursive(
+                path,
+                "",
+                is_last,
+                &tree,
+                &plugin_fields,
+                &mut buffer,
+                0,
+                depth,
+            )?;
         }
 
         Ok(String::from_utf8_lossy(&buffer).into_owned())

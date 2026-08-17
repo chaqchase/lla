@@ -1,0 +1,15 @@
+[package]
+name = "tree_summary"
+version = "0.6.0"
+edition = "2021"
+description = "Add recursive directory totals to tree listings"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lla_plugin_sdk = { path = "../../sdk" }
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "activity_history"
+version = "0.6.0"
+dependencies = [
+ "lla_plugin_sdk",
+ "tempfile",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -319,6 +327,14 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "change_risk"
+version = "0.6.0"
+dependencies = [
+ "lla_plugin_sdk",
+ "tempfile",
 ]
 
 [[package]]
@@ -3004,6 +3020,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reclaimable_space"
+version = "0.6.0"
+dependencies = [
+ "lla_plugin_sdk",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4016,6 +4041,15 @@ dependencies = [
  "lla_plugin_sdk",
  "lla_plugin_utils",
  "parking_lot",
+]
+
+[[package]]
+name = "tree_summary"
+version = "0.6.0"
+dependencies = [
+ "lla_plugin_sdk",
+ "tempfile",
+ "walkdir",
 ]
 
 [[package]]
