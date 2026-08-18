@@ -936,7 +936,11 @@ impl PluginInstaller {
     }
 
     #[cfg(feature = "dynamic-plugins")]
-    fn ensure_wasm_permissions(&self, manifest: &PluginManifest) -> Result<()> {
+    fn ensure_wasm_permissions(
+        &self,
+        manifest: &PluginManifest,
+        progress: Option<&ProgressBar>,
+    ) -> Result<()> {
         if manifest.plugin.runtime != PluginRuntime::WasmComponent {
             return Ok(());
         }
@@ -954,20 +958,29 @@ impl PluginInstaller {
                 expanded.join(", ")
             )));
         }
-        eprintln!(
-            "Plugin '{}' requests: {}",
-            manifest.plugin.name,
-            if expanded.is_empty() {
-                "no capabilities".to_string()
-            } else {
-                expanded.join(", ")
-            }
-        );
-        let approved = Confirm::new()
-            .with_prompt("Approve these WASM sandbox permissions?")
-            .default(false)
-            .interact()
-            .map_err(|error| LlaError::Plugin(format!("permission prompt failed: {error}")))?;
+        let prompt = || {
+            eprintln!(
+                "Plugin '{}' requests: {}",
+                manifest.plugin.name,
+                if expanded.is_empty() {
+                    "no capabilities".to_string()
+                } else {
+                    expanded.join(", ")
+                }
+            );
+            Confirm::new()
+                .with_prompt("Approve these WASM sandbox permissions?")
+                .default(false)
+                .interact()
+                .map_err(|error| LlaError::Plugin(format!("permission prompt failed: {error}")))
+        };
+        // Permission prompts and progress bars both render on stderr. Suspend an
+        // active bar while dialoguer owns the terminal so the prompt remains
+        // visible and can receive input instead of being continuously repainted.
+        let approved = match progress {
+            Some(progress) => progress.suspend(prompt),
+            None => prompt(),
+        }?;
         if !approved {
             return Err(LlaError::Plugin(format!(
                 "Permission approval denied for '{}'",
@@ -1626,6 +1639,7 @@ impl PluginInstaller {
         release_tag: &str,
         asset_name: &str,
         checksum: Option<&str>,
+        progress: Option<&ProgressBar>,
     ) -> Result<()> {
         fs::create_dir_all(&self.plugins_dir)?;
 
@@ -1637,7 +1651,7 @@ impl PluginInstaller {
         #[cfg(feature = "dynamic-plugins")]
         if let Some(path) = manifest_source.as_ref().filter(|path| path.is_file()) {
             let manifest = PluginManifest::from_path(path).map_err(LlaError::Plugin)?;
-            self.ensure_wasm_permissions(&manifest)?;
+            self.ensure_wasm_permissions(&manifest, progress)?;
         }
         let is_v3_package = manifest_source.as_ref().is_some_and(|path| path.is_file());
         let package_dir = self.plugins_dir.join(&plugin.name);
@@ -1894,6 +1908,7 @@ impl PluginInstaller {
                 &release.tag_name,
                 &asset.name,
                 checksum.as_deref(),
+                spinner.as_ref(),
             ) {
                 Ok(_) => {
                     if let Some(ref pb) = spinner {
@@ -2560,7 +2575,7 @@ impl PluginInstaller {
             #[cfg(feature = "dynamic-plugins")]
             {
                 let manifest = manifest.as_ref().expect("manifest was parsed above");
-                self.ensure_wasm_permissions(manifest)?;
+                self.ensure_wasm_permissions(manifest, pb)?;
             }
             let destination = self.plugins_dir.join(&plugin_name);
             fs::create_dir_all(&destination)?;
