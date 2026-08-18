@@ -1641,6 +1641,9 @@ impl PluginInstaller {
         checksum: Option<&str>,
         progress: Option<&ProgressBar>,
     ) -> Result<()> {
+        #[cfg(not(feature = "dynamic-plugins"))]
+        let _ = progress;
+
         fs::create_dir_all(&self.plugins_dir)?;
 
         let file_name = plugin.path.file_name().ok_or_else(|| {

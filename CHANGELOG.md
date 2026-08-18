@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-18
+
 ### Fixed
 
 - WASM permission prompts now suspend active plugin-install progress bars, so
   approvals remain visible and interactive instead of appearing to hang during
   prebuilt or source installation.
+
 
 ## [0.6.1] - 2026-08-17
 

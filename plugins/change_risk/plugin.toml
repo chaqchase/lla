@@ -3,7 +3,7 @@ schema_version = 3
 [plugin]
 id = "dev.lla.change-risk"
 name = "change_risk"
-version = "0.6.1"
+version = "0.6.2"
 api_min = 3
 api_max = 3
 runtime = "native"
