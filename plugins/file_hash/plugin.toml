@@ -6,8 +6,8 @@ name = "file_hash"
 version = "0.6.2"
 api_min = 3
 api_max = 3
-runtime = "wasm-component"
-entrypoint = "file_hash.wasm"
+runtime = "native"
+entrypoint = "file_hash"
 description = "Calculate file hashes"
 license = "MIT"
 

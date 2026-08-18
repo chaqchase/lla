@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.2] - 2026-08-18
 
+### Changed
+
+- The bundled `file_hash` plugin now ships as a native Plugin Platform v3
+  library on every supported release architecture.
+
 ### Fixed
 
 - WASM permission prompts now suspend active plugin-install progress bars, so

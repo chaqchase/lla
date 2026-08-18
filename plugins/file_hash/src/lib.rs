@@ -11,8 +11,8 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const CONFIG_PATH: &str = "/data/config.toml";
-const CACHE_PATH: &str = "/data/cache.toml";
+const CONFIG_FILE: &str = "config.toml";
+const CACHE_FILE: &str = "cache.toml";
 const USAGE_REFRESH_INTERVAL_NS: u64 = 60 * 60 * 1_000_000_000;
 const DEFAULT_CONFIG: &str = r#"[colors]
 sha1 = "bright_green"
@@ -231,17 +231,20 @@ impl Plugin for FileHashPlugin {
 
 impl Default for FileHashPlugin {
     fn default() -> Self {
-        let _ = std::fs::create_dir_all("/data");
-        if !Path::new(CONFIG_PATH).exists() {
-            let _ = std::fs::write(CONFIG_PATH, DEFAULT_CONFIG);
+        let data_dir = plugin_data_dir();
+        let config_path = data_dir.join(CONFIG_FILE);
+        let cache_path = data_dir.join(CACHE_FILE);
+        let _ = std::fs::create_dir_all(&data_dir);
+        if !config_path.exists() {
+            let _ = std::fs::write(&config_path, DEFAULT_CONFIG);
         }
-        let config = std::fs::read_to_string(CONFIG_PATH)
+        let config = std::fs::read_to_string(config_path)
             .ok()
             .and_then(|source| toml::from_str::<PluginConfig>(&source).ok())
             .unwrap_or_default();
         Self {
             colors: config.colors,
-            cache: HashCache::load(CACHE_PATH, config.cache.enabled, config.cache.max_entries),
+            cache: HashCache::load(cache_path, config.cache.enabled, config.cache.max_entries),
         }
     }
 }
@@ -391,7 +394,20 @@ fn ansi_color(color: &str) -> Option<&'static str> {
     }
 }
 
-lla_plugin_sdk::export_component!(FileHashPlugin);
+fn plugin_data_dir() -> PathBuf {
+    std::env::var_os("LLA_PLUGIN_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".config")
+                .join("lla")
+                .join("plugins")
+        })
+        .join("file_hash")
+}
+
+lla_plugin_sdk::export_plugin!(FileHashPlugin);
 
 #[cfg(test)]
 mod tests {

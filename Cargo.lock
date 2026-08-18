@@ -1018,6 +1018,7 @@ dependencies = [
 name = "file_hash"
 version = "0.6.2"
 dependencies = [
+ "dirs",
  "lla_plugin_sdk",
  "serde",
  "sha1",

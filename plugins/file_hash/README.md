@@ -9,7 +9,7 @@ A high-performance file hashing plugin for `lla` that calculates secure cryptogr
 - Persistent metadata-keyed digest cache
 - Efficient 64 KiB buffered reads on cache misses
 - Rich display formatting
-- Sandboxed WASI Preview 2 execution
+- Native Plugin Platform v3 execution
 - Structured text output for plugin actions
 
 ## Configuration
@@ -39,10 +39,10 @@ that cache file to force a complete rebuild; it is recreated automatically.
 # View help information
 lla plugin run file_hash help
 
-# First run populates the digest and Wasmtime compilation caches
+# First run populates the digest cache
 lla -l ./directory
 
-# The same listing should reuse both caches
+# The same listing should reuse cached hashes when file metadata is unchanged
 lla -l ./directory
 ```
 

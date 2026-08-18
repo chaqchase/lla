@@ -7,9 +7,10 @@ edition = "2021"
 [dependencies]
 sha1 = "0.10.1"
 sha2 = "0.10.2"
-lla_plugin_sdk = { path = "../../sdk", features = ["component"] }
+lla_plugin_sdk = { path = "../../sdk" }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
+dirs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

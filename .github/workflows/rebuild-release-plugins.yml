@@ -1,0 +1,181 @@
+name: Rebuild Release Plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release whose plugin archives should be replaced
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebuild-release-plugins-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_ZIGBUILD_VERSION: "0.23.0"
+  GLIBC_BASELINE: "2.28"
+  ZIG_VERSION: "0.15.2"
+
+jobs:
+  validate:
+    name: Validate Replacement
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.context.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate release and source versions
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          validate_semver_tag "$RELEASE_TAG"
+          release_version="${RELEASE_TAG#v}"
+          validate_release_versions "$release_version"
+          validate_changelog_section "$release_version"
+          is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" != "false" ]]; then
+            echo "Release $RELEASE_TAG must already be published" 1>&2
+            exit 1
+          fi
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+
+  build_plugins:
+    name: Build Plugins (${{ matrix.os_label }}-${{ matrix.arch_label }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            os_label: linux
+            arch_label: amd64
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            os_label: linux
+            arch_label: arm64
+          - runner: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            os_label: linux
+            arch_label: i686
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            os_label: macos
+            arch_label: amd64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            os_label: macos
+            arch_label: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned Zig build tools
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install "ziglang==$ZIG_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
+
+      - name: Build plugin archives
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
+          else
+            ./scripts/build_plugins.sh --target "${{ matrix.target }}"
+          fi
+
+      - name: Verify glibc baseline
+        if: runner.os == 'Linux'
+        run: |
+          mapfile -t plugins < <(find "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}" -type f -name '*.so' | sort)
+          .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
+
+      - name: Verify Plugin Platform v3
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
+        run: ./scripts/verify_plugins_v3.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
+
+      - name: Confirm file_hash is native
+        run: |
+          manifest="dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}/file_hash/plugin.toml"
+          grep -Eq '^runtime = "native"$' "$manifest"
+          if find "$(dirname "$manifest")" -maxdepth 1 -type f -name '*.wasm' | grep -q .; then
+            echo "file_hash package unexpectedly contains a WASM component" 1>&2
+            exit 1
+          fi
+
+      - name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
+          path: |
+            dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz
+            dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
+
+  replace_assets:
+    name: Replace Release Plugin Assets
+    needs: [validate, build_plugins]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download rebuilt plugin archives
+        uses: actions/download-artifact@v4
+        with:
+          path: rebuilt_plugins
+          pattern: plugins-*
+          merge-multiple: true
+
+      - name: Replace plugin archives
+        run: |
+          set -euo pipefail
+          expected=10
+          actual="$(find rebuilt_plugins -maxdepth 1 -type f \( -name 'plugins-*.tar.gz' -o -name 'plugins-*.zip' \) | wc -l | tr -d ' ')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Expected $expected rebuilt plugin archives, found $actual" 1>&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" rebuilt_plugins/* --clobber
+
+      - name: Regenerate checksums and release notes
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          mkdir release_assets
+          gh release download "$RELEASE_TAG" --dir release_assets
+          rm -f release_assets/SHA256SUMS
+          generate_checksums release_assets release_assets/SHA256SUMS
+          create_release_notes "$RELEASE_TAG" "$RELEASE_VERSION" release_assets/SHA256SUMS RELEASE_NOTES.md
+          gh release upload "$RELEASE_TAG" release_assets/SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --notes-file RELEASE_NOTES.md
+
+      - name: Verify replaced assets
+        run: |
+          set -euo pipefail
+          source .github/scripts/release_helpers.sh
+          for asset in rebuilt_plugins/*; do
+            asset_exists "$RELEASE_TAG" "$(basename "$asset")"
+          done
+          asset_exists "$RELEASE_TAG" SHA256SUMS

@@ -90,7 +90,7 @@ trap cleanup_all EXIT
 
 HOME="$TEST_HOME" target/debug/lla --plugins-dir "$PACKAGE_DIR" plugin doctor
 
-if [[ -f "$PACKAGE_DIR/file_hash/file_hash.wasm" ]]; then
+if [[ -d "$PACKAGE_DIR/file_hash" ]]; then
   HOME="$TEST_HOME" target/debug/lla --plugins-dir "$PACKAGE_DIR" \
     plugin run file_hash help --output json >/dev/null
   HASH_FIXTURE="$TEST_HOME/hash-fixture"
