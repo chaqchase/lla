@@ -1004,11 +1004,7 @@ fn mark_file_executable(path: &Path) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    {
-        let mut perms = fs::metadata(path)?.permissions();
-        perms.set_readonly(false);
-        fs::set_permissions(path, perms)?;
-    }
+    let _ = path;
 
     Ok(())
 }

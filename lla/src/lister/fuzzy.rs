@@ -178,7 +178,7 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     }
 }
 
-fn open_path(path: &PathBuf) -> std::io::Result<()> {
+fn open_path(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
         let _ = ProcessCommand::new("open").arg(path).spawn()?.wait();
