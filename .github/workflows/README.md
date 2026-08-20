@@ -12,8 +12,9 @@ The canonical maintainer checklist is in
 
 - Triggered on pushes and pull requests to `main` when Rust sources, manifests, proto files, scripts, workflow files, package metadata, or toolchain files change.
 - Runs formatting, Clippy, tests, and release-mode build checks across Linux and macOS.
-- Checks the default-feature CLI natively on NetBSD and verifies that Wasmtime
-  is absent from its dependency graph.
+- Builds the default-feature CLI natively on NetBSD, verifies that Wasmtime is
+  absent from its dependency graph, smoke-tests it, and uploads
+  `lla-netbsd-amd64`.
 - Builds GNU/Linux artifacts against an explicit glibc 2.28 baseline and rejects newer symbol requirements.
 - Clippy stays in regular CI; release publishing is gated by formatting, tests, validation, asset verification, and publish dry-runs.
 

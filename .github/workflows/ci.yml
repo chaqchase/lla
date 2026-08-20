@@ -87,6 +87,7 @@ jobs:
         uses: vmactions/netbsd-vm@v1
         with:
           release: "10.1"
+          sync: rsync
           usesh: true
           custom-shell-name: netbsd-sh
 
@@ -96,15 +97,23 @@ jobs:
           pkg_add curl
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 
-      - name: Check default build without Wasmtime
+      - name: Build default release without Wasmtime
         shell: netbsd-sh {0}
         run: |
           . "$HOME/.cargo/env"
-          cargo check -p lla
+          cargo build --release -p lla
           if cargo tree -p lla -i wasmtime >/dev/null 2>&1; then
             echo "Default NetBSD dependency graph unexpectedly includes Wasmtime" 1>&2
             exit 1
           fi
+          ./target/release/lla --help >/dev/null
+          cp target/release/lla lla-netbsd-amd64
+
+      - name: Upload NetBSD binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lla-netbsd-amd64
+          path: lla-netbsd-amd64
 
   build:
     name: Build
