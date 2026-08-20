@@ -257,7 +257,14 @@ jobs:
           & $binary --version | Out-Null
           $fixture = Join-Path $env:RUNNER_TEMP "lla-release-smoke"
           New-Item -ItemType Directory -Force $fixture | Out-Null
-          Set-Content -NoNewline (Join-Path $fixture "fixture.txt") "abc"
+          $fixtureFile = Join-Path $fixture "fixture.txt"
+          [System.IO.File]::WriteAllBytes($fixtureFile, [byte[]](97, 98, 99))
+          if (-not (Test-Path -LiteralPath $fixtureFile -PathType Leaf)) {
+            throw "Windows smoke fixture was not created: $fixtureFile"
+          }
+          if ((Get-Item -LiteralPath $fixtureFile).Length -ne 3) {
+            throw "Windows smoke fixture has an unexpected size"
+          }
           $rawJson = (& $binary --json $fixture) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw "Windows JSON smoke test failed: $rawJson" }
           $json = $rawJson | ConvertFrom-Json
