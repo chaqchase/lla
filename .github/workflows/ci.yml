@@ -60,10 +60,15 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy -p lla --all-targets -- -D warnings
+          cargo clippy -p lla --no-default-features --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace
+          cargo test -p lla --features wasm-plugins
 
       - name: Compile SDK fixtures
         run: |
@@ -71,6 +76,35 @@ jobs:
           cargo check --manifest-path sdk/tests/fixtures/custom_batch/Cargo.toml
           cargo check --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml
           cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
+
+  netbsd:
+    name: NetBSD Default Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start NetBSD VM
+        uses: vmactions/netbsd-vm@v1
+        with:
+          release: "10.1"
+          usesh: true
+          custom-shell-name: netbsd-sh
+
+      - name: Install Rust
+        shell: netbsd-sh {0}
+        run: |
+          pkg_add curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+      - name: Check default build without Wasmtime
+        shell: netbsd-sh {0}
+        run: |
+          . "$HOME/.cargo/env"
+          cargo check -p lla
+          if cargo tree -p lla -i wasmtime >/dev/null 2>&1; then
+            echo "Default NetBSD dependency graph unexpectedly includes Wasmtime" 1>&2
+            exit 1
+          fi
 
   build:
     name: Build
@@ -148,11 +182,11 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         run: |
           if [[ "${{ matrix.libc }}" == "musl" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}" -p lla
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}"
+            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}" -p lla --features wasm-plugins
           else
-            cargo build --release --target "${{ matrix.target }}"
+            cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           fi
 
       - name: Verify glibc baseline

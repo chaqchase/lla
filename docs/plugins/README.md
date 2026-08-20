@@ -17,7 +17,9 @@ my-plugin/
 ```
 
 For a WebAssembly package, the native library is replaced by the `.wasm`
-component named by `plugin.entrypoint`.
+component named by `plugin.entrypoint`. Loading it requires an lla host built
+with `--features wasm-plugins`; official Linux and macOS release binaries
+include that feature, while the NetBSD release binary intentionally does not.
 
 ## Install plugins
 

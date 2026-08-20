@@ -207,6 +207,7 @@ lla-linux-arm64-musl
 lla-linux-i686
 lla-macos-amd64
 lla-macos-arm64
+lla-netbsd-amd64
 plugins-linux-amd64.tar.gz
 plugins-linux-amd64.zip
 plugins-linux-arm64.tar.gz

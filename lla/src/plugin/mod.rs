@@ -20,7 +20,10 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod grants;
 pub(crate) mod package;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(all(
+    feature = "wasm-plugins",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod wasm_runtime;
 
 #[derive(Clone, Default)]
@@ -63,21 +66,61 @@ pub(crate) fn wasm_runtime_supported(architecture: &str) -> bool {
     matches!(architecture, "x86_64" | "aarch64")
 }
 
+fn wasm_runtime_platform_supported(os: &str, architecture: &str) -> bool {
+    wasm_runtime_supported(architecture) && !matches!(os, "netbsd" | "openbsd")
+}
+
+fn ensure_wasm_runtime_available_for(
+    plugin_name: &str,
+    os: &str,
+    architecture: &str,
+    feature_enabled: bool,
+) -> Result<()> {
+    if !wasm_runtime_platform_supported(os, architecture) {
+        return Err(LlaError::Plugin(format!(
+            "Plugin '{plugin_name}' is a WASM component, but the embedded Wasmtime runtime is unsupported on {os}/{architecture}"
+        )));
+    }
+    if !feature_enabled {
+        return Err(LlaError::Plugin(format!(
+            "Plugin '{plugin_name}' is a WASM component, but this lla build does not include WASM plugin support; rebuild with '--features wasm-plugins' or use an official full-featured binary"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_wasm_runtime_available(plugin_name: &str) -> Result<()> {
+    ensure_wasm_runtime_available_for(
+        plugin_name,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        cfg!(feature = "wasm-plugins"),
+    )
+}
+
 enum PluginHandle {
     Native(*mut PluginApiV3),
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[cfg(all(
+        feature = "wasm-plugins",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     Wasm(Box<std::sync::Mutex<wasm_runtime::WasmPlugin>>),
 }
 
 impl Drop for PluginHandle {
     fn drop(&mut self) {
-        if let Self::Native(api) = self {
-            unsafe {
+        match self {
+            Self::Native(api) => unsafe {
                 if !api.is_null() {
                     ((**api).destroy)(*api);
                     *api = std::ptr::null_mut();
                 }
-            }
+            },
+            #[cfg(all(
+                feature = "wasm-plugins",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            Self::Wasm(_) => {}
         }
     }
 }
@@ -93,7 +136,7 @@ struct LoadedPlugin {
 }
 
 impl PluginHandle {
-    unsafe fn send(&self, request: &[u8], timeout: std::time::Duration) -> Result<Vec<u8>> {
+    unsafe fn send(&self, request: &[u8], _timeout: std::time::Duration) -> Result<Vec<u8>> {
         match self {
             Self::Native(api) => {
                 let response =
@@ -114,11 +157,14 @@ impl PluginHandle {
                 ((**api).free_response)(response);
                 Ok(bytes)
             }
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            #[cfg(all(
+                feature = "wasm-plugins",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
             Self::Wasm(plugin) => plugin
                 .lock()
                 .map_err(|_| LlaError::Plugin("WASM plugin state is poisoned".to_string()))?
-                .send(request, timeout),
+                .send(request, _timeout),
         }
     }
 }
@@ -861,7 +907,10 @@ impl PluginManager {
         Ok(())
     }
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[cfg(all(
+        feature = "wasm-plugins",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     fn load_wasm_plugin(&mut self, path: &Path, manifest: &PluginManifest) -> Result<()> {
         let path = path.canonicalize()?;
         if self.loaded_paths.contains(&path) {
@@ -892,13 +941,12 @@ impl PluginManager {
         Ok(())
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(not(all(
+        feature = "wasm-plugins",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
     fn load_wasm_plugin(&mut self, _path: &Path, manifest: &PluginManifest) -> Result<()> {
-        Err(LlaError::Plugin(format!(
-            "Plugin '{}' is a WASM component, but the embedded Wasmtime runtime is unsupported on {}",
-            manifest.plugin.name,
-            std::env::consts::ARCH
-        )))
+        ensure_wasm_runtime_available(&manifest.plugin.name)
     }
 
     fn load_manifest_plugin(&mut self, path: &Path, manifest: &PluginManifest) -> Result<()> {
@@ -1993,6 +2041,32 @@ mod tests {
         assert!(!wasm_runtime_supported("i686"));
         assert!(wasm_runtime_supported("x86_64"));
         assert!(wasm_runtime_supported("aarch64"));
+    }
+
+    #[test]
+    fn wasm_runtime_reports_when_the_feature_is_disabled() {
+        let error =
+            ensure_wasm_runtime_available_for("example", "linux", "x86_64", false).unwrap_err();
+        assert!(error.to_string().contains("--features wasm-plugins"));
+    }
+
+    #[test]
+    fn wasm_runtime_reports_when_the_platform_is_unsupported() {
+        let netbsd =
+            ensure_wasm_runtime_available_for("example", "netbsd", "x86_64", false).unwrap_err();
+        let i686 = ensure_wasm_runtime_available_for("example", "linux", "i686", true).unwrap_err();
+
+        assert!(netbsd.to_string().contains("unsupported on netbsd/x86_64"));
+        assert!(i686.to_string().contains("unsupported on linux/i686"));
+    }
+
+    #[cfg(all(
+        feature = "wasm-plugins",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn wasm_runtime_is_available_when_the_feature_and_architecture_are_supported() {
+        ensure_wasm_runtime_available("example").unwrap();
     }
 
     #[test]
