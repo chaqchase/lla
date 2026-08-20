@@ -3,7 +3,7 @@ schema_version = 3
 [plugin]
 id = "dev.lla.last-git-commit"
 name = "last_git_commit"
-version = "0.6.2"
+version = "0.6.3"
 api_min = 3
 api_max = 3
 runtime = "native"
