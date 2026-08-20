@@ -258,8 +258,10 @@ jobs:
           $fixture = Join-Path $env:RUNNER_TEMP "lla-release-smoke"
           New-Item -ItemType Directory -Force $fixture | Out-Null
           Set-Content -NoNewline (Join-Path $fixture "fixture.txt") "abc"
-          $json = & $binary --json $fixture | ConvertFrom-Json
-          if ($json.Count -ne 1) { throw "Windows JSON smoke test returned an unexpected entry count" }
+          $rawJson = (& $binary --json $fixture) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "Windows JSON smoke test failed: $rawJson" }
+          $json = $rawJson | ConvertFrom-Json
+          if (@($json).Count -ne 1) { throw "Windows JSON smoke test returned an unexpected entry count: $rawJson" }
           $entry = @($json)[0]
           foreach ($field in @('owner_user', 'owner_group', 'inode', 'hard_links', 'allocated_size_bytes', 'security_context', 'mount_point', 'mount_source', 'filesystem')) {
             if ($null -ne $entry.$field) { throw "Windows JSON field '$field' must be null" }
