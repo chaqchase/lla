@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that cannot compile the embedded runtime. Official Linux and macOS release
   binaries continue to enable WASM plugins explicitly; the NetBSD binary uses
   the default native-plugin feature set.
+- The terminal event backend now uses Crossterm 0.28 and Mio 1.x, fixing native
+  release compilation against NetBSD 10.1's current kqueue bindings.
 
 ## [0.6.2] - 2026-08-18
 
