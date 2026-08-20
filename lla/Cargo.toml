@@ -13,6 +13,16 @@ exclude = ["docs"]
 [features]
 default = ["dynamic-plugins"]
 dynamic-plugins = ["dep:libloading"]
+wasm-plugins = [
+  "dynamic-plugins",
+  "dep:arboard",
+  "dep:hyper",
+  "dep:open",
+  "dep:url",
+  "dep:wasmtime",
+  "dep:wasmtime-wasi",
+  "dep:wasmtime-wasi-http",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -47,7 +57,7 @@ prost = "0.12"
 regex.workspace = true
 glob.workspace = true
 ignore = "0.4"
-crossterm = "0.27"
+crossterm = "0.28.1"
 crossbeam-channel = "0.5.14"
 unicode-normalization = "0.1.22"
 num_cpus = "1.16"
@@ -65,13 +75,13 @@ similar = "2"
 object = { version = "0.39", features = ["read"] }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
-wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"] }
-wasmtime-wasi = { version = "47.0.3", default-features = false, features = ["p2"] }
-wasmtime-wasi-http = { version = "47.0.3", default-features = true }
-hyper = { version = "1.9", features = ["full"] }
-arboard = "3.3.0"
-open = "5.4.1"
-url = "2.5"
+wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"], optional = true }
+wasmtime-wasi = { version = "47.0.3", default-features = false, features = ["p2"], optional = true }
+wasmtime-wasi-http = { version = "47.0.3", default-features = true, optional = true }
+hyper = { version = "1.9", features = ["full"], optional = true }
+arboard = { version = "3.3.0", optional = true }
+open = { version = "5.4.1", optional = true }
+url = { version = "2.5", optional = true }
 
 [dev-dependencies]
 object = { version = "0.39", features = ["read", "write"] }

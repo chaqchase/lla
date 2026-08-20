@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Official releases now include a native `lla-netbsd-amd64` binary. The install
+  script and `lla upgrade` recognize NetBSD amd64 and verify this asset through
+  the shared release checksum manifest.
+
+### Fixed
+
+- Wasmtime and its host integrations are now gated behind the non-default
+  `wasm-plugins` feature, restoring default builds on NetBSD and other hosts
+  that cannot compile the embedded runtime. Official Linux and macOS release
+  binaries continue to enable WASM plugins explicitly; the NetBSD binary uses
+  the default native-plugin feature set.
+- The terminal event backend now uses Crossterm 0.28 and Mio 1.x, fixing native
+  release compilation against NetBSD 10.1's current kqueue bindings.
+
 ## [0.6.2] - 2026-08-18
 
 ### Changed

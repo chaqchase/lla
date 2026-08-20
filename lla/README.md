@@ -78,9 +78,18 @@ cargo test -p lla
 cargo run -p lla -- --help
 ```
 
-The default feature set enables dynamic plugins. Builds without the
-`dynamic-plugins` feature retain the core CLI but do not load or manage dynamic
-plugins:
+The default feature set enables native dynamic plugins without embedding
+Wasmtime. Enable WebAssembly Component Model plugins explicitly; this feature
+also enables `dynamic-plugins`:
+
+```bash
+cargo build -p lla --features wasm-plugins
+```
+
+Official Linux and macOS release binaries enable `wasm-plugins`. The official
+NetBSD amd64 binary uses the default native-plugin feature set and omits
+Wasmtime. Builds without `dynamic-plugins` retain the core CLI but do not load
+or manage dynamic plugins:
 
 ```bash
 cargo build -p lla --no-default-features

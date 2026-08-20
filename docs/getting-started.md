@@ -44,6 +44,12 @@ musl builds support core listing, formatting, search, archives, themes,
 configuration, and upgrades, but not dynamically loaded plugins. The 32-bit x86
 `.apk` is a GNU-based legacy package.
 
+NetBSD releases include `lla-netbsd-amd64`, which the install script selects on
+NetBSD amd64. It is built natively with the default feature set: native dynamic
+plugins are enabled, but the embedded WASM runtime is omitted because Wasmtime
+does not support NetBSD. Official prebuilt plugin archives are not currently
+published for NetBSD; native plugins can still be built and installed locally.
+
 ## Initialize lla
 
 Run the guided setup after installation:
@@ -77,7 +83,8 @@ lla upgrade --path /usr/local/bin/lla
 
 `lla upgrade` uses the official installation logic to detect the platform,
 verify `SHA256SUMS`, and atomically replace the executable. It targets the
-currently running executable unless `--path` is provided.
+currently running executable unless `--path` is provided. NetBSD amd64 upgrades
+select the `lla-netbsd-amd64` release asset.
 
 ## Next steps
 

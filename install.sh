@@ -26,6 +26,7 @@ detect_platform() {
     case "$OS" in
         Linux)     OS="linux" ;;
         Darwin)    OS="macos" ;;
+        NetBSD)    OS="netbsd" ;;
         *)
             print_error "Unsupported operating system: $OS"
             exit 1
@@ -34,6 +35,7 @@ detect_platform() {
 
     case "$ARCH" in
         x86_64)  ARCH="amd64" ;;
+        amd64)   ARCH="amd64" ;;
         aarch64) ARCH="arm64" ;;
         arm64)   ARCH="arm64" ;;
         i386)    ARCH="i686" ;;
@@ -43,6 +45,11 @@ detect_platform() {
             exit 1
             ;;
     esac
+
+    if [ "$OS" = "netbsd" ] && [ "$ARCH" != "amd64" ]; then
+        print_error "Official NetBSD binaries are available only for amd64"
+        exit 1
+    fi
 
     LIBC=""
     if [ "$OS" = "linux" ]; then
@@ -116,8 +123,10 @@ verify_checksum() {
         actual="$(sha256sum "${TMP_DIR}/lla" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then
         actual="$(shasum -a 256 "${TMP_DIR}/lla" | awk '{print $1}')"
+    elif command -v sha256 >/dev/null 2>&1; then
+        actual="$(sha256 -q "${TMP_DIR}/lla")"
     else
-        print_error "Neither sha256sum nor shasum is available for checksum verification"
+        print_error "No supported SHA-256 checksum utility is available"
         exit 1
     fi
 

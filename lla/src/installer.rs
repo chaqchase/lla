@@ -160,8 +160,14 @@ impl CliBinaryTarget {
                 display_os: "Linux",
                 musl: false,
             }),
+            ("netbsd", arch) if arch == "x86_64" || arch == "amd64" => Ok(Self {
+                os_label: "netbsd",
+                arch_label: "amd64",
+                display_os: "NetBSD",
+                musl: false,
+            }),
             _ => Err(LlaError::Other(format!(
-                "Unsupported platform for CLI upgrades: {}-{} (supported: macOS/Linux on amd64, arm64, i686)",
+                "Unsupported platform for CLI upgrades: {}-{} (supported: macOS/Linux on amd64, arm64, i686; NetBSD on amd64)",
                 os, arch
             ))),
         }
@@ -944,6 +950,7 @@ impl PluginInstaller {
         if manifest.plugin.runtime != PluginRuntime::WasmComponent {
             return Ok(());
         }
+        crate::plugin::ensure_wasm_runtime_available(&manifest.plugin.name)?;
         let path = crate::plugin::grants::GrantStore::path(&self.plugins_dir);
         let mut grants =
             crate::plugin::grants::GrantStore::load(&path).map_err(LlaError::Plugin)?;
@@ -1515,14 +1522,8 @@ impl PluginInstaller {
             .unwrap_or_default();
         if manifest_path.is_file() {
             let manifest = PluginManifest::from_path(&manifest_path).map_err(LlaError::Plugin)?;
-            if manifest.plugin.runtime == PluginRuntime::WasmComponent
-                && !crate::plugin::wasm_runtime_supported(std::env::consts::ARCH)
-            {
-                return Err(LlaError::Plugin(format!(
-                    "Plugin '{}' is a WASM component, but Wasmtime is unsupported on {}",
-                    manifest.plugin.name,
-                    std::env::consts::ARCH
-                )));
+            if manifest.plugin.runtime == PluginRuntime::WasmComponent {
+                crate::plugin::ensure_wasm_runtime_available(&manifest.plugin.name)?;
             }
             if !manifest.supports_host_api(PLUGIN_API_VERSION) {
                 return Err(LlaError::Plugin(format!(
@@ -2394,12 +2395,6 @@ impl PluginInstaller {
             .is_some_and(|manifest| manifest.plugin.runtime == PluginRuntime::WasmComponent);
         #[cfg(not(feature = "dynamic-plugins"))]
         let wasm_component = false;
-        if wasm_component && !crate::plugin::wasm_runtime_supported(std::env::consts::ARCH) {
-            return Err(LlaError::Plugin(format!(
-                "WASM component plugins are unsupported on {}",
-                std::env::consts::ARCH
-            )));
-        }
         #[cfg(feature = "dynamic-plugins")]
         let plugin_name = manifest
             .as_ref()
@@ -2407,6 +2402,9 @@ impl PluginInstaller {
             .unwrap_or_else(|| Self::get_display_name(plugin_dir));
         #[cfg(not(feature = "dynamic-plugins"))]
         let plugin_name = Self::get_display_name(plugin_dir);
+        if wasm_component {
+            crate::plugin::ensure_wasm_runtime_available(&plugin_name)?;
+        }
         let package_name = self.get_plugin_package_name(plugin_dir)?;
 
         // Silent mode when using progress bars to avoid stdout interference
@@ -3159,12 +3157,15 @@ mod tests {
     }
 
     #[test]
-    fn cli_asset_names_preserve_macos_and_i686_gnu() {
+    fn cli_asset_names_preserve_macos_i686_gnu_and_netbsd() {
         let macos = CliBinaryTarget::for_platform("macos", "aarch64", false).unwrap();
         let i686 = CliBinaryTarget::for_platform("linux", "i686", false).unwrap();
+        let netbsd = CliBinaryTarget::for_platform("netbsd", "x86_64", false).unwrap();
 
         assert_eq!(macos.asset_name(), "lla-macos-arm64");
         assert_eq!(i686.asset_name(), "lla-linux-i686");
+        assert_eq!(netbsd.asset_name(), "lla-netbsd-amd64");
+        assert_eq!(netbsd.human_label(), "NetBSD (amd64)");
     }
 
     #[test]
@@ -3251,5 +3252,45 @@ mod tests {
         fs::write(&entrypoint, b"plugin").unwrap();
 
         assert!(PluginInstaller::verify_plugin_package(&entrypoint).is_err());
+    }
+
+    #[test]
+    #[cfg(all(feature = "dynamic-plugins", not(feature = "wasm-plugins")))]
+    fn prebuilt_wasm_packages_report_when_runtime_support_is_disabled() {
+        let root = tempfile::tempdir().unwrap();
+        let entrypoint = root.path().join("example.wasm");
+        let manifest = root.path().join("plugin.toml");
+        fs::write(&entrypoint, b"component").unwrap();
+        fs::write(
+            &manifest,
+            r#"schema_version = 3
+
+[plugin]
+id = "dev.lla.example"
+name = "example"
+version = "1.0.0"
+api_min = 3
+api_max = 3
+runtime = "wasm-component"
+entrypoint = "example.wasm"
+
+[capabilities]
+decorates_entries = true
+formats = ["default"]
+"#,
+        )
+        .unwrap();
+        let entrypoint_hash = PluginInstaller::calculate_sha256(&entrypoint).unwrap();
+        let manifest_hash = PluginInstaller::calculate_sha256(&manifest).unwrap();
+        fs::write(
+            root.path().join("checksums.toml"),
+            format!(
+                "[files]\n\"example.wasm\" = \"{entrypoint_hash}\"\n\"plugin.toml\" = \"{manifest_hash}\"\n"
+            ),
+        )
+        .unwrap();
+
+        let error = PluginInstaller::load_prebuilt_plugin(&entrypoint).unwrap_err();
+        assert!(error.to_string().contains("--features wasm-plugins"));
     }
 }

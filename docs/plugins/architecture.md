@@ -52,10 +52,12 @@ libraries are reported as disabled and never executed by lla 0.6.0.
 
 ## Component Model runtime
 
+When the host is compiled with the non-default `wasm-plugins` feature,
 WebAssembly packages run through embedded Wasmtime with WASI Preview 2 and the
-Component Model. The host exposes scoped filesystem preopens, exact-domain WASI
-HTTP, and permission-gated clipboard and URL calls. It does not expose raw
-sockets or subprocess execution.
+Component Model. Official Linux and macOS release binaries enable this feature;
+the NetBSD release binary uses the default native-only runtime. The host exposes
+scoped filesystem preopens, exact-domain WASI HTTP, and permission-gated
+clipboard and URL calls. It does not expose raw sockets or subprocess execution.
 
 The host limits each instance to 128 MiB of memory, responses to 16 MiB, batches
 to 512 entries, decoration calls to 5 seconds, and actions to 60 seconds. Traps,

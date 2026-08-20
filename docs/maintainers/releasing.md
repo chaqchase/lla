@@ -37,9 +37,19 @@ Before tagging a release, run:
 ```bash
 cargo fmt --all -- --check
 cargo test --workspace --all-targets
+cargo test -p lla --features wasm-plugins
+cargo clippy -p lla --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p lla --no-default-features --all-targets -- -D warnings
 ```
+
+CI also runs `cargo check -p lla` natively inside NetBSD and verifies that its
+default dependency graph does not contain Wasmtime.
+
+The release workflow separately builds `lla-netbsd-amd64` inside NetBSD 10.1,
+checks that Wasmtime remains absent, exercises the binary's help path, and adds
+it to the verified release assets and checksum manifest. Linux and macOS
+binaries continue to build with `--features wasm-plugins`.
 
 Build the SDK fixtures, including a real Component Model target:
 
@@ -79,4 +89,4 @@ that exact version before continuing. A resumed workflow skips versions already
 published and rejects an inconsistent partial publication state.
 
 The GitHub release is published only after validation, binary/plugin artifact
-collection, and crates.io publication succeed.
+collection (including `lla-netbsd-amd64`), and crates.io publication succeed.

@@ -80,7 +80,7 @@ cleanup_grants() {
 }
 trap cleanup_grants EXIT
 
-cargo build -p lla
+cargo build -p lla --features wasm-plugins
 TEST_HOME=$(mktemp -d)
 cleanup_all() {
   cleanup_grants

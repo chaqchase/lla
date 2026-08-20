@@ -9,8 +9,10 @@ pub const DYNAMIC_PLUGINS_AVAILABLE: bool = false;
 pub const DYNAMIC_PLUGINS_UNAVAILABLE: &str =
     "Dynamic plugins are unavailable in this build; install a full-featured lla binary.";
 
-pub(crate) fn wasm_runtime_supported(architecture: &str) -> bool {
-    matches!(architecture, "x86_64" | "aarch64")
+pub(crate) fn ensure_wasm_runtime_available(plugin_name: &str) -> Result<()> {
+    Err(LlaError::Plugin(format!(
+        "Plugin '{plugin_name}' is a WASM component, but this lla build does not include WASM plugin support; rebuild with '--features wasm-plugins' or use an official full-featured binary"
+    )))
 }
 
 pub struct PluginManager {

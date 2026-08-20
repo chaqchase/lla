@@ -12,6 +12,9 @@ The canonical maintainer checklist is in
 
 - Triggered on pushes and pull requests to `main` when Rust sources, manifests, proto files, scripts, workflow files, package metadata, or toolchain files change.
 - Runs formatting, Clippy, tests, and release-mode build checks across Linux and macOS.
+- Builds the default-feature CLI natively on NetBSD, verifies that Wasmtime is
+  absent from its dependency graph, smoke-tests it, and uploads
+  `lla-netbsd-amd64`.
 - Builds GNU/Linux artifacts against an explicit glibc 2.28 baseline and rejects newer symbol requirements.
 - Clippy stays in regular CI; release publishing is gated by formatting, tests, validation, asset verification, and publish dry-runs.
 
@@ -43,10 +46,14 @@ The canonical maintainer checklist is in
   - crates.io state can be resumed safely
 - Runs release gates:
   - `cargo fmt --all -- --check`
+  - default, no-default-feature, and all-feature Clippy configurations
   - `cargo test --workspace`
+  - `cargo test -p lla --features wasm-plugins`
 - Builds and verifies all release assets before publishing:
-  - full-featured CLI binaries: `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`
+  - full-featured CLI binaries built with `wasm-plugins`: `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`
   - full-featured static musl binaries with Wasmtime: `lla-linux-{amd64,arm64}-musl`
+  - native `lla-netbsd-amd64`, built and smoke-tested inside NetBSD 10.1 with
+    default features and no Wasmtime dependency
   - plugin archives: `plugins-*.tar.gz` and `plugins-*.zip`
   - Linux packages: `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`
   - `themes.zip`

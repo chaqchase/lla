@@ -123,10 +123,15 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy -p lla --all-targets -- -D warnings
+          cargo clippy -p lla --no-default-features --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace
+          cargo test -p lla --features wasm-plugins
 
       - name: Build WASM component SDK fixture
         run: cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml --target wasm32-wasip2
@@ -198,11 +203,11 @@ jobs:
       - name: Build release binary
         run: |
           if [[ "${{ matrix.libc }}" == "musl" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}" -p lla
+            cargo zigbuild --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}" -p lla
+            cargo zigbuild --release --target "${{ matrix.target }}.${GLIBC_BASELINE}" -p lla --features wasm-plugins
           else
-            cargo build --release --target "${{ matrix.target }}" -p lla
+            cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           fi
 
       - name: Verify glibc baseline
@@ -231,6 +236,47 @@ jobs:
         with:
           name: core-${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}
+
+  build_netbsd:
+    name: Build CLI (lla-netbsd-amd64)
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - name: Start NetBSD VM
+        uses: vmactions/netbsd-vm@v1
+        with:
+          release: "10.1"
+          sync: rsync
+          usesh: true
+          custom-shell-name: netbsd-sh
+
+      - name: Install Rust
+        shell: netbsd-sh {0}
+        run: |
+          pkg_add curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+      - name: Build and verify native NetBSD binary
+        shell: netbsd-sh {0}
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release -p lla
+          if cargo tree -p lla -i wasmtime >/dev/null 2>&1; then
+            echo "NetBSD release dependency graph unexpectedly includes Wasmtime" 1>&2
+            exit 1
+          fi
+          ./target/release/lla --help >/dev/null
+          cp target/release/lla lla-netbsd-amd64
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-lla-netbsd-amd64
+          path: lla-netbsd-amd64
 
   build_plugins:
     name: Build Plugins (${{ matrix.os_label }}-${{ matrix.arch_label }})
@@ -456,7 +502,7 @@ jobs:
 
   collect_assets:
     name: Verify Release Assets
-    needs: [validate, quality, build_core, build_plugins, test_musl, build_packages, package_themes]
+    needs: [validate, quality, build_core, build_netbsd, build_plugins, test_musl, build_packages, package_themes]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}

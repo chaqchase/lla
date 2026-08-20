@@ -43,6 +43,10 @@ lla init
 See [Installation and first run](docs/getting-started.md) for manual downloads,
 musl limitations, upgrades, and initialization options.
 
+Official releases include `lla-netbsd-amd64`; the install script selects it on
+NetBSD amd64. This binary supports native plugins but omits the unsupported
+embedded WASM runtime.
+
 ## Try it
 
 ```bash
@@ -126,8 +130,10 @@ differences, or the [command reference](docs/command-reference.md) for flags.
 
 - Install official prebuilt plugins, build from a local directory, or install
   from a Git repository; inspect packages and permissions before running them.
-- Native plugins provide trusted in-process extensions. WebAssembly Component
-  Model plugins run with declared, persisted grants and scoped host capabilities.
+- Native plugins provide trusted in-process extensions. On builds with the
+  optional `wasm-plugins` feature, WebAssembly Component Model plugins run with
+  declared, persisted grants and scoped host capabilities. Official Linux and
+  macOS release binaries enable this feature; the NetBSD binary does not.
 - Plugins can add typed listing fields, formatting, and actions with human,
   JSON, NDJSON, or CSV output. The bundled catalog covers metadata, Git context,
   code analysis, storage insights, file operations, and other focused workflows.

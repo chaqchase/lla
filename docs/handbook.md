@@ -70,9 +70,11 @@ formatter ── terminal view or JSON/NDJSON/CSV
 Subcommands such as `install`, `plugin run`, `diff`, `jump`, and `upgrade`
 branch from command dispatch and do not necessarily use the listing pipeline.
 
-The default Cargo feature is `dynamic-plugins`. A binary compiled with
-`--no-default-features` retains core listing behavior but uses the static
-plugin-manager stub and reports that dynamic plugins are unavailable.
+The default Cargo feature is `dynamic-plugins`, which enables native plugins
+without embedding Wasmtime. `wasm-plugins` opts into the Component Model runtime
+and implies `dynamic-plugins`. A binary compiled with `--no-default-features`
+retains core listing behavior but uses the static plugin-manager stub and
+reports that dynamic plugins are unavailable.
 
 ## Workspace map
 
@@ -499,9 +501,12 @@ The host import interface exposes permission-gated clipboard writes and URL
 opening. Scoped filesystem preopens and exact-domain HTTP are configured from
 the manifest. Raw sockets and subprocess execution are not exposed.
 
-The embedded WASM runtime is compiled into supported x86_64 and ARM64 builds.
-i686 builds reject WASM packages as unsupported. Native packages remain
-available when dynamic plugins are enabled.
+The embedded WASM runtime is compiled only when the non-default `wasm-plugins`
+feature is enabled. It is available on supported x86_64 and ARM64 builds; i686
+builds reject WASM packages as unsupported. Native packages remain available
+through the default `dynamic-plugins` feature. Official Linux and macOS release
+binaries explicitly enable `wasm-plugins`; the official NetBSD amd64 binary
+uses the default feature set and omits Wasmtime.
 
 ### Package is the trust and compatibility unit
 
@@ -1650,9 +1655,15 @@ cargo build --manifest-path sdk/tests/fixtures/wasm_component/Cargo.toml \
 ```bash
 cargo fmt --all -- --check
 cargo test --workspace --all-targets
+cargo test -p lla --features wasm-plugins
+cargo clippy -p lla --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p lla --no-default-features --all-targets -- -D warnings
 ```
+
+CI additionally checks the default build natively on NetBSD and asserts that
+its dependency graph does not include Wasmtime. The release workflow also
+builds and smoke-tests that native configuration as `lla-netbsd-amd64`.
 
 Build and verify every bundled package:
 
@@ -1779,9 +1790,12 @@ apart.
 
 ### WASM package is unsupported
 
-WASM components require an x86_64 or ARM64 full-featured build. i686 and a CLI
-compiled without dynamic plugin/runtime support cannot load them. Use a native
-package for that target or install the full-featured CLI on a supported target.
+WASM components require an x86_64 or ARM64 build compiled with
+`--features wasm-plugins`. A build without that feature reports how to enable
+it; an unsupported architecture reports the platform separately. NetBSD
+default builds intentionally omit Wasmtime because its runtime does not support
+NetBSD. Use a native package there or install an official full-featured CLI on a
+supported Linux or macOS target.
 
 ### WASM permission denied
 
@@ -1889,8 +1903,11 @@ changelog, then opens a conventional release PR in the automated workflow.
 The release workflow validates version/tag/changelog/crates.io state, runs
 quality gates, and builds:
 
-- dynamic/native-plugin-enabled Linux and macOS CLI binaries; supported x86_64
-  and ARM64 builds also include WASM, while Linux i686 does not;
+- dynamic/native-plugin-enabled Linux and macOS CLI binaries; release builds
+  explicitly enable `wasm-plugins`, so supported x86_64 and ARM64 artifacts
+  include WASM while Linux i686 does not;
+- a native NetBSD amd64 CLI binary built with default features, with native
+  plugin loading enabled and Wasmtime omitted;
 - static musl amd64/arm64 binaries with the plugin runtime;
 - platform plugin `.tar.gz` and `.zip` archives;
 - Linux OS packages;
