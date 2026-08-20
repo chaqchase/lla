@@ -12,7 +12,7 @@ members = [
 [workspace.package]
 description = "Blazing Fast and highly customizable ls Replacement with Superpowers"
 authors = ["Achaq <hi@achaq.dev>"]
-version = "0.6.2"
+version = "0.6.3"
 categories = ["utilities", "file-system", "cli", "file-management"]
 edition = "2021"
 license = "MIT"
@@ -34,8 +34,8 @@ serde_json = "1.0"
 walkdir = "2.5"
 tempfile = "3.2"
 users = "0.11"
-lla_plugin_interface = { path = "interface", version = "0.6.2" }
-lla_plugin_sdk = { path = "sdk", version = "0.6.2" }
+lla_plugin_interface = { path = "interface", version = "0.6.3" }
+lla_plugin_sdk = { path = "sdk", version = "0.6.3" }
 dashmap = "5.5.3"
 parking_lot = "0.12"
 once_cell = "1.18"

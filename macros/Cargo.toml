@@ -13,6 +13,6 @@ documentation = "https://docs.rs/macros"
 proc-macro = true
 
 [dependencies]
-lla_plugin_interface = { path = "../interface", version = "0.6.2" }
+lla_plugin_interface = { path = "../interface", version = "0.6.3" }
 quote = "1"
 syn = { version = "2", features = ["full"] }

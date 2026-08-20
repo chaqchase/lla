@@ -1,6 +1,6 @@
 [package]
 name = "security_audit"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 description = "Audit filesystem entries for unsafe permissions, risky links, and exposed secrets"
 
