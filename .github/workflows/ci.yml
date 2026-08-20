@@ -9,6 +9,7 @@ on:
       - "**/Cargo.lock"
       - "**/*.proto"
       - "**/*.sh"
+      - "**/*.ps1"
       - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
@@ -22,6 +23,7 @@ on:
       - "**/Cargo.lock"
       - "**/*.proto"
       - "**/*.sh"
+      - "**/*.ps1"
       - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
@@ -40,7 +42,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
         rust: [stable]
 
     steps:
@@ -156,6 +158,14 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: lla-macos-arm64
 
+          # Windows builds
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: lla-windows-amd64.exe
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            artifact_name: lla-windows-arm64.exe
+
     steps:
       - uses: actions/checkout@v4
 
@@ -186,7 +196,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build release
+      - name: Build release (Unix)
+        if: runner.os != 'Windows'
         env:
           RUSTUP_TOOLCHAIN: stable
         run: |
@@ -197,6 +208,14 @@ jobs:
           else
             cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           fi
+
+      - name: Build release (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RUSTUP_TOOLCHAIN: stable
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
 
       - name: Verify glibc baseline
         if: matrix.libc == 'gnu'
@@ -228,6 +247,103 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/lla ${{ matrix.artifact_name }}
+
+      - name: Prepare and smoke-test binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = "target/${{ matrix.target }}/release/lla.exe"
+          Copy-Item $binary "${{ matrix.artifact_name }}"
+          & $binary --help | Out-Null
+          & $binary --version | Out-Null
+          $fixture = Join-Path $env:RUNNER_TEMP "lla-windows-smoke"
+          New-Item -ItemType Directory -Force $fixture | Out-Null
+          Set-Content -NoNewline (Join-Path $fixture "fixture.txt") "abc"
+          $json = & $binary --json $fixture | ConvertFrom-Json
+          if ($json.Count -ne 1) { throw "Windows JSON smoke test returned an unexpected entry count" }
+          $entry = @($json)[0]
+          foreach ($field in @('owner_user', 'owner_group', 'inode', 'hard_links', 'allocated_size_bytes', 'security_context', 'mount_point', 'mount_source', 'filesystem')) {
+            if ($null -ne $entry.$field) { throw "Windows JSON field '$field' must be null" }
+          }
+          $imports = (& llvm-readobj --coff-imports $binary) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect Windows PE imports' }
+          if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') {
+            throw "Windows binary imports the redistributable MSVC runtime"
+          }
+
+      - name: Build and verify Windows plugin archive
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./scripts/build_plugins.sh --target "${{ matrix.target }}"
+          ./scripts/verify_plugins_v3.sh "dist/plugins-windows-${{ matrix.target == 'x86_64-pc-windows-msvc' && 'amd64' || 'arm64' }}"
+
+      - name: Verify Windows plugin PE imports
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pluginDirectory = "dist/plugins-windows-${{ matrix.target == 'x86_64-pc-windows-msvc' && 'amd64' || 'arm64' }}"
+          Get-ChildItem $pluginDirectory -Recurse -Filter *.dll | ForEach-Object {
+            $imports = (& llvm-readobj --coff-imports $_.FullName) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to inspect PE imports for '$($_.FullName)'" }
+            if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') {
+              throw "Plugin '$($_.Name)' imports the redistributable MSVC runtime"
+            }
+          }
+
+      - name: Test PowerShell installer helpers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          . ./install.ps1
+          if ((Resolve-LlaArchitecture 'AMD64' '') -ne 'amd64') { throw 'AMD64 mapping failed' }
+          if ((Resolve-LlaArchitecture 'AMD64' 'ARM64') -ne 'arm64') { throw 'ARM64 native mapping failed' }
+          $asset = "lla-windows-amd64.exe"
+          $hash = 'a' * 64
+          if ((Get-LlaChecksum "$hash  $asset`n" $asset) -ne $hash) { throw 'Checksum parsing failed' }
+          try { Get-LlaChecksum "$hash  $asset.old`n" $asset | Out-Null; throw 'Inexact checksum entry was accepted' } catch {
+            if ($_.Exception.Message -eq 'Inexact checksum entry was accepted') { throw }
+          }
+          try { Resolve-LlaArchitecture 'x86' '' | Out-Null; throw 'x86 was accepted' } catch {
+            if ($_.Exception.Message -eq 'x86 was accepted') { throw }
+          }
+
+          $binary = (Resolve-Path "target/${{ matrix.target }}/release/lla.exe").Path
+          $expectedAsset = "lla-windows-$(Resolve-LlaArchitecture).exe"
+          $expectedHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+          function Invoke-WebRequest {
+            param(
+              [Parameter(Position = 0)][string]$Uri,
+              [string]$OutFile
+            )
+            if ($Uri.EndsWith('.exe')) {
+              Copy-Item $binary $OutFile
+            } else {
+              [PSCustomObject]@{ Content = "$expectedHash  $expectedAsset`n" }
+            }
+          }
+
+          $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $originalProcessPath = $env:Path
+          $customInstall = Join-Path $env:RUNNER_TEMP 'lla-custom-install'
+          try {
+            $script:Version = 'v0.0.0-test'
+            $script:InstallDir = $customInstall
+            $script:NoPathUpdate = $true
+            Invoke-LlaInstall
+            if (-not (Test-Path (Join-Path $customInstall 'lla.exe'))) { throw 'Custom install directory was ignored' }
+            if ([Environment]::GetEnvironmentVariable('Path', 'User') -ne $originalUserPath) { throw '-NoPathUpdate changed the user PATH' }
+
+            Add-LlaToUserPath $customInstall
+            $userEntries = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';')
+            if (-not ($userEntries -contains $customInstall)) { throw 'User PATH was not updated' }
+            Add-LlaToUserPath $customInstall
+            $matches = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -eq $customInstall })
+            if ($matches.Count -ne 1) { throw 'User PATH update was not idempotent' }
+          } finally {
+            [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
+            $env:Path = $originalProcessPath
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

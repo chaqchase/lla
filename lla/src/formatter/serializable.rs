@@ -5,11 +5,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
+#[cfg(unix)]
 use once_cell::sync::Lazy;
+#[cfg(unix)]
 use std::sync::Mutex;
+#[cfg(unix)]
 use users::{get_group_by_gid, get_user_by_uid};
 
+#[cfg(unix)]
 static USER_CACHE: Lazy<Mutex<HashMap<u32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+#[cfg(unix)]
 static GROUP_CACHE: Lazy<Mutex<HashMap<u32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Serialize)]
@@ -58,6 +63,7 @@ fn mode_to_octal(permissions: u32) -> String {
     format!("{:04o}", permissions & 0o7777)
 }
 
+#[cfg(unix)]
 fn uid_to_name(uid: u32) -> Option<String> {
     if uid == 0 && get_user_by_uid(uid).is_none() {
         return None;
@@ -75,6 +81,12 @@ fn uid_to_name(uid: u32) -> Option<String> {
     name
 }
 
+#[cfg(windows)]
+fn uid_to_name(_uid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(unix)]
 fn gid_to_name(gid: u32) -> Option<String> {
     if gid == 0 && get_group_by_gid(gid).is_none() {
         return None;
@@ -90,6 +102,11 @@ fn gid_to_name(gid: u32) -> Option<String> {
         cache.insert(gid, n.clone());
     }
     name
+}
+
+#[cfg(windows)]
+fn gid_to_name(_gid: u32) -> Option<String> {
+    None
 }
 
 pub fn to_serializable(entry: &DecoratedEntry, git_status: Option<String>) -> SerializableEntry {

@@ -1,8 +1,12 @@
 use lla_plugin_interface::proto::EntryMetadata;
 use once_cell::sync::Lazy;
 use std::fs::Metadata;
+#[cfg(target_os = "macos")]
 use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,14 +28,89 @@ pub fn from_metadata(metadata: &Metadata) -> EntryMetadata {
         is_dir: metadata.is_dir(),
         is_file: metadata.is_file(),
         is_symlink: metadata.is_symlink(),
-        permissions: metadata.mode(),
-        uid: metadata.uid(),
-        gid: metadata.gid(),
-        inode: metadata.ino(),
-        hard_links: metadata.nlink(),
-        allocated_size: metadata.blocks().saturating_mul(512),
+        permissions: permission_mode(metadata),
+        uid: metadata_uid(metadata),
+        gid: metadata_gid(metadata),
+        inode: metadata_inode(metadata),
+        hard_links: metadata_hard_links(metadata),
+        allocated_size: metadata_allocated_size(metadata),
         ..EntryMetadata::default()
     }
+}
+
+#[cfg(unix)]
+pub fn permission_mode(metadata: &Metadata) -> u32 {
+    metadata.mode()
+}
+
+#[cfg(windows)]
+pub fn permission_mode(metadata: &Metadata) -> u32 {
+    const FILE_ATTRIBUTE_READONLY: u32 = 0x0000_0001;
+    let file_type = if metadata.is_symlink() {
+        0o120000
+    } else if metadata.is_dir() {
+        0o040000
+    } else {
+        0o100000
+    };
+    let mut permissions = 0o444;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_READONLY == 0 {
+        permissions |= 0o222;
+    }
+    if metadata.is_dir() {
+        permissions |= 0o111;
+    }
+    file_type | permissions
+}
+
+#[cfg(unix)]
+fn metadata_uid(metadata: &Metadata) -> u32 {
+    metadata.uid()
+}
+
+#[cfg(windows)]
+fn metadata_uid(_metadata: &Metadata) -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn metadata_gid(metadata: &Metadata) -> u32 {
+    metadata.gid()
+}
+
+#[cfg(windows)]
+fn metadata_gid(_metadata: &Metadata) -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn metadata_inode(metadata: &Metadata) -> u64 {
+    metadata.ino()
+}
+
+#[cfg(windows)]
+fn metadata_inode(_metadata: &Metadata) -> u64 {
+    0
+}
+
+#[cfg(unix)]
+fn metadata_hard_links(metadata: &Metadata) -> u64 {
+    metadata.nlink()
+}
+
+#[cfg(windows)]
+fn metadata_hard_links(_metadata: &Metadata) -> u64 {
+    0
+}
+
+#[cfg(unix)]
+fn metadata_allocated_size(metadata: &Metadata) -> u64 {
+    metadata.blocks().saturating_mul(512)
+}
+
+#[cfg(windows)]
+fn metadata_allocated_size(_metadata: &Metadata) -> u64 {
+    0
 }
 
 fn timestamp(value: std::io::Result<std::time::SystemTime>) -> u64 {
@@ -60,6 +139,12 @@ pub fn enrich(path: &Path, metadata: &mut EntryMetadata, extended: bool, mounts:
 fn read_extended_metadata(path: &Path, metadata: &mut EntryMetadata) {
     metadata.has_acl = platform_has_acl(path);
 
+    #[cfg(unix)]
+    read_xattrs(path, metadata);
+}
+
+#[cfg(unix)]
+fn read_xattrs(path: &Path, metadata: &mut EntryMetadata) {
     let Ok(names) = xattr::list(path) else {
         return;
     };
@@ -125,6 +210,7 @@ fn platform_has_acl(_path: &Path) -> bool {
     false
 }
 
+#[cfg(unix)]
 fn is_acl_attribute(name: &str) -> bool {
     matches!(
         name,
@@ -147,6 +233,42 @@ pub fn format_xattrs(metadata: &EntryMetadata) -> String {
         .map(|(name, size)| format!("{}={}B", name, size))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+pub fn format_inode(metadata: &EntryMetadata) -> String {
+    #[cfg(unix)]
+    {
+        metadata.inode.to_string()
+    }
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        "-".to_string()
+    }
+}
+
+pub fn format_hard_links(metadata: &EntryMetadata) -> String {
+    #[cfg(unix)]
+    {
+        metadata.hard_links.to_string()
+    }
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        "-".to_string()
+    }
+}
+
+pub fn allocated_size(metadata: &EntryMetadata) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        Some(metadata.allocated_size)
+    }
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        None
+    }
 }
 
 pub fn format_context(metadata: &EntryMetadata) -> String {
@@ -188,7 +310,7 @@ fn mount_for(path: &Path) -> Option<&'static MountInfo> {
     MOUNTS
         .iter()
         .filter(|mount| absolute.starts_with(&mount.point))
-        .max_by_key(|mount| mount.point.as_os_str().as_bytes().len())
+        .max_by_key(|mount| mount.point.as_os_str().len())
 }
 
 fn load_mounts() -> Vec<MountInfo> {
@@ -283,6 +405,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn captures_inode_links_allocated_size_and_xattrs() {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("file");
@@ -302,6 +425,57 @@ mod tests {
         assert_ne!(metadata.inode, 0);
         assert!(metadata.hard_links >= 2);
         assert_eq!(metadata.xattrs.get(attribute), Some(&5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn synthesizes_windows_permissions_and_unavailable_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("file.txt");
+        fs::write(&file, b"content").unwrap();
+
+        let directory_metadata = from_metadata(&fs::metadata(directory.path()).unwrap());
+        assert_eq!(directory_metadata.permissions & 0o170000, 0o040000);
+        assert_eq!(directory_metadata.permissions & 0o777, 0o777);
+
+        let metadata = from_metadata(&fs::metadata(&file).unwrap());
+        assert_eq!(metadata.permissions & 0o170000, 0o100000);
+        assert_eq!(metadata.permissions & 0o666, 0o666);
+        assert_eq!(metadata.uid, 0);
+        assert_eq!(metadata.gid, 0);
+        assert_eq!(metadata.inode, 0);
+        assert_eq!(metadata.hard_links, 0);
+        assert_eq!(metadata.allocated_size, 0);
+
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&file, permissions).unwrap();
+        let readonly = from_metadata(&fs::metadata(&file).unwrap());
+        assert_eq!(readonly.permissions & 0o222, 0);
+        assert_eq!(format_inode(&readonly), "-");
+        assert_eq!(format_hard_links(&readonly), "-");
+        assert_eq!(allocated_size(&readonly), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preserves_windows_symlink_file_type_when_creation_is_permitted() {
+        use std::os::windows::fs::symlink_file;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.txt");
+        let link = directory.path().join("link.txt");
+        fs::write(&target, b"content").unwrap();
+        if let Err(error) = symlink_file(&target, &link) {
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                return;
+            }
+            panic!("failed to create Windows symlink: {error}");
+        }
+
+        let metadata = from_metadata(&fs::symlink_metadata(&link).unwrap());
+        assert!(metadata.is_symlink);
+        assert_eq!(metadata.permissions & 0o170000, 0o120000);
     }
 
     #[cfg(target_os = "macos")]

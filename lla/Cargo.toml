@@ -40,7 +40,6 @@ libloading = { workspace = true, optional = true }
 serde_json.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
-users.workspace = true
 parking_lot.workspace = true
 lla_plugin_interface = { version = "0.6.3", path = "../interface" }
 lla_plugin_utils = { version = "0.6.3", path = "../utils" }
@@ -68,11 +67,17 @@ zip = { version = "1", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
 libc = "0.2"
-xattr = "1.4"
 ureq.workspace = true
 sha2.workspace = true
 similar = "2"
 object = { version = "0.39", features = ["read"] }
+
+[target.'cfg(unix)'.dependencies]
+users.workspace = true
+xattr = "1.4"
+
+[target.'cfg(windows)'.dependencies]
+self-replace = "1.5.0"
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"], optional = true }

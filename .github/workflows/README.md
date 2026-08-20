@@ -11,7 +11,8 @@ The canonical maintainer checklist is in
 ## CI (`ci.yml`)
 
 - Triggered on pushes and pull requests to `main` when Rust sources, manifests, proto files, scripts, workflow files, package metadata, or toolchain files change.
-- Runs formatting, Clippy, tests, and release-mode build checks across Linux and macOS.
+- Runs formatting, Clippy, tests, and release-mode build checks across Linux,
+  macOS, Windows AMD64, and Windows ARM64.
 - Builds the default-feature CLI natively on NetBSD, verifies that Wasmtime is
   absent from its dependency graph, smoke-tests it, and uploads
   `lla-netbsd-amd64`.
@@ -50,10 +51,14 @@ The canonical maintainer checklist is in
   - `cargo test --workspace`
   - `cargo test -p lla --features wasm-plugins`
 - Builds and verifies all release assets before publishing:
-  - full-featured CLI binaries built with `wasm-plugins`: `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`
+  - full-featured CLI binaries built with `wasm-plugins`:
+    `lla-linux-{amd64,arm64,i686}`, `lla-macos-*`, and
+    `lla-windows-{amd64,arm64}.exe`
   - full-featured static musl binaries with Wasmtime: `lla-linux-{amd64,arm64}-musl`
   - native `lla-netbsd-amd64`, built and smoke-tested inside NetBSD 10.1 with
     default features and no Wasmtime dependency
+  - Windows AMD64/ARM64 plugin `.zip` archives, built and verified on native
+    GitHub-hosted runners
   - plugin archives: `plugins-*.tar.gz` and `plugins-*.zip`
   - Linux packages: `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`
   - `themes.zip`
@@ -88,6 +93,7 @@ The canonical maintainer checklist is in
 
 - `.github/scripts/prepare_release.sh` updates release versions and changelog content for the generated PR.
 - `.github/scripts/release_helpers.sh` contains shared validation, expected asset, checksum, crates.io, and GitHub release helpers.
-- `scripts/build_plugins.sh` builds plugin dynamic libraries and produces both `.tar.gz` and `.zip` archives for each release target.
+- `scripts/build_plugins.sh` builds plugin dynamic libraries and produces
+  `.tar.gz` plus `.zip` archives on Unix and `.zip` archives on Windows.
 - `.github/scripts/check_glibc_baseline.sh` enforces the documented GNU/Linux compatibility baseline.
 - `.github/scripts/smoke_test_musl.sh` exercises core features and the explicit plugin error inside Alpine.

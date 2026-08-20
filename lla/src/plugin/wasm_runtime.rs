@@ -485,11 +485,11 @@ mod tests {
 
     #[test]
     fn preopen_roots_reject_parent_traversal_and_symlink_escape() {
-        let root = tempfile::tempdir().unwrap();
         assert!(canonical_preopen_root(Path::new("../escape"), true).is_err());
         #[cfg(unix)]
         {
             use std::os::unix::fs::symlink;
+            let root = tempfile::tempdir().unwrap();
             let outside = tempfile::tempdir().unwrap();
             let link = root.path().join("escape");
             symlink(outside.path(), &link).unwrap();

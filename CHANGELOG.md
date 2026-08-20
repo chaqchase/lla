@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Official Windows AMD64 and ARM64 executables now ship with native and WASM
+  plugin support, matching prebuilt plugin `.zip` archives, native CI coverage,
+  and statically linked MSVC runtimes.
+- A checksum-verifying PowerShell installer supports latest or pinned releases,
+  custom installation directories, and optional user `PATH` updates.
+
+### Changed
+
+- Filesystem metadata and permission formatting now compile portably on Windows;
+  Windows uses deterministic synthetic permission bits and reports unavailable
+  Unix-only metadata as empty machine fields or `-` in human output.
+- `lla upgrade` recognizes Windows AMD64/ARM64 `.exe` assets and safely replaces
+  the running executable.
+
 ## [0.6.3] - 2026-08-20
 
 ### Added

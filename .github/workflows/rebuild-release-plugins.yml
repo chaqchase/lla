@@ -76,6 +76,14 @@ jobs:
             target: aarch64-apple-darwin
             os_label: macos
             arch_label: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_label: windows
+            arch_label: amd64
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            os_label: windows
+            arch_label: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -96,6 +104,7 @@ jobs:
           cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
 
       - name: Build plugin archives
+        shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
@@ -110,10 +119,24 @@ jobs:
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
 
       - name: Verify Plugin Platform v3
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'aarch64-pc-windows-msvc'
+        shell: bash
         run: ./scripts/verify_plugins_v3.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
 
+      - name: Verify Windows plugin PE imports
+        if: matrix.os_label == 'windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem "dist/plugins-windows-${{ matrix.arch_label }}" -Recurse -Filter *.dll | ForEach-Object {
+            $imports = (& llvm-readobj --coff-imports $_.FullName) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to inspect PE imports for '$($_.FullName)'" }
+            if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') {
+              throw "Plugin '$($_.Name)' imports the redistributable MSVC runtime"
+            }
+          }
+
       - name: Confirm file_hash is native
+        shell: bash
         run: |
           manifest="dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}/file_hash/plugin.toml"
           grep -Eq '^runtime = "native"$' "$manifest"
@@ -122,13 +145,21 @@ jobs:
             exit 1
           fi
 
-      - name: Upload plugin artifacts
+      - name: Upload plugin artifacts (Unix)
+        if: matrix.os_label != 'windows'
         uses: actions/upload-artifact@v4
         with:
           name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
           path: |
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
+
+      - name: Upload plugin artifact (Windows)
+        if: matrix.os_label == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
+          path: dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
 
   replace_assets:
     name: Replace Release Plugin Assets
@@ -151,7 +182,7 @@ jobs:
       - name: Replace plugin archives
         run: |
           set -euo pipefail
-          expected=10
+          expected=12
           actual="$(find rebuilt_plugins -maxdepth 1 -type f \( -name 'plugins-*.tar.gz' -o -name 'plugins-*.zip' \) | wc -l | tr -d ' ')"
           if [[ "$actual" != "$expected" ]]; then
             echo "Expected $expected rebuilt plugin archives, found $actual" 1>&2

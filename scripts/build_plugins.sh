@@ -148,6 +148,10 @@ elif [[ "$OS_LABEL" == "macos" ]]; then
   # some cdylibs. Keep plugin symbols intact; the CLI binary remains stripped.
   echo "Running: CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
   CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
+elif [[ "$OS_LABEL" == "windows" ]]; then
+  echo "Running: RUSTFLAGS=-C target-feature=+crt-static cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
+  RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static" \
+    cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"
 else
   echo "Running: cargo build --release --target $TARGET_TRIPLE ${BUILD_PKGS[*]}"
   cargo build --release --target "$TARGET_TRIPLE" "${BUILD_PKGS[@]}"

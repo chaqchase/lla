@@ -170,12 +170,19 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: lla-macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: lla-windows-amd64.exe
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            artifact_name: lla-windows-arm64.exe
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.release_tag }}
 
       - name: Setup Protoc
+        if: runner.os != 'Windows'
         uses: arduino/setup-protoc@v3
         with:
           version: "35.1"
@@ -200,7 +207,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build release binary
+      - name: Build release binary (Unix)
+        if: runner.os != 'Windows'
         run: |
           if [[ "${{ matrix.libc }}" == "musl" ]]; then
             cargo zigbuild --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
@@ -209,6 +217,13 @@ jobs:
           else
             cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
           fi
+
+      - name: Build release binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --target "${{ matrix.target }}" -p lla --features wasm-plugins
 
       - name: Verify glibc baseline
         if: matrix.libc == 'gnu'
@@ -229,7 +244,31 @@ jobs:
           fi
 
       - name: Prepare binary artifact
+        if: runner.os != 'Windows'
         run: cp "target/${{ matrix.target }}/release/lla" "${{ matrix.artifact_name }}"
+
+      - name: Prepare and verify Windows binary artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = "target/${{ matrix.target }}/release/lla.exe"
+          Copy-Item $binary "${{ matrix.artifact_name }}"
+          & $binary --help | Out-Null
+          & $binary --version | Out-Null
+          $fixture = Join-Path $env:RUNNER_TEMP "lla-release-smoke"
+          New-Item -ItemType Directory -Force $fixture | Out-Null
+          Set-Content -NoNewline (Join-Path $fixture "fixture.txt") "abc"
+          $json = & $binary --json $fixture | ConvertFrom-Json
+          if ($json.Count -ne 1) { throw "Windows JSON smoke test returned an unexpected entry count" }
+          $entry = @($json)[0]
+          foreach ($field in @('owner_user', 'owner_group', 'inode', 'hard_links', 'allocated_size_bytes', 'security_context', 'mount_point', 'mount_source', 'filesystem')) {
+            if ($null -ne $entry.$field) { throw "Windows JSON field '$field' must be null" }
+          }
+          $imports = (& llvm-readobj --coff-imports $binary) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect Windows PE imports' }
+          if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') {
+            throw "Windows binary imports the redistributable MSVC runtime"
+          }
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -306,6 +345,14 @@ jobs:
             target: aarch64-apple-darwin
             os_label: macos
             arch_label: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_label: windows
+            arch_label: amd64
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            os_label: windows
+            arch_label: arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -328,6 +375,7 @@ jobs:
           cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION" --locked
 
       - name: Build plugin archives
+        shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             ./scripts/build_plugins.sh --target "${{ matrix.target }}" --glibc-version "$GLIBC_BASELINE"
@@ -342,16 +390,37 @@ jobs:
           .github/scripts/check_glibc_baseline.sh "$GLIBC_BASELINE" "${plugins[@]}"
 
       - name: Verify Plugin Platform v3
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'aarch64-pc-windows-msvc'
+        shell: bash
         run: ./scripts/verify_plugins_v3.sh "dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}"
 
-      - name: Upload plugin artifacts
+      - name: Verify Windows plugin PE imports
+        if: matrix.os_label == 'windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem "dist/plugins-windows-${{ matrix.arch_label }}" -Recurse -Filter *.dll | ForEach-Object {
+            $imports = (& llvm-readobj --coff-imports $_.FullName) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to inspect PE imports for '$($_.FullName)'" }
+            if ($imports -match '(?i)(VCRUNTIME|MSVCP)[0-9_]*\.dll') {
+              throw "Plugin '$($_.Name)' imports the redistributable MSVC runtime"
+            }
+          }
+
+      - name: Upload plugin artifacts (Unix)
+        if: matrix.os_label != 'windows'
         uses: actions/upload-artifact@v4
         with:
           name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
           path: |
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.tar.gz
             dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
+
+      - name: Upload plugin artifact (Windows)
+        if: matrix.os_label == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}
+          path: dist/plugins-${{ matrix.os_label }}-${{ matrix.arch_label }}.zip
 
   test_musl:
     name: Test Musl (${{ matrix.arch }})

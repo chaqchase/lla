@@ -18,8 +18,9 @@ my-plugin/
 
 For a WebAssembly package, the native library is replaced by the `.wasm`
 component named by `plugin.entrypoint`. Loading it requires an lla host built
-with `--features wasm-plugins`; official Linux and macOS release binaries
-include that feature, while the NetBSD release binary intentionally does not.
+with `--features wasm-plugins`; official Linux, macOS, and Windows release
+binaries include that feature, while the NetBSD release binary intentionally
+does not.
 
 ## Install plugins
 
@@ -28,6 +29,9 @@ Install the official bundle from the latest release:
 ```bash
 lla install --prebuilt
 ```
+
+Windows AMD64 and ARM64 releases provide matching `.zip` bundles containing
+native DLLs and the portable WASM components.
 
 Build and install plugins from a Git repository or a local source directory:
 

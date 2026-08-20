@@ -1120,7 +1120,7 @@ fn canonicalize_path_for_cache(path: &str) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, MetadataExt};

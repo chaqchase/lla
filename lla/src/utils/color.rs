@@ -133,12 +133,9 @@ pub fn colorize_user(user: &str) -> ColoredString {
     }
 }
 
-use std::fs::Permissions;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-
-pub fn colorize_permissions(permissions: &Permissions, format: Option<&str>) -> String {
-    let mode = permissions.mode();
-
+pub fn colorize_permissions(mode: u32, format: Option<&str>) -> String {
     if is_no_color() {
         return format_permissions_no_color(mode, format);
     }
@@ -504,13 +501,27 @@ pub fn colorize_date_relative(date: &std::time::SystemTime) -> ColoredString {
     }
 }
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        if let Ok(metadata) = path.metadata() {
-            return metadata.permissions().mode() & 0o111 != 0;
-        }
-    }
+    path.metadata()
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "exe" | "com" | "bat" | "cmd" | "ps1"
+            )
+        })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn is_executable(_path: &Path) -> bool {
     false
 }
 
@@ -580,5 +591,13 @@ mod tests {
             format_permissions_no_color(0o100644, Some("compact")),
             "644"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_executable_extensions_are_case_insensitive() {
+        assert!(is_executable(Path::new("lla.EXE")));
+        assert!(is_executable(Path::new("setup.ps1")));
+        assert!(!is_executable(Path::new("notes.txt")));
     }
 }
