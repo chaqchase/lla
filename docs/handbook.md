@@ -504,9 +504,9 @@ the manifest. Raw sockets and subprocess execution are not exposed.
 The embedded WASM runtime is compiled only when the non-default `wasm-plugins`
 feature is enabled. It is available on supported x86_64 and ARM64 builds; i686
 builds reject WASM packages as unsupported. Native packages remain available
-through the default `dynamic-plugins` feature. Official Linux and macOS release
-binaries explicitly enable `wasm-plugins`; the official NetBSD amd64 binary
-uses the default feature set and omits Wasmtime.
+through the default `dynamic-plugins` feature. Official Linux, macOS, and
+Windows release binaries explicitly enable `wasm-plugins`; the official
+NetBSD amd64 binary uses the default feature set and omits Wasmtime.
 
 ### Package is the trust and compatibility unit
 
@@ -1664,6 +1664,9 @@ cargo clippy -p lla --no-default-features --all-targets -- -D warnings
 CI additionally checks the default build natively on NetBSD and asserts that
 its dependency graph does not include Wasmtime. The release workflow also
 builds and smoke-tests that native configuration as `lla-netbsd-amd64`.
+Windows CI runs the workspace and WASM suites natively on AMD64 and ARM64,
+builds statically linked MSVC executables, and verifies the matching plugin
+archives on each architecture.
 
 Build and verify every bundled package:
 
@@ -1795,7 +1798,14 @@ WASM components require an x86_64 or ARM64 build compiled with
 it; an unsupported architecture reports the platform separately. NetBSD
 default builds intentionally omit Wasmtime because its runtime does not support
 NetBSD. Use a native package there or install an official full-featured CLI on a
-supported Linux or macOS target.
+supported Linux, macOS, or Windows target.
+
+### Windows installer or symlink operation fails
+
+Official binaries support Windows 10 and Windows Server 2016 or newer on AMD64
+and ARM64. The PowerShell installer intentionally rejects 32-bit x86. If a
+symlink operation returns access denied, enable Windows Developer Mode or use an
+elevated terminal; ordinary listing and plugin use do not require elevation.
 
 ### WASM permission denied
 
@@ -1903,9 +1913,11 @@ changelog, then opens a conventional release PR in the automated workflow.
 The release workflow validates version/tag/changelog/crates.io state, runs
 quality gates, and builds:
 
-- dynamic/native-plugin-enabled Linux and macOS CLI binaries; release builds
-  explicitly enable `wasm-plugins`, so supported x86_64 and ARM64 artifacts
-  include WASM while Linux i686 does not;
+- dynamic/native-plugin-enabled Linux, macOS, and Windows CLI binaries; release
+  builds explicitly enable `wasm-plugins`, so supported x86_64 and ARM64
+  artifacts include WASM while Linux i686 does not;
+- standalone Windows AMD64/ARM64 executables with the static MSVC runtime and
+  matching `.zip` archives containing native DLLs and WASM components;
 - a native NetBSD amd64 CLI binary built with default features, with native
   plugin loading enabled and Wasmtime omitted;
 - static musl amd64/arm64 binaries with the plugin runtime;

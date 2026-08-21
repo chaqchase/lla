@@ -10,4 +10,5 @@ targets = [
     "aarch64-apple-darwin",
     "wasm32-wasip2",
     "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
 ]

@@ -25,15 +25,36 @@ fn hyperlink(path: &Path, label: String) -> String {
             .map(|directory| directory.join(path))
             .unwrap_or_else(|_| path.to_path_buf())
     };
-    let uri_path = percent_encode(absolute.to_string_lossy().as_bytes());
-    format!("\x1b]8;;file://{}\x1b\\{}\x1b]8;;\x1b\\", uri_path, label)
+    let uri = file_uri(&absolute);
+    format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", uri, label)
+}
+
+#[cfg(windows)]
+fn file_uri(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if let Some(unc_path) = normalized.strip_prefix("//") {
+        format!("file://{}", percent_encode(unc_path.as_bytes()))
+    } else {
+        format!(
+            "file:///{}",
+            percent_encode(normalized.trim_start_matches('/').as_bytes())
+        )
+    }
+}
+
+#[cfg(not(windows))]
+fn file_uri(path: &Path) -> String {
+    format!(
+        "file://{}",
+        percent_encode(path.as_os_str().as_encoded_bytes())
+    )
 }
 
 fn percent_encode(value: &[u8]) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
                 encoded.push(*byte as char)
             }
             _ => encoded.push_str(&format!("%{:02X}", byte)),
@@ -53,5 +74,17 @@ mod tests {
         assert!(linked.contains("a%20file%231"));
         assert!(linked.ends_with("label\x1b]8;;\x1b\\"));
         assert_eq!(strip_ansi_escapes::strip(&linked).unwrap(), b"label");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn emits_windows_drive_paths_as_file_uris() {
+        let linked = hyperlink(
+            Path::new(r"C:\Program Files\lla\lla.exe"),
+            "lla".to_string(),
+        );
+
+        assert!(linked.starts_with("\x1b]8;;file:///C:/Program%20Files/lla/lla.exe"));
+        assert!(!linked.contains("%5C"));
     }
 }

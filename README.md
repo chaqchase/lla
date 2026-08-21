@@ -24,6 +24,12 @@ formats, themes, shortcuts, and an extensible plugin platform.
 curl -sSL https://raw.githubusercontent.com/chaqchase/lla/main/install.sh | bash
 ```
 
+On Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/chaqchase/lla/main/install.ps1 | iex
+```
+
 Or use a package manager:
 
 | Platform | Command |
@@ -46,6 +52,12 @@ musl limitations, upgrades, and initialization options.
 Official releases include `lla-netbsd-amd64`; the install script selects it on
 NetBSD amd64. This binary supports native plugins but omits the unsupported
 embedded WASM runtime.
+
+Windows releases include native AMD64 and ARM64 executables plus matching
+prebuilt plugin archives. Both Windows executables include native and WASM
+plugin support; the PowerShell installer verifies the release checksum and
+installs `lla.exe` under `%LOCALAPPDATA%\Programs\lla`. Windows 10 and Windows
+Server 2016 or newer are supported; 32-bit x86 Windows is not.
 
 ## Try it
 
@@ -133,7 +145,8 @@ differences, or the [command reference](docs/command-reference.md) for flags.
 - Native plugins provide trusted in-process extensions. On builds with the
   optional `wasm-plugins` feature, WebAssembly Component Model plugins run with
   declared, persisted grants and scoped host capabilities. Official Linux and
-  macOS release binaries enable this feature; the NetBSD binary does not.
+  macOS and Windows release binaries enable this feature; the NetBSD binary
+  does not.
 - Plugins can add typed listing fields, formatting, and actions with human,
   JSON, NDJSON, or CSV output. The bundled catalog covers metadata, Git context,
   code analysis, storage insights, file operations, and other focused workflows.

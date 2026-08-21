@@ -208,6 +208,8 @@ lla-linux-i686
 lla-macos-amd64
 lla-macos-arm64
 lla-netbsd-amd64
+lla-windows-amd64.exe
+lla-windows-arm64.exe
 plugins-linux-amd64.tar.gz
 plugins-linux-amd64.zip
 plugins-linux-arm64.tar.gz
@@ -218,6 +220,8 @@ plugins-macos-amd64.tar.gz
 plugins-macos-amd64.zip
 plugins-macos-arm64.tar.gz
 plugins-macos-arm64.zip
+plugins-windows-amd64.zip
+plugins-windows-arm64.zip
 lla_${version}_amd64.deb
 lla-${version}-1.x86_64.rpm
 lla-${version}-r0.x86_64.apk

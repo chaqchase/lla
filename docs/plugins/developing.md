@@ -17,11 +17,11 @@ are trusted code and must be built for every supported operating system and
 architecture.
 
 Use a WebAssembly component when portability and enforced permissions matter.
-The host must be compiled with `--features wasm-plugins`; official Linux and
-macOS release binaries enable it. The embedded runtime is available on
-supported x86_64 and ARM64 Linux/macOS builds. i686 builds report WebAssembly
-packages as unsupported, while the official NetBSD amd64 build omits Wasmtime
-entirely.
+The host must be compiled with `--features wasm-plugins`; official Linux,
+macOS, and Windows release binaries enable it. The embedded runtime is
+available on supported x86_64 and ARM64 Linux/macOS/Windows builds. i686 builds
+report WebAssembly packages as unsupported, while the official NetBSD amd64
+build omits Wasmtime entirely.
 
 ## Create a native plugin
 

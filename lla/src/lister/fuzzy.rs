@@ -2,6 +2,7 @@
 
 use super::FileLister;
 use crate::utils::color::*;
+use crate::utils::fs_metadata;
 use crate::utils::icons::format_with_icon;
 use crate::{error::Result, theme::color_value_to_color};
 use colored::*;
@@ -19,9 +20,7 @@ use ignore::WalkBuilder;
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::fs::Permissions;
 use std::io::{self, stdout, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{
@@ -179,7 +178,7 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     }
 }
 
-fn open_path(path: &PathBuf) -> std::io::Result<()> {
+fn open_path(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
         let _ = ProcessCommand::new("open").arg(path).spawn()?.wait();
@@ -1413,11 +1412,11 @@ impl ResultList {
                     " ".normal()
                 };
 
-                let perms = metadata
+                let permissions = metadata
                     .as_ref()
-                    .map(|m| m.permissions())
-                    .unwrap_or_else(|| Permissions::from_mode(0o644));
-                let perms_display = colorize_permissions(&perms, Some("symbolic"));
+                    .map(fs_metadata::permission_mode)
+                    .unwrap_or(0o100644);
+                let perms_display = colorize_permissions(permissions, Some("symbolic"));
                 let size_display = colorize_size(size);
                 let date_display = colorize_date(&modified);
 

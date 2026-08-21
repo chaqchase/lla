@@ -6,8 +6,6 @@ use crate::utils::hyperlink;
 use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -46,8 +44,8 @@ impl FuzzyFormatter {
         };
         let name_display = hyperlink::link_path(path, name_display);
 
-        let perms = Permissions::from_mode(metadata.permissions);
-        let perms_display = colorize_permissions(&perms, Some(&self.permission_format));
+        let perms_display =
+            colorize_permissions(metadata.permissions, Some(&self.permission_format));
         let size = colorize_size(metadata.size);
         let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(metadata.modified);
         let date = colorize_date(&modified);

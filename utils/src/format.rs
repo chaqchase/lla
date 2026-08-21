@@ -90,15 +90,24 @@ pub fn format_file_type(entry: &DecoratedEntry) -> String {
 }
 
 pub fn format_ownership(uid: u32, gid: u32) -> String {
-    use users::{get_group_by_gid, get_user_by_uid};
+    #[cfg(unix)]
+    {
+        use users::{get_group_by_gid, get_user_by_uid};
 
-    let user = get_user_by_uid(uid)
-        .map(|u| u.name().to_string_lossy().into_owned())
-        .unwrap_or_else(|| uid.to_string());
+        let user = get_user_by_uid(uid)
+            .map(|u| u.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| uid.to_string());
 
-    let group = get_group_by_gid(gid)
-        .map(|g| g.name().to_string_lossy().into_owned())
-        .unwrap_or_else(|| gid.to_string());
+        let group = get_group_by_gid(gid)
+            .map(|g| g.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| gid.to_string());
 
-    format!("{}:{}", user, group)
+        format!("{}:{}", user, group)
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = (uid, gid);
+        "-:-".to_string()
+    }
 }

@@ -48,8 +48,10 @@ default dependency graph does not contain Wasmtime.
 
 The release workflow separately builds `lla-netbsd-amd64` inside NetBSD 10.1,
 checks that Wasmtime remains absent, exercises the binary's help path, and adds
-it to the verified release assets and checksum manifest. Linux and macOS
-binaries continue to build with `--features wasm-plugins`.
+it to the verified release assets and checksum manifest. Linux, macOS, and
+Windows binaries build with `--features wasm-plugins`. Windows AMD64 and ARM64
+builds run natively, use the static MSVC runtime, and verify their corresponding
+plugin `.zip` archives.
 
 Build the SDK fixtures, including a real Component Model target:
 
@@ -89,4 +91,5 @@ that exact version before continuing. A resumed workflow skips versions already
 published and rejects an inconsistent partial publication state.
 
 The GitHub release is published only after validation, binary/plugin artifact
-collection (including `lla-netbsd-amd64`), and crates.io publication succeed.
+collection (including NetBSD and both Windows architectures), and crates.io
+publication succeed.

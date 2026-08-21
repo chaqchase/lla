@@ -14,6 +14,17 @@ The script detects the operating system and architecture, downloads the matching
 release binary, verifies it against the release checksum, and installs it in
 `/usr/local/bin`.
 
+On Windows PowerShell, use the native installer:
+
+```powershell
+irm https://raw.githubusercontent.com/chaqchase/lla/main/install.ps1 | iex
+```
+
+It detects AMD64 or ARM64, verifies `SHA256SUMS`, installs to
+`%LOCALAPPDATA%\Programs\lla`, and adds that directory to the user `PATH`.
+Download `install.ps1` first to use its `-Version`, `-InstallDir`, or
+`-NoPathUpdate` options.
+
 ## Install with a package manager
 
 | Platform | Command |
@@ -50,6 +61,20 @@ plugins are enabled, but the embedded WASM runtime is omitted because Wasmtime
 does not support NetBSD. Official prebuilt plugin archives are not currently
 published for NetBSD; native plugins can still be built and installed locally.
 
+Windows releases include `lla-windows-amd64.exe` and
+`lla-windows-arm64.exe`, built natively with `wasm-plugins`. Matching
+`plugins-windows-amd64.zip` and `plugins-windows-arm64.zip` archives contain
+native DLLs and WASM components. Windows reports file size and timestamps
+normally, synthesizes Unix-style permission columns from file type and the
+read-only attribute, and returns null or `-` for Unix-only ownership, inode,
+hard-link, xattr, security-context, and mount metadata. Supported systems are
+Windows 10 or Windows Server 2016 and newer on AMD64 or ARM64; 32-bit x86 is
+rejected by the installer.
+
+Creating symlinks may require Windows Developer Mode or an elevated terminal.
+Existing directory and file symlinks can still be listed normally when the
+current account can access them.
+
 ## Initialize lla
 
 Run the guided setup after installation:
@@ -84,7 +109,8 @@ lla upgrade --path /usr/local/bin/lla
 `lla upgrade` uses the official installation logic to detect the platform,
 verify `SHA256SUMS`, and atomically replace the executable. It targets the
 currently running executable unless `--path` is provided. NetBSD amd64 upgrades
-select the `lla-netbsd-amd64` release asset.
+select the `lla-netbsd-amd64` release asset. Windows upgrades select the matching
+`.exe` asset and use a Windows-safe self-replacement path.
 
 ## Next steps
 

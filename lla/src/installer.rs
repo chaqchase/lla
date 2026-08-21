@@ -91,6 +91,16 @@ impl HostTarget {
                 arch_label: "i686",
                 library_extension: "so",
             }),
+            ("windows", "x86_64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "amd64",
+                library_extension: "dll",
+            }),
+            ("windows", "aarch64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "arm64",
+                library_extension: "dll",
+            }),
             _ => Err(LlaError::Plugin(format!(
                 "Unsupported platform for prebuilt plugins: {}-{}",
                 OS, ARCH
@@ -99,6 +109,9 @@ impl HostTarget {
     }
 
     fn asset_candidates(&self) -> Vec<String> {
+        if self.os_label == "windows" {
+            return vec![format!("plugins-{}-{}.zip", self.os_label, self.arch_label)];
+        }
         vec![
             format!("plugins-{}-{}.tar.gz", self.os_label, self.arch_label),
             format!("plugins-{}-{}.zip", self.os_label, self.arch_label),
@@ -166,8 +179,20 @@ impl CliBinaryTarget {
                 display_os: "NetBSD",
                 musl: false,
             }),
+            ("windows", "x86_64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "amd64",
+                display_os: "Windows",
+                musl: false,
+            }),
+            ("windows", "aarch64") => Ok(Self {
+                os_label: "windows",
+                arch_label: "arm64",
+                display_os: "Windows",
+                musl: false,
+            }),
             _ => Err(LlaError::Other(format!(
-                "Unsupported platform for CLI upgrades: {}-{} (supported: macOS/Linux on amd64, arm64, i686; NetBSD on amd64)",
+                "Unsupported platform for CLI upgrades: {}-{} (supported: Windows/macOS/Linux on amd64 and arm64; Linux on i686; NetBSD on amd64)",
                 os, arch
             ))),
         }
@@ -175,7 +200,15 @@ impl CliBinaryTarget {
 
     fn asset_name(&self) -> String {
         let musl_suffix = if self.musl { "-musl" } else { "" };
-        format!("lla-{}-{}{}", self.os_label, self.arch_label, musl_suffix)
+        let executable_suffix = if self.os_label == "windows" {
+            ".exe"
+        } else {
+            ""
+        };
+        format!(
+            "lla-{}-{}{}{}",
+            self.os_label, self.arch_label, musl_suffix, executable_suffix
+        )
     }
 
     fn human_label(&self) -> String {
@@ -822,6 +855,32 @@ fn install_cli_binary(
     let install_message = ui.progress_message("Installing", &destination.display().to_string());
     let spinner = installer.create_status_spinner(&install_message);
 
+    #[cfg(windows)]
+    if destination_is_current_executable(destination) {
+        self_replace::self_replace(source).map_err(|err| {
+            ui.complete_progress_standalone(
+                &spinner,
+                StatusKind::Error,
+                format!("Failed to replace running executable: {}", err),
+            );
+            LlaError::Other(format!(
+                "Failed to replace the running executable at {}: {}",
+                destination.display(),
+                err
+            ))
+        })?;
+        ui.complete_progress_standalone(
+            &spinner,
+            StatusKind::Success,
+            format!(
+                "Installed {} to {}",
+                ui.highlight_text(release_tag),
+                ui.highlight_text(&destination.display().to_string())
+            ),
+        );
+        return Ok(());
+    }
+
     let parent = destination.parent().ok_or_else(|| {
         LlaError::Other(format!(
             "Invalid install path '{}': missing parent directory",
@@ -865,7 +924,7 @@ fn install_cli_binary(
     })?;
     mark_file_executable(&temp_target)?;
 
-    let rename_result = fs::rename(&temp_target, destination);
+    let rename_result = replace_cli_file(&temp_target, destination);
     if let Err(err) = rename_result {
         let _ = fs::remove_file(&temp_target);
         ui.complete_progress_standalone(
@@ -892,6 +951,50 @@ fn install_cli_binary(
     Ok(())
 }
 
+#[cfg(windows)]
+fn destination_is_current_executable(destination: &Path) -> bool {
+    let Ok(current) = std::env::current_exe() else {
+        return false;
+    };
+    let current = current.canonicalize().unwrap_or(current);
+    let destination = destination
+        .canonicalize()
+        .unwrap_or_else(|_| destination.to_path_buf());
+    current == destination
+}
+
+#[cfg(not(windows))]
+fn replace_cli_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_cli_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    if !destination.exists() {
+        return fs::rename(source, destination);
+    }
+
+    let backup = destination.with_extension(format!(
+        "lla-backup-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    fs::rename(destination, &backup)?;
+    match fs::rename(source, destination) {
+        Ok(()) => {
+            let _ = fs::remove_file(backup);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::rename(backup, destination);
+            Err(error)
+        }
+    }
+}
+
 fn mark_file_executable(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -901,11 +1004,7 @@ fn mark_file_executable(path: &Path) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    {
-        let mut perms = fs::metadata(path)?.permissions();
-        perms.set_readonly(false);
-        fs::set_permissions(path, perms)?;
-    }
+    let _ = path;
 
     Ok(())
 }
@@ -3140,7 +3239,7 @@ impl PluginInstaller {
 #[cfg(test)]
 mod tests {
     use super::{CliBinaryTarget, PluginInstaller};
-    #[cfg(feature = "dynamic-plugins")]
+    #[cfg(any(feature = "dynamic-plugins", windows))]
     use std::fs;
     use std::io::Write;
 
@@ -3157,21 +3256,80 @@ mod tests {
     }
 
     #[test]
-    fn cli_asset_names_preserve_macos_i686_gnu_and_netbsd() {
+    fn cli_asset_names_preserve_macos_i686_gnu_netbsd_and_windows() {
         let macos = CliBinaryTarget::for_platform("macos", "aarch64", false).unwrap();
         let i686 = CliBinaryTarget::for_platform("linux", "i686", false).unwrap();
         let netbsd = CliBinaryTarget::for_platform("netbsd", "x86_64", false).unwrap();
+        let windows_amd64 = CliBinaryTarget::for_platform("windows", "x86_64", false).unwrap();
+        let windows_arm64 = CliBinaryTarget::for_platform("windows", "aarch64", false).unwrap();
 
         assert_eq!(macos.asset_name(), "lla-macos-arm64");
         assert_eq!(i686.asset_name(), "lla-linux-i686");
         assert_eq!(netbsd.asset_name(), "lla-netbsd-amd64");
+        assert_eq!(windows_amd64.asset_name(), "lla-windows-amd64.exe");
+        assert_eq!(windows_arm64.asset_name(), "lla-windows-arm64.exe");
         assert_eq!(netbsd.human_label(), "NetBSD (amd64)");
+        assert_eq!(windows_arm64.human_label(), "Windows (arm64)");
+    }
+
+    #[test]
+    fn prebuilt_windows_plugins_use_zip_archives() {
+        let amd64 = super::HostTarget {
+            os_label: "windows",
+            arch_label: "amd64",
+            library_extension: "dll",
+        };
+        assert_eq!(amd64.asset_candidates(), vec!["plugins-windows-amd64.zip"]);
     }
 
     #[test]
     fn static_musl_upgrade_rejects_i686() {
         let error = CliBinaryTarget::for_platform("linux", "i686", true).unwrap_err();
         assert!(error.to_string().contains("static musl CLI upgrades"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_self_replace_helper() {
+        let Ok(source) = std::env::var("LLA_TEST_SELF_REPLACE_SOURCE") else {
+            return;
+        };
+        self_replace::self_replace(source).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_self_replace_updates_a_running_temporary_copy() {
+        use std::fs::OpenOptions;
+        use std::process::Command;
+
+        const MARKER: &[u8] = b"lla-self-replace-test-marker";
+        let directory = tempfile::tempdir().unwrap();
+        let current = std::env::current_exe().unwrap();
+        let installed = directory.path().join("lla-upgrade-test.exe");
+        let replacement = directory.path().join("replacement.exe");
+        fs::copy(&current, &installed).unwrap();
+        fs::copy(&current, &replacement).unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&replacement)
+            .unwrap()
+            .write_all(MARKER)
+            .unwrap();
+
+        let status = Command::new(&installed)
+            .args([
+                "--exact",
+                "installer::tests::windows_self_replace_helper",
+                "--nocapture",
+            ])
+            .env("LLA_TEST_SELF_REPLACE_SOURCE", &replacement)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let installed_bytes = fs::read(&installed).unwrap();
+        assert!(installed_bytes.ends_with(MARKER));
     }
 
     #[test]

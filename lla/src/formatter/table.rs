@@ -8,17 +8,21 @@ use crate::utils::icons::format_with_icon;
 use crate::utils::{fs_metadata, hyperlink};
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
+#[cfg(unix)]
 use once_cell::sync::Lazy;
+#[cfg(unix)]
 use std::collections::HashMap;
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+#[cfg(unix)]
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use unicode_width::UnicodeWidthStr;
+#[cfg(unix)]
 use users::{get_group_by_gid, get_user_by_uid};
 
+#[cfg(unix)]
 static USER_CACHE: Lazy<Mutex<HashMap<u32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+#[cfg(unix)]
 static GROUP_CACHE: Lazy<Mutex<HashMap<u32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub struct TableFormatter {
@@ -173,17 +177,19 @@ impl TableFormatter {
     ) -> String {
         match column {
             ColumnKey::Permissions => {
-                let perms = Permissions::from_mode(metadata.permissions);
-                let mut rendered = colorize_permissions(&perms, Some(&self.permission_format));
+                let mut rendered =
+                    colorize_permissions(metadata.permissions, Some(&self.permission_format));
                 if metadata.has_acl {
                     rendered.push('+');
                 }
                 rendered
             }
-            ColumnKey::Inode => metadata.inode.to_string(),
-            ColumnKey::HardLinks => metadata.hard_links.to_string(),
+            ColumnKey::Inode => fs_metadata::format_inode(metadata),
+            ColumnKey::HardLinks => fs_metadata::format_hard_links(metadata),
             ColumnKey::Size => colorize_size(metadata.size).to_string(),
-            ColumnKey::AllocatedSize => colorize_size(metadata.allocated_size).to_string(),
+            ColumnKey::AllocatedSize => fs_metadata::allocated_size(metadata)
+                .map(|size| colorize_size(size).to_string())
+                .unwrap_or_else(|| "-".to_string()),
             ColumnKey::Modified => self.format_timestamp(metadata.modified),
             ColumnKey::Created => self.format_timestamp(metadata.created),
             ColumnKey::Accessed => self.format_timestamp(metadata.accessed),
@@ -223,6 +229,7 @@ impl TableFormatter {
     }
 }
 
+#[cfg(unix)]
 fn lookup_user(uid: u32) -> String {
     let resolved = || {
         get_user_by_uid(uid)
@@ -241,6 +248,12 @@ fn lookup_user(uid: u32) -> String {
     resolved
 }
 
+#[cfg(windows)]
+fn lookup_user(_uid: u32) -> String {
+    "-".to_string()
+}
+
+#[cfg(unix)]
 fn lookup_group(gid: u32) -> String {
     let resolved = || {
         get_group_by_gid(gid)
@@ -257,6 +270,11 @@ fn lookup_group(gid: u32) -> String {
     let resolved = resolved();
     cache.insert(gid, resolved.clone());
     resolved
+}
+
+#[cfg(windows)]
+fn lookup_group(_gid: u32) -> String {
+    "-".to_string()
 }
 
 impl FileFormatter for TableFormatter {

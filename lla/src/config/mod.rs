@@ -496,7 +496,7 @@ enabled_plugins = {}
 
 # Directory where plugins are stored
 # Default: ~/.config/lla/plugins
-plugins_dir = "{}"
+plugins_dir = {}
 
 # Additional plugin locations searched after plugins_dir.
 # Package managers can install plugins into system directories without touching $HOME.
@@ -624,7 +624,7 @@ editor = {}"#,
             self.permission_format,
             self.theme,
             serde_json::to_string(&self.enabled_plugins).unwrap_or_else(|_| "[]".to_string()),
-            plugins_dir_display,
+            format_string(&plugins_dir_display),
             {
                 let home = dirs::home_dir();
                 let display_paths: Vec<String> = self
@@ -1774,6 +1774,22 @@ mod tests {
 
         assert!(content.contains("date_format = \"%b %d %H:%M\""));
         assert!(content.contains("%Y-%m-%d %H:%M"));
+    }
+
+    #[test]
+    fn generated_config_escapes_windows_paths() {
+        let config = Config {
+            plugins_dir: PathBuf::from(r"C:\Users\runner\.config\lla\plugins"),
+            ..Default::default()
+        };
+
+        let content = config.generate_config_content();
+        let document = content.parse::<TomlValue>().unwrap();
+
+        assert_eq!(
+            document.get("plugins_dir").and_then(TomlValue::as_str),
+            Some(r"C:\Users\runner\.config\lla\plugins")
+        );
     }
 
     #[test]
