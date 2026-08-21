@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-08-21
+
 ### Added
 
 - Official Windows AMD64 and ARM64 executables now ship with native and WASM
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Unix-only metadata as empty machine fields or `-` in human output.
 - `lla upgrade` recognizes Windows AMD64/ARM64 `.exe` assets and safely replaces
   the running executable.
+
 
 ## [0.6.3] - 2026-08-20
 

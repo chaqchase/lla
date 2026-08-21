@@ -1,6 +1,6 @@
 [package]
 name = "trash"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 description = "Cross-platform recoverable deletion with listing, restoration, and explicit emptying"
 

@@ -10,8 +10,8 @@ keywords = ["cli", "plugins", "file-management"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-lla_plugin_interface = { path = "../interface", version = "0.6.3" }
-lla_plugin_sdk = { path = "../sdk", version = "0.6.3" }
+lla_plugin_interface = { path = "../interface", version = "0.6.4" }
+lla_plugin_sdk = { path = "../sdk", version = "0.6.4" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 colored = { workspace = true }
