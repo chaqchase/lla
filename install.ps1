@@ -104,13 +104,15 @@ function Invoke-LlaInstall {
     $releaseBase = "https://github.com/$LlaRepository/releases/download/$releaseTag"
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("lla-install-" + [Guid]::NewGuid())
     $downloadPath = Join-Path $temporaryDirectory $assetName
+    $checksumPath = Join-Path $temporaryDirectory 'SHA256SUMS'
 
     New-Item -ItemType Directory -Force -Path $temporaryDirectory | Out-Null
     try {
         Write-Host "Downloading lla $releaseTag for Windows $architecture..."
-        Invoke-WebRequest "$releaseBase/$assetName" -OutFile $downloadPath
-        $checksumManifest = (Invoke-WebRequest "$releaseBase/SHA256SUMS").Content
-        $expected = Get-LlaChecksum $checksumManifest $assetName
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $downloadPath
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS" -OutFile $checksumPath
+        $checksumManifest = [IO.File]::ReadAllText($checksumPath, [Text.Encoding]::UTF8)
+        $expected = Get-LlaChecksum -Manifest $checksumManifest -AssetName $assetName
         $actual = (Get-FileHash -Algorithm SHA256 $downloadPath).Hash.ToLowerInvariant()
         if ($actual -ne $expected) {
             throw "Checksum verification failed for '$assetName'. Expected $expected, got $actual."

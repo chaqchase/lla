@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The Windows installer now handles GitHub checksum manifests correctly in
+  Windows PowerShell 5.1 and avoids its legacy Internet Explorer parsing prompt.
+
 ## [0.6.4] - 2026-08-21
 
 ### Added

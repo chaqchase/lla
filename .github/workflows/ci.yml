@@ -303,56 +303,12 @@ jobs:
       - name: Test PowerShell installer helpers
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          . ./install.ps1
-          if ((Resolve-LlaArchitecture 'AMD64' '') -ne 'amd64') { throw 'AMD64 mapping failed' }
-          if ((Resolve-LlaArchitecture 'AMD64' 'ARM64') -ne 'arm64') { throw 'ARM64 native mapping failed' }
-          $asset = "lla-windows-amd64.exe"
-          $hash = 'a' * 64
-          if ((Get-LlaChecksum "$hash  $asset`n" $asset) -ne $hash) { throw 'Checksum parsing failed' }
-          try { Get-LlaChecksum "$hash  $asset.old`n" $asset | Out-Null; throw 'Inexact checksum entry was accepted' } catch {
-            if ($_.Exception.Message -eq 'Inexact checksum entry was accepted') { throw }
-          }
-          try { Resolve-LlaArchitecture 'x86' '' | Out-Null; throw 'x86 was accepted' } catch {
-            if ($_.Exception.Message -eq 'x86 was accepted') { throw }
-          }
+        run: ./scripts/test_install_ps1.ps1 -Binary "target/${{ matrix.target }}/release/lla.exe"
 
-          $binary = (Resolve-Path "target/${{ matrix.target }}/release/lla.exe").Path
-          $expectedAsset = "lla-windows-$(Resolve-LlaArchitecture).exe"
-          $expectedHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-          function Invoke-WebRequest {
-            param(
-              [Parameter(Position = 0)][string]$Uri,
-              [string]$OutFile
-            )
-            if ($Uri.EndsWith('.exe')) {
-              Copy-Item $binary $OutFile
-            } else {
-              [PSCustomObject]@{ Content = "$expectedHash  $expectedAsset`n" }
-            }
-          }
-
-          $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-          $originalProcessPath = $env:Path
-          $customInstall = Join-Path $env:RUNNER_TEMP 'lla-custom-install'
-          try {
-            $script:Version = 'v0.0.0-test'
-            $script:InstallDir = $customInstall
-            $script:NoPathUpdate = $true
-            Invoke-LlaInstall
-            if (-not (Test-Path (Join-Path $customInstall 'lla.exe'))) { throw 'Custom install directory was ignored' }
-            if ([Environment]::GetEnvironmentVariable('Path', 'User') -ne $originalUserPath) { throw '-NoPathUpdate changed the user PATH' }
-
-            Add-LlaToUserPath $customInstall
-            $userEntries = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';')
-            if (-not ($userEntries -contains $customInstall)) { throw 'User PATH was not updated' }
-            Add-LlaToUserPath $customInstall
-            $matches = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -eq $customInstall })
-            if ($matches.Count -ne 1) { throw 'User PATH update was not idempotent' }
-          } finally {
-            [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
-            $env:Path = $originalProcessPath
-          }
+      - name: Test installer with Windows PowerShell 5.1
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: powershell
+        run: ./scripts/test_install_ps1.ps1 -Binary "target/${{ matrix.target }}/release/lla.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
