@@ -1,6 +1,6 @@
 [package]
 name = "kill_process"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 description = "A plugin for lla that allows killing processes with an interactive interface"
 

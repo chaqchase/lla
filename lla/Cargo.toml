@@ -41,8 +41,8 @@ serde_json.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
 parking_lot.workspace = true
-lla_plugin_interface = { version = "0.6.3", path = "../interface" }
-lla_plugin_utils = { version = "0.6.3", path = "../utils" }
+lla_plugin_interface = { version = "0.6.4", path = "../interface" }
+lla_plugin_utils = { version = "0.6.4", path = "../utils" }
 once_cell.workspace = true
 dashmap.workspace = true
 unicode-width.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "media_inspector"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 description = "Inspect MIME types, image metadata, and audio/video stream details"
 
