@@ -1236,24 +1236,35 @@ impl PluginManager {
 
     fn manifest_matches_runtime(&self, manifest: &PluginManifest, entrypoint: &Path) -> bool {
         let mut probe = PluginManager::new(self.config.clone());
-        if let Err(error) = probe.load_manifest_plugin(entrypoint, manifest) {
-            eprintln!(
-                "⚠️ Plugin '{}' could not be loaded for verification: {}",
-                manifest.plugin.name, error
-            );
-            return false;
-        }
-        if !probe.loaded_plugin_matches_manifest(manifest, entrypoint) {
-            return false;
-        }
-        if let Err(error) = probe.verify_functional_contract(manifest) {
-            eprintln!(
-                "⚠️ Plugin '{}' failed v3 functional verification: {}",
-                manifest.plugin.name, error
-            );
-            return false;
-        }
-        true
+        let matches = match probe.load_manifest_plugin(entrypoint, manifest) {
+            Err(error) => {
+                eprintln!(
+                    "⚠️ Plugin '{}' could not be loaded for verification: {}",
+                    manifest.plugin.name, error
+                );
+                false
+            }
+            Ok(()) if !probe.loaded_plugin_matches_manifest(manifest, entrypoint) => false,
+            Ok(()) => match probe.verify_functional_contract(manifest) {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!(
+                        "⚠️ Plugin '{}' failed v3 functional verification: {}",
+                        manifest.plugin.name, error
+                    );
+                    false
+                }
+            },
+        };
+
+        // Unloading arbitrary DLLs after exercising them can crash on Windows when
+        // a dependency retains process-global or thread-local state. Verification
+        // commands are short-lived, so keep successful probes mapped and let the OS
+        // reclaim them at process exit. Native Unix plugins retain normal teardown.
+        #[cfg(windows)]
+        std::mem::forget(probe);
+
+        matches
     }
 
     fn loaded_plugin_matches_manifest(
