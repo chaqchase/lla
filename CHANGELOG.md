@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-09-21
+
 ### Fixed
 
 - The Unix installer can once again be executed through the documented
   `curl ... | bash` command without an unset `BASH_SOURCE` error.
 - The Windows installer now handles GitHub checksum manifests correctly in
   Windows PowerShell 5.1 and avoids its legacy Internet Explorer parsing prompt.
+
 
 ## [0.6.4] - 2026-08-21
 
