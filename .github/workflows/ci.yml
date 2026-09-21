@@ -72,6 +72,11 @@ jobs:
           cargo test --workspace
           cargo test -p lla --features wasm-plugins
 
+      - name: Test Unix installer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/test_install_sh.sh
+
       - name: Compile SDK fixtures
         run: |
           cargo check --manifest-path sdk/tests/fixtures/minimal_native/Cargo.toml
