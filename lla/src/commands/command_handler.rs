@@ -54,8 +54,12 @@ fn install_completion(
     let mut buf = Vec::new();
     clap_complete::generate(shell, app, env!("CARGO_PKG_NAME"), &mut buf);
 
-    match output_path {
-        Some(path) => {
+    match (output_path, custom_path) {
+        (None, None) => {
+            std::io::stdout().lock().write_all(&buf)?;
+            Ok(())
+        }
+        (Some(path), _) => {
             if let Some(parent) = std::path::Path::new(path).parent() {
                 create_dir_all(parent)?;
             }
@@ -72,75 +76,14 @@ fn install_completion(
             }
             Ok(())
         }
-        None => {
-            let (install_path, post_install_msg) = if let Some(path) = custom_path {
-                (
-                    std::path::PathBuf::from(path),
-                    "Restart your shell to apply changes",
-                )
-            } else {
-                match shell {
-                    clap_complete::Shell::Bash => {
-                        let path = dirs::home_dir()
-                            .map(|h| h.join(".local/share/bash-completion/completions"))
-                            .ok_or_else(|| {
-                                LlaError::Other("Could not determine home directory".into())
-                            })?;
-                        (
-                            path.join("lla"),
-                            "Restart your shell or run 'source ~/.bashrc'",
-                        )
-                    }
-                    clap_complete::Shell::Fish => {
-                        let path = dirs::home_dir()
-                            .map(|h| h.join(".config/fish/completions"))
-                            .ok_or_else(|| {
-                                LlaError::Other("Could not determine home directory".into())
-                            })?;
-                        (
-                            path.join("lla.fish"),
-                            "Restart your shell or run 'source ~/.config/fish/config.fish'",
-                        )
-                    }
-                    clap_complete::Shell::Zsh => {
-                        let path = dirs::home_dir()
-                            .map(|h| h.join(".zsh/completions"))
-                            .ok_or_else(|| {
-                                LlaError::Other("Could not determine home directory".into())
-                            })?;
-                        (
-                            path.join("_lla"),
-                            "Add 'fpath=(~/.zsh/completions $fpath)' to ~/.zshrc and restart your shell",
-                        )
-                    }
-                    clap_complete::Shell::PowerShell => {
-                        let path = dirs::home_dir()
-                            .map(|h| h.join("Documents/WindowsPowerShell"))
-                            .ok_or_else(|| {
-                                LlaError::Other("Could not determine home directory".into())
-                            })?;
-                        (
-                            path.join("lla.ps1"),
-                            "Restart PowerShell or reload your profile",
-                        )
-                    }
-                    clap_complete::Shell::Elvish => {
-                        let path =
-                            dirs::home_dir()
-                                .map(|h| h.join(".elvish/lib"))
-                                .ok_or_else(|| {
-                                    LlaError::Other("Could not determine home directory".into())
-                                })?;
-                        (path.join("lla.elv"), "Restart your shell")
-                    }
-                    _ => return Err(LlaError::Other(format!("Unsupported shell: {:?}", shell))),
-                }
-            };
+        (None, Some(path)) => {
+            let install_path = std::path::Path::new(path);
+            let post_install_msg = "Restart your shell to apply changes";
 
             if let Some(parent) = install_path.parent() {
                 create_dir_all(parent)?;
             }
-            fs::write(&install_path, buf)?;
+            fs::write(install_path, buf)?;
 
             if color_state.is_enabled() {
                 println!(

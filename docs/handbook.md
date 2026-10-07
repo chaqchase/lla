@@ -400,9 +400,10 @@ lla completion zsh --output ./_lla
 lla completion zsh --path ~/.zsh/completions/_lla
 ```
 
-Without either option, the command installs to its shell-specific default file.
-`--path` overrides that installed file; `--output` writes the generated script
-to the requested file. Release packages may also include pre-generated assets.
+Without either option, the command prints the script to stdout, so it can be
+redirected or evaluated by your shell. `--path` installs to the specified file;
+`--output` writes the generated script to the requested file. Release packages
+may also include pre-generated assets.
 
 ### Shortcuts
 
