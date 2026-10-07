@@ -175,3 +175,4 @@ Start at the [documentation index](docs/README.md), or go directly to a guide:
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
+Run `lla --license` to print the full license embedded in the executable.

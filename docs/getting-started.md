@@ -71,6 +71,20 @@ hard-link, xattr, security-context, and mount metadata. Supported systems are
 Windows 10 or Windows Server 2016 and newer on AMD64 or ARM64; 32-bit x86 is
 rejected by the installer.
 
+The executable embeds the MIT license and generates shell completions without
+additional downloads:
+
+```powershell
+lla --license
+lla completion powershell --output lla.ps1
+. ./lla.ps1
+```
+
+For Cygwin or other shells on Windows, use `lla completion bash`,
+`lla completion fish`, `lla completion zsh`, or `lla completion elvish`.
+These commands print scripts to stdout; `--output <path>` saves a script to a
+file. See [Shell completion](configuration.md#shell-completion) for more examples.
+
 Creating symlinks may require Windows Developer Mode or an elevated terminal.
 Existing directory and file symlinks can still be listed normally when the
 current account can access them.

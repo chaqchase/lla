@@ -79,6 +79,7 @@ pub struct SearchPipelineSpec {
 }
 
 pub enum Command {
+    PrintLicense,
     Install(InstallSource),
     ListPlugins,
     Use,
@@ -188,6 +189,12 @@ impl Args {
             .version(env!("CARGO_PKG_VERSION"))
             .author(env!("CARGO_PKG_AUTHORS"))
             .about(env!("CARGO_PKG_DESCRIPTION"))
+            .arg(
+                Arg::with_name("license")
+                    .long("license")
+                    .exclusive(true)
+                    .help("Print the MIT license"),
+            )
             .arg(
                 Arg::with_name("directory")
                     .help("The directory to list")
@@ -1028,7 +1035,9 @@ impl Args {
     }
 
     fn from_matches(matches: &ArgMatches, config: &Config) -> Result<Self> {
-        let command = if let Some(completion_matches) = matches.subcommand_matches("completion") {
+        let command = if matches.is_present("license") {
+            Some(Command::PrintLicense)
+        } else if let Some(completion_matches) = matches.subcommand_matches("completion") {
             let shell = match completion_matches.value_of("shell").unwrap() {
                 "bash" => Shell::Bash,
                 "fish" => Shell::Fish,

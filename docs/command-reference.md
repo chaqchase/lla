@@ -128,3 +128,4 @@ See [Machine output](machine-output.md) for schemas.
 | --- | --- | --- |
 | `--help` | `-h` | Print help. |
 | `--version` | `-V` | Print the version. |
+| `--license` | | Print the embedded MIT license. |
