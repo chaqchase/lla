@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-07
+
+### Added
+
+- `lla --license` prints the full MIT license embedded in the executable,
+  including Windows releases. Windows usage documentation and release smoke
+  checks cover the license and all five supported completion shells.
+
+### Fixed
+
+- Shell completion generation now prints scripts to stdout by default for Bash,
+  Fish, Zsh, PowerShell, and Elvish. Use `--output` or `--path` to save a script
+  to a file.
+
+
 ## [0.6.5] - 2026-09-21
 
 ### Fixed
