@@ -42,6 +42,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --help 'Print help information'
             cand -V 'Print version information'
             cand --version 'Print version information'
+            cand --license 'Print the MIT license'
             cand --json 'Output a single JSON array'
             cand --ndjson 'Output newline-delimited JSON (one object per line)'
             cand --csv 'Output CSV with header row'
@@ -109,7 +110,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand diff 'Compare two directories or a directory against a git reference'
             cand jump 'Jump to a bookmarked or recent directory'
             cand install 'Install a plugin'
-            cand plugin 'Run actions or inspect Plugin Platform v2 packages'
+            cand plugin 'Run actions or inspect Plugin Platform v3 packages'
             cand list-plugins 'List all available plugins'
             cand use 'Interactive plugin manager'
             cand init 'Initialize the configuration file'
@@ -154,6 +155,21 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --args 'Arguments for the plugin action (alternative to positional)'
             cand -h 'Print help information'
             cand --help 'Print help information'
+            cand run 'Run a typed plugin action'
+            cand migrate 'Migrate official v1/v2 plugins to API v3'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'lla;plugin;run'= {
+            cand --output 'output'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;plugin;migrate'= {
+            cand --prebuilt 'Use the official 0.6.0 prebuilt plugin bundle'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;plugin;help'= {
         }
         &'lla;list-plugins'= {
             cand -h 'Print help information'
