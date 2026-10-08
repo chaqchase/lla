@@ -1,6 +1,6 @@
 [package]
 name = "tree_summary"
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 description = "Add recursive directory totals to tree listings"
 

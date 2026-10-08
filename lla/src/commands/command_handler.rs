@@ -118,6 +118,12 @@ pub fn handle_command(
     let color_state = ColorState::new(args);
 
     match &args.command {
+        Some(Command::PrintLicense) => {
+            std::io::stdout()
+                .lock()
+                .write_all(include_bytes!("../../LICENSE"))?;
+            Ok(())
+        }
         Some(Command::GenerateCompletion(shell, custom_path, output_path)) => {
             let mut app = Args::get_cli(config);
             install_completion(
