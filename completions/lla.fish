@@ -17,6 +17,7 @@ complete -c lla -n "__fish_use_subcommand" -l permission-format -d 'Format for d
 complete -c lla -n "__fish_use_subcommand" -l date-format -d 'Format absolute dates in long format using chrono strftime syntax (e.g., \'%Y-%m-%d %H:%M\')' -r
 complete -c lla -n "__fish_use_subcommand" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_use_subcommand" -s V -l version -d 'Print version information'
+complete -c lla -n "__fish_use_subcommand" -l license -d 'Print the MIT license'
 complete -c lla -n "__fish_use_subcommand" -l json -d 'Output a single JSON array'
 complete -c lla -n "__fish_use_subcommand" -l ndjson -d 'Output newline-delimited JSON (one object per line)'
 complete -c lla -n "__fish_use_subcommand" -l csv -d 'Output CSV with header row'
@@ -66,7 +67,7 @@ complete -c lla -n "__fish_use_subcommand" -s M -l mounts -d 'Show source, mount
 complete -c lla -n "__fish_use_subcommand" -f -a "diff" -d 'Compare two directories or a directory against a git reference'
 complete -c lla -n "__fish_use_subcommand" -f -a "jump" -d 'Jump to a bookmarked or recent directory'
 complete -c lla -n "__fish_use_subcommand" -f -a "install" -d 'Install a plugin'
-complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run actions or inspect Plugin Platform v2 packages'
+complete -c lla -n "__fish_use_subcommand" -f -a "plugin" -d 'Run actions or inspect Plugin Platform v3 packages'
 complete -c lla -n "__fish_use_subcommand" -f -a "list-plugins" -d 'List all available plugins'
 complete -c lla -n "__fish_use_subcommand" -f -a "use" -d 'Interactive plugin manager'
 complete -c lla -n "__fish_use_subcommand" -f -a "init" -d 'Initialize the configuration file'
@@ -92,10 +93,17 @@ complete -c lla -n "__fish_seen_subcommand_from install" -l git -d 'Install a pl
 complete -c lla -n "__fish_seen_subcommand_from install" -l dir -d 'Install a plugin from a local directory' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -l prebuilt -d 'Install plugins from the latest prebuilt release (default)'
 complete -c lla -n "__fish_seen_subcommand_from install" -s h -l help -d 'Print help information'
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s n -l name -d 'Name of the plugin (alternative to positional)' -r
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s a -l action -d 'Action to perform (alternative to positional)' -r
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s r -l args -d 'Arguments for the plugin action (alternative to positional)' -r
-complete -c lla -n "__fish_seen_subcommand_from plugin" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -s n -l name -d 'Name of the plugin (alternative to positional)' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -s a -l action -d 'Action to perform (alternative to positional)' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -s r -l args -d 'Arguments for the plugin action (alternative to positional)' -r
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -f -a "run" -d 'Run a typed plugin action'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -f -a "migrate" -d 'Migrate official v1/v2 plugins to API v3'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and not __fish_seen_subcommand_from run; and not __fish_seen_subcommand_from migrate; and not __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and __fish_seen_subcommand_from run" -l output -r -f -a "{human	,json	,ndjson	,csv	}"
+complete -c lla -n "__fish_seen_subcommand_from plugin; and __fish_seen_subcommand_from run" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and __fish_seen_subcommand_from migrate" -l prebuilt -d 'Use the official 0.6.0 prebuilt plugin bundle'
+complete -c lla -n "__fish_seen_subcommand_from plugin; and __fish_seen_subcommand_from migrate" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from list-plugins" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from use" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from init" -l default -d 'Write the default config without launching the wizard'

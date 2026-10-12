@@ -54,6 +54,9 @@ _lla() {
             list-plugins)
                 cmd+="__list__plugins"
                 ;;
+            migrate)
+                cmd+="__migrate"
+                ;;
             plugin)
                 cmd+="__plugin"
                 ;;
@@ -65,6 +68,9 @@ _lla() {
                 ;;
             remove)
                 cmd+="__remove"
+                ;;
+            run)
+                cmd+="__run"
                 ;;
             shortcut)
                 cmd+="__shortcut"
@@ -91,7 +97,7 @@ _lla() {
 
     case "${cmd}" in
         lla)
-            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -X -a -A -i -H -@ -Z -M --help --version --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --hyperlink --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --preset --size --modified --created --case-sensitive --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --show-symlinks --no-dirs --no-files --no-symlinks --dereference --no-symlink-target --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --relative-dates --date-format --inode --links --allocated-size --extended --context --mounts <directory> diff jump install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
+            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -X -a -A -i -H -@ -Z -M --help --version --license --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --hyperlink --no-color --sort --sort-reverse --sort-dirs-first --sort-case-sensitive --sort-natural --filter --preset --size --modified --created --case-sensitive --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --show-symlinks --no-dirs --no-files --no-symlinks --dereference --no-symlink-target --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --relative-dates --date-format --inode --links --allocated-size --extended --context --mounts <directory> diff jump install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -397,7 +403,7 @@ _lla() {
             return 0
             ;;
         lla__plugin)
-            opts="-n -a -r -h --name --action --args --help <plugin_name> <plugin_action> <plugin_args>..."
+            opts="-n -a -r -h --name --action --args --help <plugin_name> <plugin_action> <plugin_args>... run migrate help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -425,6 +431,52 @@ _lla() {
                     ;;
                 -r)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__plugin__help)
+            opts="<SUBCOMMAND>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__plugin__migrate)
+            opts="-h --prebuilt --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__plugin__run)
+            opts="-h --output --help <plugin> <action> <action_arguments>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --output)
+                    COMPREPLY=($(compgen -W "human json ndjson csv" -- "${cur}"))
                     return 0
                     ;;
                 *)

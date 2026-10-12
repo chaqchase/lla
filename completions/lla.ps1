@@ -45,6 +45,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-V', 'V', [CompletionResultType]::ParameterName, 'Print version information')
             [CompletionResult]::new('--version', 'version', [CompletionResultType]::ParameterName, 'Print version information')
+            [CompletionResult]::new('--license', 'license', [CompletionResultType]::ParameterName, 'Print the MIT license')
             [CompletionResult]::new('--json', 'json', [CompletionResultType]::ParameterName, 'Output a single JSON array')
             [CompletionResult]::new('--ndjson', 'ndjson', [CompletionResultType]::ParameterName, 'Output newline-delimited JSON (one object per line)')
             [CompletionResult]::new('--csv', 'csv', [CompletionResultType]::ParameterName, 'Output CSV with header row')
@@ -112,7 +113,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('diff', 'diff', [CompletionResultType]::ParameterValue, 'Compare two directories or a directory against a git reference')
             [CompletionResult]::new('jump', 'jump', [CompletionResultType]::ParameterValue, 'Jump to a bookmarked or recent directory')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a plugin')
-            [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run actions or inspect Plugin Platform v2 packages')
+            [CompletionResult]::new('plugin', 'plugin', [CompletionResultType]::ParameterValue, 'Run actions or inspect Plugin Platform v3 packages')
             [CompletionResult]::new('list-plugins', 'list-plugins', [CompletionResultType]::ParameterValue, 'List all available plugins')
             [CompletionResult]::new('use', 'use', [CompletionResultType]::ParameterValue, 'Interactive plugin manager')
             [CompletionResult]::new('init', 'init', [CompletionResultType]::ParameterValue, 'Initialize the configuration file')
@@ -161,6 +162,24 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--args', 'args', [CompletionResultType]::ParameterName, 'Arguments for the plugin action (alternative to positional)')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a typed plugin action')
+            [CompletionResult]::new('migrate', 'migrate', [CompletionResultType]::ParameterValue, 'Migrate official v1/v2 plugins to API v3')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'lla;plugin;run' {
+            [CompletionResult]::new('--output', 'output', [CompletionResultType]::ParameterName, 'output')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;plugin;migrate' {
+            [CompletionResult]::new('--prebuilt', 'prebuilt', [CompletionResultType]::ParameterName, 'Use the official 0.6.0 prebuilt plugin bundle')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;plugin;help' {
             break
         }
         'lla;list-plugins' {

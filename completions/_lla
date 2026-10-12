@@ -39,6 +39,7 @@ _lla() {
 '--help[Print help information]' \
 '-V[Print version information]' \
 '--version[Print version information]' \
+'--license[Print the MIT license]' \
 '--json[Output a single JSON array]' \
 '--ndjson[Output newline-delimited JSON (one object per line)]' \
 '--csv[Output CSV with header row]' \
@@ -157,7 +158,41 @@ _arguments "${_arguments_options[@]}" \
 '::plugin_name -- Plugin name, or doctor/info/permissions:' \
 '::plugin_action -- Action to perform:' \
 '*::plugin_args -- Arguments for the plugin action:' \
+":: :_lla__plugin_commands" \
+"*::: :->plugin" \
 && ret=0
+
+    case $state in
+    (plugin)
+        words=($line[4] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:lla-plugin-command-$line[4]:"
+        case $line[4] in
+            (run)
+_arguments "${_arguments_options[@]}" \
+'--output=[]: :(human json ndjson csv)' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+':plugin:' \
+':action:' \
+'*::action_arguments:' \
+&& ret=0
+;;
+(migrate)
+_arguments "${_arguments_options[@]}" \
+'--prebuilt[Use the official 0.6.0 prebuilt plugin bundle]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (list-plugins)
 _arguments "${_arguments_options[@]}" \
@@ -375,7 +410,7 @@ _lla_commands() {
 'diff:Compare two directories or a directory against a git reference' \
 'jump:Jump to a bookmarked or recent directory' \
 'install:Install a plugin' \
-'plugin:Run actions or inspect Plugin Platform v2 packages' \
+'plugin:Run actions or inspect Plugin Platform v3 packages' \
 'list-plugins:List all available plugins' \
 'use:Interactive plugin manager' \
 'init:Initialize the configuration file' \
@@ -444,6 +479,11 @@ _lla__help_commands() {
     local commands; commands=()
     _describe -t commands 'lla help commands' commands "$@"
 }
+(( $+functions[_lla__plugin__help_commands] )) ||
+_lla__plugin__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla plugin help commands' commands "$@"
+}
 (( $+functions[_lla__shortcut__help_commands] )) ||
 _lla__shortcut__help_commands() {
     local commands; commands=()
@@ -489,9 +529,18 @@ _lla__list-plugins_commands() {
     local commands; commands=()
     _describe -t commands 'lla list-plugins commands' commands "$@"
 }
+(( $+functions[_lla__plugin__migrate_commands] )) ||
+_lla__plugin__migrate_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla plugin migrate commands' commands "$@"
+}
 (( $+functions[_lla__plugin_commands] )) ||
 _lla__plugin_commands() {
-    local commands; commands=()
+    local commands; commands=(
+'run:Run a typed plugin action' \
+'migrate:Migrate official v1/v2 plugins to API v3' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
     _describe -t commands 'lla plugin commands' commands "$@"
 }
 (( $+functions[_lla__theme__preview_commands] )) ||
@@ -508,6 +557,11 @@ _lla__theme__pull_commands() {
 _lla__shortcut__remove_commands() {
     local commands; commands=()
     _describe -t commands 'lla shortcut remove commands' commands "$@"
+}
+(( $+functions[_lla__plugin__run_commands] )) ||
+_lla__plugin__run_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla plugin run commands' commands "$@"
 }
 (( $+functions[_lla__shortcut_commands] )) ||
 _lla__shortcut_commands() {
