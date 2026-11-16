@@ -1,10 +1,10 @@
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
-use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
+use crate::utils::color::{self, colorize_file_name_as, FileKind};
+use crate::utils::icons::format_with_icon_as;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 use std::path::Path;
@@ -38,9 +38,13 @@ impl SizeMapFormatter {
             .iter()
             .map(|f| {
                 let path = Path::new(&f.path);
-                let colored_name = colorize_file_name(path).to_string();
-                let name_with_icon =
-                    colorize_file_name_with_icon(path, format_with_icon(path, colored_name, true));
+                let kind = FileKind::of_entry(path, f.metadata.as_ref());
+                let name_with_icon = format_with_icon_as(
+                    path,
+                    kind,
+                    colorize_file_name_as(path, kind).to_string(),
+                    true,
+                );
                 Self::visible_width(&name_with_icon)
             })
             .max()
@@ -219,10 +223,7 @@ impl FileFormatter for SizeMapFormatter {
         files.sort_by_key(|f| std::cmp::Reverse(f.metadata.as_ref().map_or(0, |m| m.size)));
 
         for file in &files {
-            let path = Path::new(&file.path);
-            let colored_name = colorize_file_name(path).to_string();
-            let name = format_with_icon(path, colored_name, self.show_icons);
-            let name = hyperlink::link_path(path, name);
+            let name = render_entry_name(file, self.show_icons);
             let metadata = file.metadata.as_ref().cloned().unwrap_or_default();
             let size = metadata.size;
             let size_str = format_size(size);

@@ -13,6 +13,7 @@ on:
       - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
+      - "deny.toml"
       - "nfpm.yaml"
       - "rust-toolchain.toml"
   pull_request:
@@ -27,6 +28,7 @@ on:
       - "plugins/*/plugin.toml"
       - "scripts/**"
       - ".github/workflows/ci.yml"
+      - "deny.toml"
       - "nfpm.yaml"
       - "rust-toolchain.toml"
 
@@ -37,6 +39,26 @@ env:
   ZIG_VERSION: "0.15.2"
 
 jobs:
+  cargo-deny:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check bans and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans sources
+
+      # The lockfile still carries known advisories (wasmtime 47, zip 1,
+      # rustls 0.21 via reqwest 0.11, users, ...). Report them on every run and
+      # flip this to blocking once the dependency upgrades land.
+      - name: Check advisories
+        continue-on-error: true
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}

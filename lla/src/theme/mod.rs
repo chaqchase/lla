@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -377,56 +378,81 @@ pub fn list_themes() -> std::io::Result<Vec<String>> {
     Ok(themes)
 }
 
-pub fn get_file_color(path: &std::path::Path) -> Option<Color> {
-    let theme = get_theme()?;
-    let filename = path.file_name()?.to_str()?;
+/// Theme color for an entry whose kind is already known, without touching
+/// the filesystem.
+pub fn get_file_color_as(path: &std::path::Path, is_dir: bool) -> Color {
+    let theme = crate::utils::color::get_theme();
+    let filename = path.file_name().map(|name| name.to_string_lossy());
+    let Some(filename) = filename.as_deref() else {
+        return color_value_to_color(if is_dir {
+            &theme.colors.directory
+        } else {
+            &theme.colors.file
+        });
+    };
 
-    if path.is_dir() {
+    if is_dir {
         if let Some(color) = theme.special_files.folders.get(filename) {
-            return Some(color_value_to_color(color));
+            return color_value_to_color(color);
         }
         for (pattern, color) in &theme.special_files.folders {
             if pattern_matches(pattern, filename) {
-                return Some(color_value_to_color(color));
+                return color_value_to_color(color);
             }
         }
-        return Some(color_value_to_color(&theme.colors.directory));
+        return color_value_to_color(&theme.colors.directory);
     }
 
     if let Some(color) = theme.special_files.exact_match.get(filename) {
-        return Some(color_value_to_color(color));
+        return color_value_to_color(color);
     }
 
     if filename.starts_with('.') {
         if let Some(color) = theme.special_files.dotfiles.get(filename) {
-            return Some(color_value_to_color(color));
+            return color_value_to_color(color);
         }
     }
 
     for (pattern, color) in &theme.special_files.patterns {
         if pattern_matches(pattern, filename) {
-            return Some(color_value_to_color(color));
+            return color_value_to_color(color);
         }
     }
 
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        let ext = ext.to_lowercase();
-        if let Some(color) = theme.extensions.colors.get(&ext) {
-            return Some(color_value_to_color(color));
+    if let Some(ext) = path.extension() {
+        let ext = ext.to_string_lossy().to_lowercase();
+        if let Some(color) = extension_colors(theme).get(&ext) {
+            return *color;
         }
+    }
 
-        for group_name in theme.extensions.groups.keys() {
-            if let Some(extensions) = theme.extensions.groups.get(group_name) {
-                if extensions.iter().any(|e| e.to_lowercase() == ext) {
-                    if let Some(color) = theme.extensions.colors.get(group_name) {
-                        return Some(color_value_to_color(color));
-                    }
-                }
+    color_value_to_color(&theme.colors.file)
+}
+
+/// Lowercased extension -> color, combining explicit extension colors with
+/// extension groups. Built once instead of scanning every group per file.
+fn extension_colors(theme: &'static Theme) -> &'static HashMap<String, Color> {
+    static EXTENSION_COLORS: std::sync::OnceLock<HashMap<String, Color>> =
+        std::sync::OnceLock::new();
+    EXTENSION_COLORS.get_or_init(|| {
+        let mut colors = HashMap::new();
+        let mut group_names: Vec<_> = theme.extensions.groups.keys().collect();
+        group_names.sort();
+        for group_name in group_names {
+            let Some(color) = theme.extensions.colors.get(group_name) else {
+                continue;
+            };
+            for ext in &theme.extensions.groups[group_name] {
+                colors
+                    .entry(ext.to_lowercase())
+                    .or_insert_with(|| color_value_to_color(color));
             }
         }
-    }
-
-    Some(color_value_to_color(&theme.colors.file))
+        for (ext, color) in &theme.extensions.colors {
+            colors.insert(ext.to_lowercase(), color_value_to_color(color));
+        }
+        colors
+    })
 }
 
 fn pattern_matches(pattern: &str, filename: &str) -> bool {
@@ -439,13 +465,8 @@ fn pattern_matches(pattern: &str, filename: &str) -> bool {
     }
 }
 
-fn get_theme() -> Option<&'static Theme> {
-    use crate::utils::color::get_theme;
-    Some(get_theme())
-}
-
 pub fn select_theme(config: &mut Config) -> Result<()> {
-    if !atty::is(atty::Stream::Stdout) {
+    if !std::io::stdout().is_terminal() {
         println!("Available themes:");
         for theme in list_themes()? {
             let current = if theme == config.theme {

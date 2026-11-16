@@ -1,12 +1,10 @@
-use super::FileFormatter;
+use super::{render_entry_name, FileFormatter};
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
-use std::path::Path;
+use std::io::IsTerminal;
 use std::time::{Duration, SystemTime};
 
 pub struct FuzzyFormatter {
@@ -30,19 +28,7 @@ impl FuzzyFormatter {
         _plugin_manager: &mut PluginManager,
     ) -> String {
         let metadata = entry.metadata.as_ref().cloned().unwrap_or_default();
-        let path = Path::new(&entry.path);
-
-        let colored_name = colorize_file_name(path).to_string();
-        let name_display = if self.show_icons {
-            colorize_file_name_with_icon(
-                path,
-                format_with_icon(path, colored_name, self.show_icons),
-            )
-            .to_string()
-        } else {
-            colored_name
-        };
-        let name_display = hyperlink::link_path(path, name_display);
+        let name_display = render_entry_name(entry, self.show_icons);
 
         let perms_display =
             colorize_permissions(metadata.permissions, Some(&self.permission_format));
@@ -75,13 +61,45 @@ impl FileFormatter for FuzzyFormatter {
             return Ok(String::new());
         }
 
+        // Picked paths are usually consumed by another program
+        // (`vim $(lla -F)`, `lla -F | xargs ...`): print them bare.
+        if !std::io::stdout().is_terminal() {
+            return Ok(plain_paths(files));
+        }
+
         let mut output = String::new();
-        for (idx, file) in files.iter().enumerate() {
-            let line = self.format_entry(file, "", idx == 0, plugin_manager);
+        for file in files {
+            let line = self.format_entry(file, "", false, plugin_manager);
             output.push_str(&line);
             output.push('\n');
         }
 
         Ok(output)
+    }
+}
+
+/// One path per line, without a trailing newline (the caller adds one).
+fn plain_paths(files: &[DecoratedEntry]) -> String {
+    files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_paths_are_newline_separated() {
+        let entry = |path: &str| DecoratedEntry {
+            path: path.to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            plain_paths(&[entry("a b.txt"), entry("src/main.rs")]),
+            "a b.txt\nsrc/main.rs"
+        );
     }
 }

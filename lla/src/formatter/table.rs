@@ -1,18 +1,17 @@
 use super::column_config::ColumnKey;
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
 use crate::utils::color::{self, *};
-use crate::utils::icons::format_with_icon;
-use crate::utils::{fs_metadata, hyperlink};
+use crate::utils::fs_metadata;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 #[cfg(unix)]
 use once_cell::sync::Lazy;
 #[cfg(unix)]
 use std::collections::HashMap;
-use std::path::Path;
 #[cfg(unix)]
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -210,14 +209,7 @@ impl TableFormatter {
     }
 
     fn render_name(&self, entry: &DecoratedEntry) -> String {
-        let path = Path::new(&entry.path);
-        let colored_name = colorize_file_name(path).to_string();
-        let name = colorize_file_name_with_icon(
-            path,
-            format_with_icon(path, colored_name, self.show_icons),
-        )
-        .to_string();
-        hyperlink::link_path(path, name)
+        render_entry_name(entry, self.show_icons)
     }
 
     fn format_timestamp(&self, seconds: u64) -> String {

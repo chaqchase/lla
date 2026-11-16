@@ -1,6 +1,7 @@
 use crate::commands::args::Args;
-use crate::theme::{color_value_to_color, get_file_color, is_no_color, ColorValue, Theme};
+use crate::theme::{color_value_to_color, get_file_color_as, is_no_color, ColorValue, Theme};
 use colored::*;
+use lla_plugin_interface::proto::EntryMetadata;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -18,83 +19,100 @@ fn get_color(color_value: &ColorValue) -> Color {
     color_value_to_color(color_value)
 }
 
-pub fn colorize_file_name(path: &Path) -> ColoredString {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_else(|| path.to_str().unwrap_or(""));
+/// What kind of entry a name is rendered for. Formatters that already hold
+/// entry metadata pass it in so rendering a name never touches the filesystem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileKind {
+    Directory,
+    Symlink,
+    Executable,
+    File,
+}
 
-    if is_no_color() {
-        return if path.is_dir() {
-            format!("{}/", name).normal()
-        } else {
-            name.normal()
-        };
+impl FileKind {
+    /// Classifies a path with a single `lstat`. Symlinks are reported as
+    /// symlinks even when they point at a directory.
+    pub fn of_path(path: &Path) -> Self {
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                let file_type = metadata.file_type();
+                if file_type.is_symlink() {
+                    FileKind::Symlink
+                } else if file_type.is_dir() {
+                    FileKind::Directory
+                } else if is_executable_mode(
+                    path,
+                    crate::utils::fs_metadata::permission_mode(&metadata),
+                ) {
+                    FileKind::Executable
+                } else {
+                    FileKind::File
+                }
+            }
+            Err(_) => FileKind::File,
+        }
     }
 
-    let theme = get_theme();
-
-    if path.is_dir() {
-        if let Some(color) = get_file_color(path) {
-            format!("{}/", name).color(color).bold()
-        } else {
-            name.to_string()
-                .color(get_color(&theme.colors.directory))
-                .bold()
+    pub fn of_entry(path: &Path, metadata: Option<&EntryMetadata>) -> Self {
+        match metadata {
+            Some(metadata) if metadata.is_symlink => FileKind::Symlink,
+            Some(metadata) if metadata.is_dir => FileKind::Directory,
+            Some(metadata) if is_executable_mode(path, metadata.permissions) => {
+                FileKind::Executable
+            }
+            Some(_) => FileKind::File,
+            None => FileKind::of_path(path),
         }
-    } else if path.is_symlink() {
-        name.color(get_color(&theme.colors.symlink))
-            .italic()
-            .underline()
-    } else if is_executable(path) {
-        name.color(get_color(&theme.colors.executable)).bold()
-    } else if let Some(color) = get_extension_color(path) {
-        name.color(color)
-    } else {
-        name.color(get_color(&theme.colors.file))
     }
 }
 
-pub fn colorize_file_name_with_icon(path: &Path, content: String) -> ColoredString {
-    let parts: Vec<&str> = content.split(' ').collect();
-    if parts.len() != 2 {
-        return if is_no_color() {
-            content.normal()
-        } else {
-            content.color(get_color(&get_theme().colors.file))
-        };
-    }
+fn display_name(path: &Path) -> std::borrow::Cow<'_, str> {
+    path.file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| path.to_string_lossy())
+}
 
-    let icon = parts[0];
-    let name = parts[1];
-
+/// Applies the theme style for `kind` to arbitrary text (a name or an icon).
+fn style_as(text: String, path: &Path, kind: FileKind) -> ColoredString {
     if is_no_color() {
-        return format!("{} {}", icon, name).normal();
+        return text.normal();
     }
-
     let theme = get_theme();
-
-    if path.is_dir() {
-        if let Some(color) = get_file_color(path) {
-            format!("{} {}", icon, name).color(color).bold()
-        } else {
-            format!("{} {}", icon, name)
-                .color(get_color(&theme.colors.directory))
-                .bold()
-        }
-    } else if path.is_symlink() {
-        format!("{} {}", icon, name)
+    match kind {
+        FileKind::Directory => text.color(get_file_color_as(path, true)).bold(),
+        FileKind::Symlink => text
             .color(get_color(&theme.colors.symlink))
             .italic()
-            .underline()
-    } else if is_executable(path) {
-        format!("{} {}", icon, name)
-            .color(get_color(&theme.colors.executable))
-            .bold()
-    } else if let Some(color) = get_extension_color(path) {
-        format!("{} {}", icon, name).color(color)
+            .underline(),
+        FileKind::Executable => text.color(get_color(&theme.colors.executable)).bold(),
+        FileKind::File => text.color(get_file_color_as(path, false)),
+    }
+}
+
+pub fn colorize_file_name(path: &Path) -> ColoredString {
+    colorize_file_name_as(path, FileKind::of_path(path))
+}
+
+pub fn colorize_file_name_as(path: &Path, kind: FileKind) -> ColoredString {
+    let name = display_name(path);
+    // "." and "/" have no file name; don't decorate them as "./" or "//".
+    let text = if kind == FileKind::Directory && path.file_name().is_some() {
+        format!("{}/", name)
     } else {
-        format!("{} {}", icon, name).color(get_color(&theme.colors.file))
+        name.into_owned()
+    };
+    style_as(text, path, kind)
+}
+
+/// Colors an icon to match the entry it decorates.
+pub fn colorize_icon_as(icon: &str, path: &Path, kind: FileKind) -> ColoredString {
+    if is_no_color() {
+        return icon.normal();
+    }
+    match kind {
+        // Underlining the icon of a symlink looks like a rendering glitch.
+        FileKind::Symlink => icon.color(get_color(&get_theme().colors.symlink)),
+        _ => style_as(icon.to_string(), path, kind).bold(),
     }
 }
 
@@ -133,8 +151,6 @@ pub fn colorize_user(user: &str) -> ColoredString {
     }
 }
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 pub fn colorize_permissions(mode: u32, format: Option<&str>) -> String {
     if is_no_color() {
         return format_permissions_no_color(mode, format);
@@ -502,10 +518,13 @@ pub fn colorize_date_relative(date: &std::time::SystemTime) -> ColoredString {
 }
 
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
-    path.metadata()
-        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
+fn is_executable_mode(_path: &Path, mode: u32) -> bool {
+    mode & 0o111 != 0
+}
+
+#[cfg(windows)]
+fn is_executable_mode(path: &Path, _mode: u32) -> bool {
+    is_executable(path)
 }
 
 #[cfg(windows)]
@@ -521,15 +540,8 @@ fn is_executable(path: &Path) -> bool {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn is_executable(_path: &Path) -> bool {
+fn is_executable_mode(_path: &Path, _mode: u32) -> bool {
     false
-}
-
-fn get_extension_color(path: &Path) -> Option<Color> {
-    if is_no_color() {
-        return None;
-    }
-    get_file_color(path)
 }
 
 pub struct ColorState {

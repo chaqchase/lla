@@ -1,15 +1,13 @@
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
-use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
+use crate::utils::color;
 use chrono::{DateTime, Duration, Local};
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 pub struct TimelineFormatter {
@@ -143,14 +141,7 @@ impl FileFormatter for TimelineFormatter {
 
                 let time_str = Self::format_relative_time(dt).color(Self::get_time_color());
 
-                let path = Path::new(&entry.path);
-                let colored_name = colorize_file_name(path).to_string();
-                let name = colorize_file_name_with_icon(
-                    path,
-                    format_with_icon(path, colored_name, self.show_icons),
-                )
-                .to_string();
-                let name = hyperlink::link_path(path, name);
+                let name = render_entry_name(entry, self.show_icons);
 
                 let plugin_fields = plugin_manager.format_fields(entry, "timeline").join(" ");
                 let plugin_info = if plugin_fields.is_empty() {

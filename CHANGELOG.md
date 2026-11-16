@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-16
+
+### Added
+
+- `lla` takes more than one path (`lla src docs`). Each directory is listed
+  under a `path:` header like `ls`, and a path that can't be listed is reported
+  without stopping the rest (exit status 1).
+- `--no-sort-dirs-first`, `--no-sort-case-sensitive`, `--no-sort-natural`,
+  `--ignore-case`, `--show-group` and `--absolute-dates` turn off the matching
+  config setting for one command.
+- Fuzzy finder: match highlighting, smart case, multi-term queries with
+  `'exact`, `^prefix`, `suffix$` and `!negate`, file-name-first ranking, a
+  preview pane on terminals 120 columns or wider (`Ctrl+T`), `Tab`/`Shift+Tab`
+  marking, and working inside pipes and `$(lla -F)`.
+
+### Changed
+
+- Tree and recursive views are much faster on large trees: 40,000 entries went
+  from ~500 ms to ~60 ms. Names are rendered from the metadata already
+  collected instead of re-reading each file.
+- The git view runs a fixed number of git commands instead of one per file.
+  A 1,000-file repository went from several seconds to ~50 ms.
+- Tree and recursive views respect `--sort`, `--sort-reverse` and
+  `--sort-dirs-first`. Sorting is stable with the name as tie-breaker, and
+  directories stay first when the order is reversed.
+- Tree and recursive views show dotfiles unless `--no-dotfiles` is set, and
+  list `.git` without descending into it.
+- Grid view fills columns top to bottom with per-column widths, so one long
+  name no longer forces a single column.
+- Icons enabled in the config are dropped when output is piped. Pass `--icons`
+  to keep them.
+- In the fuzzy finder, Space now types into the query; mark files with `Tab`.
+- Listings no longer save a copy of every listing to the cache directory, and
+  only interactive listings are added to the jump history.
+- Config files can contain just the keys they change. A stale
+  `enabled_plugins` entry or a broken project `.lla.toml` now produces a
+  warning that names the file instead of resetting every setting.
+- Plugin verification is cached between runs, a missing enabled plugin no
+  longer causes every other library to be loaded, and listing no longer creates
+  the plugins directory.
+- Plain fuzzy ignore patterns match whole path components, so `.git` no longer
+  hides `.github`.
+- Replaced the unmaintained `users` crate with `uzers` and dropped the direct
+  `atty` dependency. CI now runs `cargo deny`.
+
+### Fixed
+
+- `lla -R | head` no longer panics on a closed pipe.
+- Errors for a path that can't be listed include the path.
+- `-f README` matched nothing with the default case-insensitive filter.
+- `--depth` rejects non-numeric values instead of ignoring them.
+- The git view showed untracked files with spaces or non-ASCII characters in
+  their names as clean, and mismatched paths when listing a subdirectory.
+- Symlinks to directories are styled as symlinks.
+- Entries that can't be inspected are no longer shown as broken symlinks, and
+  an unreadable subdirectory no longer aborts a recursive listing or zeroes a
+  directory's size.
+- Natural sorting no longer overflows on long runs of digits and respects
+  case-insensitive sorting.
+- Fuzzy finder: narrowing a query no longer drops matches past the first 1,000,
+  typing non-ASCII characters no longer crashes the search and rename prompts,
+  it no longer spins the CPU while idle, and rename won't overwrite an existing
+  file.
+- The installer refuses releases without a checksum, matches checksum entries
+  by exact file name, strips setuid/setgid bits from zip archives, can't hang
+  on a noisy `git clone`, and uses connect/read timeouts instead of a total
+  download timeout.
+- Native plugins are called through the correct `extern "C"` ABI.
+- The youtube and google_search plugins fetch suggestions over HTTPS.
+
+
 ## [0.6.6] - 2026-10-07
 
 ### Added

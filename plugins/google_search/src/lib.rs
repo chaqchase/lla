@@ -162,7 +162,7 @@ impl GoogleSearchPlugin {
         let encoded_query =
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
         let url = format!(
-            "http://suggestqueries.google.com/complete/search?client=firefox&q={}",
+            "https://suggestqueries.google.com/complete/search?client=firefox&q={}",
             encoded_query
         );
 

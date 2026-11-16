@@ -1,14 +1,14 @@
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
-use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
+use crate::utils::color;
 use chrono::{DateTime, Local};
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -38,25 +38,23 @@ impl RecursiveFormatter {
         theme::color_value_to_color(&ColorValue::Named("bright black".to_string()))
     }
 
-    fn print_entry(&self, entry: &DecoratedEntry, plugin_manager: &mut PluginManager) {
+    fn write_entry(
+        &self,
+        output: &mut String,
+        entry: &DecoratedEntry,
+        plugin_manager: &mut PluginManager,
+    ) {
         if let Some(metadata) = &entry.metadata {
             let date = Self::format_date(metadata.modified);
-            let path = Path::new(&entry.path);
-            let colored_name = colorize_file_name(path).to_string();
-            let name = colorize_file_name_with_icon(
-                path,
-                format_with_icon(path, colored_name, self.show_icons),
-            )
-            .to_string();
-            let name = hyperlink::link_path(path, name);
+            let name = render_entry_name(entry, self.show_icons);
 
-            print!("{:>16} │ {}", date, name);
+            let _ = write!(output, "{:>16} │ {}", date, name);
 
             let plugin_fields = plugin_manager.format_fields(entry, "recursive").join(" ");
             if !plugin_fields.is_empty() {
-                print!(" {}", plugin_fields);
+                let _ = write!(output, " {}", plugin_fields);
             }
-            println!();
+            output.push('\n');
         }
     }
 
@@ -89,17 +87,30 @@ impl FileFormatter for RecursiveFormatter {
         }
 
         let single_group = groups.len() == 1;
+        let mut output = String::with_capacity(files.len() * 64);
 
         for (parent, entries) in &groups {
             if !(single_group && parent == ".") {
-                println!("\n{}", parent.color(Self::get_header_color()).bold());
-                println!("{}", "─".repeat(40).color(Self::get_separator_color()));
+                let _ = writeln!(
+                    output,
+                    "\n{}",
+                    parent.color(Self::get_header_color()).bold()
+                );
+                let _ = writeln!(
+                    output,
+                    "{}",
+                    "─".repeat(40).color(Self::get_separator_color())
+                );
             }
 
             for entry in entries {
-                self.print_entry(entry, plugin_manager);
+                self.write_entry(&mut output, entry, plugin_manager);
             }
         }
-        Ok(String::new())
+        // The caller prints the result with a trailing newline.
+        if output.ends_with('\n') {
+            output.pop();
+        }
+        Ok(output)
     }
 }

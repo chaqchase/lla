@@ -4,7 +4,7 @@ use dialoguer::Select;
 use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -69,6 +69,11 @@ fn sanitize_list<'a>(list: impl IntoIterator<Item = &'a PathBuf>, config: &Confi
 }
 
 pub fn record_visit(dir: &str, config: &Config) {
+    // Only interactive listings count as visits; scripts and pipes shouldn't
+    // rewrite the history file on every run.
+    if !std::io::stdout().is_terminal() {
+        return;
+    }
     let path = Path::new(dir);
     if !path.is_dir() {
         return;

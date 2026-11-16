@@ -1,0 +1,23 @@
+# cargo-deny configuration: https://embarkstudios.github.io/cargo-deny/
+# CI runs `cargo deny check bans sources` (blocking) and
+# `cargo deny check advisories` (reported, not yet blocking; see ci.yml).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[bans]
+# Duplicate versions are common in a dependency tree this size; report them
+# without failing the build.
+multiple-versions = "warn"
+# Workspace plugins depend on the in-tree SDK/interface by path only.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
