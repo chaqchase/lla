@@ -167,6 +167,10 @@ pub struct FuzzyConfig {
     /// Skip serializing None to omit the key in `lla config show-effective` output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<String>,
+    /// Remember the index of large folders between runs so results show up
+    /// right away while the folder is read again.
+    #[serde(default = "default_true")]
+    pub remember_index: bool,
 }
 
 impl Default for FuzzyConfig {
@@ -174,8 +178,13 @@ impl Default for FuzzyConfig {
         Self {
             ignore_patterns: default_ignore_patterns(),
             editor: None,
+            remember_index: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_ignore_patterns() -> Vec<String> {
@@ -628,7 +637,12 @@ ignore_patterns = {}
 # Overrides the $EDITOR environment variable if set
 # Examples: "nvim", "vim", "nano", "code"
 # Default: "" (falls back to $EDITOR or $VISUAL, then nano)
-editor = {}"#,
+editor = {}
+
+# Remember the file index of large folders between runs, so results show up
+# right away while the folder is read again in the background
+# Default: true
+remember_index = {}"#,
             self.default_sort,
             self.default_format,
             self.show_icons,
@@ -683,6 +697,7 @@ editor = {}"#,
                 .as_ref()
                 .map(|e| TomlValue::String(e.clone()).to_string())
                 .unwrap_or_else(|| TomlValue::String(String::new()).to_string()),
+            self.listers.fuzzy.remember_index,
         );
 
         if !self.filter.presets.is_empty() {

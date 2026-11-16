@@ -15,6 +15,7 @@ mod basic;
 mod fuzzy;
 mod graphics;
 mod grep;
+mod index_cache;
 mod preview;
 mod recursive;
 

@@ -2,6 +2,7 @@
 
 use super::graphics::{self, Protocol};
 use super::grep;
+use super::index_cache;
 use super::preview;
 use super::FileLister;
 use crate::error::Result;
@@ -915,6 +916,11 @@ struct TextCache {
 struct Searcher {
     root: PathBuf,
     index: SearchIndex,
+    /// The fresh walk, built up while a remembered index answers searches.
+    pending: Option<SearchIndex>,
+    started: Instant,
+    /// Where to remember the index once the walk is done.
+    save_to: Option<PathBuf>,
     query: String,
     mode: SearchMode,
     /// The query and mode of the last update sent.
@@ -937,6 +943,9 @@ impl Searcher {
         Self {
             root,
             index: SearchIndex::new(),
+            pending: None,
+            started: Instant::now(),
+            save_to: None,
             query: String::new(),
             mode: SearchMode::Files,
             shown: None,
@@ -957,20 +966,72 @@ impl Searcher {
             }
             SearchRequest::Rename { old, new } => {
                 self.index.replace_path(&old, &new, &self.root);
+                if let Some(pending) = &mut self.pending {
+                    pending.replace_path(&old, &new, &self.root);
+                }
                 self.text = None;
                 self.stale = true;
             }
         }
     }
 
+    /// Files from the walk.
     fn add(&mut self, batch: Vec<FileEntry>) {
-        self.index.extend(batch);
-        self.grown = true;
+        match &mut self.pending {
+            Some(pending) => pending.extend(batch),
+            None => {
+                self.index.extend(batch);
+                self.grown = true;
+            }
+        }
     }
 
+    /// Files from the remembered index.
+    fn add_remembered(&mut self, batch: Vec<FileEntry>) {
+        if self.pending.is_some() {
+            self.index.extend(batch);
+            self.grown = true;
+        }
+    }
+
+    /// The remembered index has been read. If it turned out empty or
+    /// unreadable, the walk so far takes over.
+    fn remembered_done(&mut self) {
+        if self.index.len() == 0 {
+            if let Some(pending) = self.pending.take() {
+                self.index = pending;
+                self.grown = true;
+            }
+        }
+    }
+
+    /// The walk is complete: it replaces the remembered index, and is
+    /// remembered itself when it took a while.
     fn finish(&mut self) {
+        if let Some(fresh) = self.pending.take() {
+            self.index = fresh;
+            self.text = None;
+        }
         self.indexing_done = true;
         self.stale = true;
+
+        let Some(save_to) = self.save_to.take() else {
+            return;
+        };
+        if self.started.elapsed() < index_cache::MIN_WALK && !save_to.exists() {
+            return;
+        }
+        let entries: Vec<(String, bool)> = self
+            .index
+            .entries
+            .iter()
+            // A path that is not valid Unicode can't be rebuilt from `rel`.
+            .filter(|entry| entry.path.to_str().is_some())
+            .map(|entry| (entry.rel.clone(), entry.folder))
+            .collect();
+        thread::spawn(move || {
+            let _ = index_cache::save(&save_to, entries);
+        });
     }
 
     fn current(&self) -> (String, SearchMode) {
@@ -1096,18 +1157,33 @@ impl Searcher {
     }
 }
 
+/// Where the search thread gets its files from.
+struct Sources {
+    /// The walk of the folder.
+    walk: Receiver<Vec<FileEntry>>,
+    /// The index remembered from an earlier run, if any.
+    remembered: Option<Receiver<Vec<FileEntry>>>,
+    /// Where to remember this run's index.
+    save_to: Option<PathBuf>,
+}
+
 /// Runs searches away from the UI thread, so typing never waits for one.
 /// Queries and files that arrive during a search are folded into the next.
 fn spawn_searcher(
     root: PathBuf,
-    batches: Receiver<Vec<FileEntry>>,
+    sources: Sources,
     requests: Receiver<SearchRequest>,
     updates: Sender<SearchUpdate>,
     generation: Arc<AtomicU64>,
 ) {
     thread::spawn(move || {
         let mut searcher = Searcher::new(root, generation);
-        let mut batches = Some(batches);
+        searcher.save_to = sources.save_to;
+        let mut remembered = sources.remembered;
+        if remembered.is_some() {
+            searcher.pending = Some(SearchIndex::new());
+        }
+        let mut batches = Some(sources.walk);
         let interval = Duration::from_millis(BATCH_CHECK_MS);
         let mut last_search: Option<Instant> = None;
         loop {
@@ -1117,22 +1193,19 @@ fn spawn_searcher(
             while let Ok(request) = requests.try_recv() {
                 searcher.apply(request);
             }
-            let mut finished = false;
-            if let Some(receiver) = &batches {
-                loop {
-                    match receiver.try_recv() {
-                        Ok(batch) => searcher.add(batch),
-                        Err(TryRecvError::Empty) => break,
-                        Err(TryRecvError::Disconnected) => {
-                            finished = true;
-                            break;
-                        }
-                    }
+            if let Some(receiver) = &remembered {
+                if drain(receiver, |batch| searcher.add_remembered(batch)) {
+                    searcher.remembered_done();
+                    remembered = None;
                 }
             }
-            if finished {
-                searcher.finish();
-                batches = None;
+            if let Some(receiver) = &batches {
+                if drain(receiver, |batch| searcher.add(batch)) {
+                    searcher.finish();
+                    batches = None;
+                    // The fresh walk replaced it; stop reading it.
+                    remembered = None;
+                }
             }
 
             let Some(timeout) = searcher.wait(last_search, interval) else {
@@ -1142,24 +1215,66 @@ fn spawn_searcher(
                 last_search = Some(Instant::now());
                 continue;
             };
-            let incoming = batches.clone().unwrap_or_else(never);
+            let walk = batches.clone().unwrap_or_else(never);
+            let old = remembered.clone().unwrap_or_else(never);
             select! {
                 recv(requests) -> request => match request {
                     Ok(request) => searcher.apply(request),
                     // The finder has closed.
                     Err(_) => return,
                 },
-                recv(incoming) -> batch => match batch {
+                recv(walk) -> batch => match batch {
                     Ok(batch) => searcher.add(batch),
                     Err(_) => {
                         searcher.finish();
                         batches = None;
+                        remembered = None;
+                    }
+                },
+                recv(old) -> batch => match batch {
+                    Ok(batch) => searcher.add_remembered(batch),
+                    Err(_) => {
+                        searcher.remembered_done();
+                        remembered = None;
                     }
                 },
                 default(timeout) => {}
             }
         }
     });
+}
+
+/// Takes everything queued on `receiver`. True once the sender is gone.
+fn drain(receiver: &Receiver<Vec<FileEntry>>, mut take: impl FnMut(Vec<FileEntry>)) -> bool {
+    loop {
+        match receiver.try_recv() {
+            Ok(batch) => take(batch),
+            Err(TryRecvError::Empty) => return false,
+            Err(TryRecvError::Disconnected) => return true,
+        }
+    }
+}
+
+/// Reads the remembered index for `root` on its own thread.
+fn spawn_remembered(root: PathBuf, path: PathBuf) -> Receiver<Vec<FileEntry>> {
+    let (sender, receiver) = bounded(64);
+    thread::spawn(move || {
+        let _ = index_cache::load(&path, |batch| {
+            let entries = batch
+                .into_par_iter()
+                .map(|(rel, folder)| {
+                    let path = root.join(rel);
+                    if folder {
+                        FileEntry::folder(path, &root)
+                    } else {
+                        FileEntry::new(path, &root)
+                    }
+                })
+                .collect();
+            sender.send(entries).is_ok()
+        });
+    });
+    receiver
 }
 
 fn spawn_indexer(
@@ -2384,12 +2499,25 @@ impl FuzzyLister {
             Arc::clone(&done),
         );
 
+        let fuzzy = &self.config.listers.fuzzy;
+        let save_to = fuzzy
+            .remember_index
+            .then(|| index_cache::location(&root, self.respect_gitignore, &fuzzy.ignore_patterns))
+            .flatten();
+        let remembered = save_to
+            .clone()
+            .filter(|path| path.exists())
+            .map(|path| spawn_remembered(root.clone(), path));
         let (search_sender, search_requests) = unbounded();
         let (update_sender, updates) = unbounded();
         let generation = Arc::new(AtomicU64::new(0));
         spawn_searcher(
             root,
-            receiver,
+            Sources {
+                walk: receiver,
+                remembered,
+                save_to,
+            },
             search_requests,
             update_sender,
             Arc::clone(&generation),
@@ -2829,7 +2957,11 @@ mod tests {
         let (update_sender, updates) = unbounded();
         spawn_searcher(
             root.to_path_buf(),
-            batches,
+            Sources {
+                walk: batches,
+                remembered: None,
+                save_to: None,
+            },
             request_receiver,
             update_sender,
             Arc::new(AtomicU64::new(0)),
@@ -2890,6 +3022,149 @@ mod tests {
         assert!(search_tree(root, "t", SearchMode::Text).rows.is_empty());
     }
 
+    /// `LLA_FUZZY_BENCH=~ cargo test --release remembered_index_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn remembered_index_speed() {
+        let root = PathBuf::from(std::env::var("LLA_FUZZY_BENCH").unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("bench.idx");
+        let first_results = |remembered: bool| {
+            let started = Instant::now();
+            let (sender, walk) = bounded(256);
+            spawn_indexer(
+                root.clone(),
+                true,
+                Arc::new(IgnoreRules::new(&[])),
+                sender,
+                Arc::new(AtomicUsize::new(0)),
+                Arc::new(AtomicBool::new(false)),
+            );
+            let (requests, request_receiver) = unbounded();
+            let (update_sender, updates) = unbounded();
+            spawn_searcher(
+                root.clone(),
+                Sources {
+                    walk,
+                    remembered: remembered.then(|| spawn_remembered(root.clone(), cache.clone())),
+                    save_to: Some(cache.clone()),
+                },
+                request_receiver,
+                update_sender,
+                Arc::new(AtomicU64::new(0)),
+            );
+            requests
+                .send(SearchRequest::Query {
+                    text: "main.rs".into(),
+                    mode: SearchMode::Files,
+                })
+                .unwrap();
+            let mut first = None;
+            let mut most = None;
+            let mut total = 0;
+            for update in updates.iter() {
+                if update.query == "main.rs" && first.is_none() && update.total > 100_000 {
+                    first = Some(started.elapsed());
+                }
+                if most.is_none() && update.total > 2_400_000 {
+                    most = Some(started.elapsed());
+                    println!("  2.4M+ searchable after {most:?}");
+                }
+                total = update.total;
+                if update.indexing_done {
+                    break;
+                }
+            }
+            (first, started.elapsed(), total)
+        };
+        let (first, all, total) = first_results(false);
+        println!("cold: {total} entries, 100k+ searchable after {first:?}, walk done {all:?}");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !cache.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+        }
+        thread::sleep(Duration::from_millis(500));
+        println!(
+            "cache file: {:.1} MB",
+            std::fs::metadata(&cache).unwrap().len() as f64 / 1e6
+        );
+        let started = Instant::now();
+        let mut loaded = 0;
+        index_cache::load(&cache, |batch| {
+            loaded += batch.len();
+            true
+        })
+        .unwrap();
+        println!("load alone: {loaded} entries in {:?}", started.elapsed());
+        let (first, all, total) = first_results(true);
+        println!("warm: {total} entries, 100k+ searchable after {first:?}, walk done {all:?}");
+    }
+
+    #[test]
+    fn remembered_index_answers_first_then_the_walk_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("tree");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("kept.txt"), "").unwrap();
+        let cache = dir.path().join("cache.idx");
+        index_cache::save(
+            &cache,
+            vec![("kept.txt".into(), false), ("deleted.txt".into(), false)],
+        )
+        .unwrap();
+
+        let (walk_sender, walk) = bounded(4);
+        let (requests, request_receiver) = unbounded();
+        let (update_sender, updates) = unbounded();
+        spawn_searcher(
+            root.clone(),
+            Sources {
+                walk,
+                remembered: Some(spawn_remembered(root.clone(), cache.clone())),
+                save_to: Some(cache.clone()),
+            },
+            request_receiver,
+            update_sender,
+            Arc::new(AtomicU64::new(0)),
+        );
+        let names = |update: &SearchUpdate| {
+            let mut names: Vec<_> = update
+                .rows
+                .iter()
+                .map(|row| row.entry.rel.clone())
+                .collect();
+            names.sort();
+            names
+        };
+        // Before the walk has sent anything, the remembered files are there.
+        let early = updates.iter().find(|update| update.total == 2).unwrap();
+        assert!(!early.indexing_done);
+        assert_eq!(names(&early), vec!["deleted.txt", "kept.txt"]);
+
+        walk_sender
+            .send(vec![FileEntry::new(root.join("kept.txt"), &root)])
+            .unwrap();
+        drop(walk_sender);
+        let done = updates.iter().find(|update| update.indexing_done).unwrap();
+        assert_eq!(names(&done), vec!["kept.txt"]);
+        drop(requests);
+
+        // The cache is rewritten from the walk.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut saved = Vec::new();
+            let _ = index_cache::load(&cache, |batch| {
+                saved.extend(batch);
+                true
+            });
+            if saved == vec![("kept.txt".to_string(), false)] {
+                break;
+            }
+            assert!(Instant::now() < deadline, "cache not rewritten: {saved:?}");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn editors_get_the_line_in_their_own_syntax() {
         let path = Path::new("src/main.rs");
@@ -2912,7 +3187,11 @@ mod tests {
         let (update_sender, updates) = unbounded();
         spawn_searcher(
             PathBuf::from("/root"),
-            batches,
+            Sources {
+                walk: batches,
+                remembered: None,
+                save_to: None,
+            },
             request_receiver,
             update_sender,
             Arc::new(AtomicU64::new(0)),
