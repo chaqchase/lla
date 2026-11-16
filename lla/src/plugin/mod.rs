@@ -10,12 +10,14 @@ use lla_plugin_interface::{
     },
     proto::{self, plugin_message::Message, PluginMessage},
     ActionInfo, PluginApiV3, MAX_BATCH_ENTRIES, MAX_RESPONSE_BYTES, PLUGIN_API_VERSION,
+    PLUGIN_CREATE_SYMBOL_V3,
 };
 use object::{Object as _, ObjectSymbol as _};
 use once_cell::sync::Lazy;
 use prost::Message as _;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod grants;
@@ -564,8 +566,8 @@ impl PluginManager {
             .ok_or_else(|| LlaError::Plugin(format!("Unknown action '{action}'")))?;
         if action_schema.interactive
             && (output_format != PluginOutputFormat::Human
-                || !atty::is(atty::Stream::Stdin)
-                || !atty::is(atty::Stream::Stdout))
+                || !std::io::stdin().is_terminal()
+                || !std::io::stdout().is_terminal())
         {
             return Err(LlaError::Plugin(format!(
                 "Action '{}:{}' is interactive and requires a TTY with --output human",
@@ -831,6 +833,15 @@ impl PluginManager {
                 version
             )));
         }
+        self.load_native_v3(path)
+    }
+
+    /// Loads a library already known to be an API v3 package (its manifest
+    /// declares a v3 range), skipping the legacy symbol scan of the binary.
+    fn load_native_v3(&mut self, path: PathBuf) -> Result<()> {
+        if self.loaded_paths.contains(&path) {
+            return Ok(());
+        }
 
         unsafe {
             let library = Library::new(&path).map_err(|error| {
@@ -840,7 +851,8 @@ impl PluginManager {
                 ))
             })?;
 
-            let create = match library.get::<unsafe fn() -> *mut PluginApiV3>(b"_plugin_create_v3")
+            let create = match library
+                .get::<unsafe extern "C" fn() -> *mut PluginApiV3>(PLUGIN_CREATE_SYMBOL_V3)
             {
                 Ok(create) => create,
                 Err(_) => {
@@ -951,16 +963,14 @@ impl PluginManager {
 
     fn load_manifest_plugin(&mut self, path: &Path, manifest: &PluginManifest) -> Result<()> {
         match manifest.plugin.runtime {
-            PluginRuntime::Native => self.load_plugin(path),
+            PluginRuntime::Native => self.load_native_v3(path.canonicalize()?),
             PluginRuntime::WasmComponent => self.load_wasm_plugin(path, manifest),
         }
     }
 
     pub fn discover_plugin_paths(&mut self, plugin_dirs: &[PathBuf]) -> Result<()> {
-        for (index, plugin_dir) in plugin_dirs.iter().enumerate() {
-            if index == 0 || plugin_dir.is_dir() {
-                self.discover_plugins_impl(plugin_dir, None)?;
-            }
+        for plugin_dir in plugin_dirs {
+            self.discover_plugins_impl(plugin_dir, None)?;
         }
         Ok(())
     }
@@ -971,17 +981,36 @@ impl PluginManager {
         names: &HashSet<String>,
     ) -> Result<()> {
         if names.is_empty() {
-            if let Some(primary) = plugin_dirs.first() {
-                fs::create_dir_all(primary)?;
-            }
             return Ok(());
         }
-        for (index, plugin_dir) in plugin_dirs.iter().enumerate() {
-            if index == 0 || plugin_dir.is_dir() {
+        for plugin_dir in plugin_dirs {
+            if plugin_dir.is_dir() {
                 self.discover_plugins_impl(plugin_dir, Some(names))?;
             }
         }
+
+        // Enabled plugins that no longer resolve (e.g. uninstalled but still in
+        // config) are reported once instead of loading every other library.
+        let mut missing: Vec<_> = names
+            .iter()
+            .filter(|name| self.config.enabled_plugins.contains(name))
+            .filter(|name| !self.has_plugin_named(name))
+            .collect();
+        missing.sort();
+        for name in missing {
+            eprintln!(
+                "⚠️ Enabled plugin '{name}' is not available; run `lla use` to update the enabled plugins"
+            );
+        }
         Ok(())
+    }
+
+    fn has_plugin_named(&self, requested: &str) -> bool {
+        self.plugins.contains_key(requested)
+            || self
+                .manifests
+                .values()
+                .any(|manifest| manifest.plugin.id == requested)
     }
 
     fn discover_plugins_impl(
@@ -989,13 +1018,10 @@ impl PluginManager {
         plugin_dir: &Path,
         names: Option<&HashSet<String>>,
     ) -> Result<()> {
+        // Discovery is read-only: a missing directory simply has no plugins.
+        // Installation creates the directory when it needs it.
         if !plugin_dir.is_dir() {
-            fs::create_dir_all(plugin_dir).map_err(|e| {
-                LlaError::Plugin(format!(
-                    "Failed to create plugin directory {:?}: {}",
-                    plugin_dir, e
-                ))
-            })?;
+            return Ok(());
         }
 
         let mut paths = fs::read_dir(plugin_dir)?
@@ -1089,24 +1115,13 @@ impl PluginManager {
 
         if let Some(names) = names {
             // Installed libraries conventionally use lib<plugin-name>.<ext>. Load
-            // just the requested libraries on the hot path. If a third-party plugin
-            // uses a non-standard filename, fall back to discovery so compatibility
-            // and the existing error suggestions are preserved.
-            let (matching, remaining): (Vec<_>, Vec<_>) = legacy_candidates
+            // only the requested libraries, never unrelated ones because a
+            // requested name did not resolve.
+            let matching: Vec<_> = legacy_candidates
                 .into_iter()
-                .partition(|path| plugin_name_hint(path).is_some_and(|name| names.contains(&name)));
-
+                .filter(|path| plugin_name_hint(path).is_some_and(|name| names.contains(&name)))
+                .collect();
             self.load_plugin_candidates(matching);
-            let all_requested_loaded = names.iter().all(|requested| {
-                self.plugins.contains_key(requested)
-                    || self
-                        .manifests
-                        .values()
-                        .any(|manifest| manifest.plugin.id == *requested)
-            });
-            if !all_requested_loaded {
-                self.load_plugin_candidates(remaining);
-            }
         } else {
             self.load_plugin_candidates(legacy_candidates);
         }
@@ -2081,7 +2096,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_selective_discovery_still_creates_custom_plugin_directory() {
+    fn discovery_does_not_create_missing_plugin_directories() {
         let root = tempfile::tempdir().unwrap();
         let plugin_dir = root.path().join("plugins");
         let mut manager = PluginManager::new(Config::default());
@@ -2089,8 +2104,37 @@ mod tests {
         manager
             .discover_plugin_paths_named(std::slice::from_ref(&plugin_dir), &HashSet::new())
             .unwrap();
+        manager
+            .discover_plugin_paths_named(
+                std::slice::from_ref(&plugin_dir),
+                &HashSet::from(["missing".to_string()]),
+            )
+            .unwrap();
+        manager
+            .discover_plugin_paths(std::slice::from_ref(&plugin_dir))
+            .unwrap();
 
-        assert!(plugin_dir.is_dir());
+        assert!(!plugin_dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selective_discovery_does_not_load_unrelated_libraries() {
+        let root = tempfile::tempdir().unwrap();
+        // Not a loadable library: if discovery fell back to loading every
+        // candidate, this would surface as a loaded path or an error.
+        fs::write(root.path().join("libunrelated.so"), b"not a library").unwrap();
+        let mut manager = PluginManager::new(Config::default());
+
+        manager
+            .discover_plugin_paths_named(
+                &[root.path().to_path_buf()],
+                &HashSet::from(["requested".to_string()]),
+            )
+            .unwrap();
+
+        assert!(manager.loaded_paths.is_empty());
+        assert!(manager.plugins.is_empty());
     }
 
     #[test]

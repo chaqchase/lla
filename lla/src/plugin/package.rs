@@ -4,6 +4,10 @@ use std::io::Read;
 use std::path::{Component, Path};
 use toml::Value;
 
+/// Records a successful verification so later runs can skip re-hashing files
+/// whose size, timestamps and inode are unchanged.
+const VERIFICATION_CACHE_FILE: &str = ".lla-verified";
+
 /// Verifies a package's optional checksum inventory. A present inventory must
 /// cover the runtime entrypoint and, for v3 packages, the manifest.
 pub(crate) fn verify_package_checksums(entrypoint: &Path) -> Result<bool, String> {
@@ -42,6 +46,7 @@ pub(crate) fn verify_package_checksums(entrypoint: &Path) -> Result<bool, String
         ));
     }
 
+    let mut verified = Vec::with_capacity(files.len());
     for (relative, expected) in files {
         let relative_path = Path::new(relative);
         if relative_path.is_absolute()
@@ -64,7 +69,19 @@ pub(crate) fn verify_package_checksums(entrypoint: &Path) -> Result<bool, String
                 value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit())
             })
             .ok_or_else(|| format!("invalid SHA-256 checksum for '{relative}'"))?;
-        let file = package_dir.join(relative_path);
+        verified.push((relative.as_str(), expected));
+    }
+
+    let cache_path = package_dir.join(VERIFICATION_CACHE_FILE);
+    let fingerprint = verification_fingerprint(package_dir, &contents, &verified);
+    if let Some(fingerprint) = &fingerprint {
+        if fs::read_to_string(&cache_path).is_ok_and(|cached| cached.trim() == fingerprint) {
+            return Ok(true);
+        }
+    }
+
+    for (relative, expected) in verified {
+        let file = package_dir.join(relative);
         let metadata = fs::symlink_metadata(&file)
             .map_err(|error| format!("failed to inspect {}: {error}", file.display()))?;
         if !metadata.file_type().is_file() {
@@ -82,7 +99,67 @@ pub(crate) fn verify_package_checksums(entrypoint: &Path) -> Result<bool, String
         }
     }
 
+    if let Some(fingerprint) = fingerprint {
+        // Best effort: a read-only package directory just means no cache.
+        let _ = fs::write(&cache_path, fingerprint);
+    }
     Ok(true)
+}
+
+/// Fingerprints the checksum inventory and the identity of every covered file.
+/// Returns `None` when any file cannot be inspected, which forces full hashing.
+fn verification_fingerprint(
+    package_dir: &Path,
+    inventory: &str,
+    files: &[(&str, &str)],
+) -> Option<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(inventory.as_bytes());
+    for (relative, _) in files {
+        let metadata = fs::symlink_metadata(package_dir.join(relative)).ok()?;
+        if !metadata.file_type().is_file() {
+            return None;
+        }
+        hasher.update(relative.as_bytes());
+        hasher.update([0]);
+        hasher.update(file_identity(&metadata)?.as_bytes());
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(unix)]
+fn file_identity(metadata: &fs::Metadata) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    Some(format!(
+        "{}:{}:{}:{}.{}:{}.{}",
+        metadata.dev(),
+        metadata.ino(),
+        metadata.size(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec()
+    ))
+}
+
+#[cfg(not(unix))]
+fn file_identity(metadata: &fs::Metadata) -> Option<String> {
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    let created = metadata
+        .created()
+        .ok()
+        .and_then(|created| created.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default();
+    Some(format!(
+        "{}:{}:{}",
+        metadata.len(),
+        modified.as_nanos(),
+        created.as_nanos()
+    ))
 }
 
 fn calculate_sha256(path: &Path) -> Result<String, String> {
@@ -126,6 +203,33 @@ mod tests {
         )
         .unwrap();
 
+        assert!(verify_package_checksums(&entrypoint).is_err());
+    }
+
+    #[test]
+    fn verification_cache_is_invalidated_when_a_file_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let entrypoint = root.path().join("plugin.so");
+        let manifest = root.path().join("plugin.toml");
+        fs::write(&entrypoint, b"plugin").unwrap();
+        fs::write(&manifest, b"manifest").unwrap();
+        let entrypoint_hash = calculate_sha256(&entrypoint).unwrap();
+        let manifest_hash = calculate_sha256(&manifest).unwrap();
+        fs::write(
+            root.path().join("checksums.toml"),
+            format!(
+                "[files]\n\"plugin.so\" = \"{entrypoint_hash}\"\n\"plugin.toml\" = \"{manifest_hash}\"\n"
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(verify_package_checksums(&entrypoint), Ok(true));
+        assert!(root.path().join(VERIFICATION_CACHE_FILE).is_file());
+        // Cache hit.
+        assert_eq!(verify_package_checksums(&entrypoint), Ok(true));
+
+        // Same length, different bytes: size alone must not satisfy the cache.
+        fs::write(&entrypoint, b"PLUGIN").unwrap();
         assert!(verify_package_checksums(&entrypoint).is_err());
     }
 }

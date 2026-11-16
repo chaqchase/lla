@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, IsTerminal, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -813,36 +813,48 @@ fn verify_cli_checksum(
     ui: &InstallerUi,
 ) -> Result<()> {
     let spinner = installer.create_status_spinner("Verifying checksum…");
-    match PluginInstaller::fetch_asset_checksum(agent, release, asset_name)? {
-        Some(expected) => {
-            let actual = PluginInstaller::calculate_sha256(binary_path)?;
-            if actual.eq_ignore_ascii_case(&expected) {
-                ui.complete_progress_standalone(
-                    &spinner,
-                    StatusKind::Success,
-                    format!(
-                        "Checksum OK ({})",
-                        ui.muted_text(&expected[..expected.len().min(12)])
-                    ),
-                );
-                Ok(())
-            } else {
-                ui.complete_progress_standalone(&spinner, StatusKind::Error, "Checksum mismatch");
-                Err(LlaError::Other(format!(
-                    "Checksum verification failed. Expected {}, got {}",
-                    expected, actual
-                )))
-            }
+    let expected = match PluginInstaller::fetch_asset_checksum(agent, release, asset_name) {
+        Ok(expected) => expected,
+        Err(error) => {
+            ui.complete_progress_standalone(&spinner, StatusKind::Error, "No verifiable checksum");
+            return Err(error);
         }
-        None => {
-            ui.complete_progress_standalone(
-                &spinner,
-                StatusKind::Info,
-                "No checksum published for this release; skipping verification",
-            );
-            Ok(())
-        }
+    };
+    let actual = PluginInstaller::calculate_sha256(binary_path)?;
+    if actual.eq_ignore_ascii_case(&expected) {
+        ui.complete_progress_standalone(
+            &spinner,
+            StatusKind::Success,
+            format!(
+                "Checksum OK ({})",
+                ui.muted_text(&expected[..expected.len().min(12)])
+            ),
+        );
+        Ok(())
+    } else {
+        ui.complete_progress_standalone(&spinner, StatusKind::Error, "Checksum mismatch");
+        Err(LlaError::Other(format!(
+            "Checksum verification failed. Expected {}, got {}",
+            expected, actual
+        )))
     }
+}
+
+/// Finds `asset_name` in a `sha256sum`-style manifest (`<hash>  <name>`, with
+/// an optional `*` binary marker and optional `sha256:` hash prefix). The
+/// filename column must match exactly.
+fn parse_checksum_manifest(content: &str, asset_name: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let checksum = parts.next()?;
+        let name = parts.next()?;
+        if parts.next().is_some() || name.trim_start_matches('*') != asset_name {
+            return None;
+        }
+        let checksum = checksum.rsplit(':').next().unwrap_or(checksum);
+        (checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()))
+            .then(|| checksum.to_string())
+    })
 }
 
 fn install_cli_binary(
@@ -1020,7 +1032,7 @@ impl PluginInstaller {
             progress_pref.as_str(),
             "0" | "false" | "FALSE" | "off" | "OFF" | "no" | "NO"
         );
-        let interactive = atty::is(atty::Stream::Stderr);
+        let interactive = std::io::stderr().is_terminal();
         let no_progress = if force_progress {
             false
         } else if force_quiet {
@@ -1057,7 +1069,7 @@ impl PluginInstaller {
         if expanded.is_empty() && grants.approves(manifest) {
             return Ok(());
         }
-        if !atty::is(atty::Stream::Stdin) || !atty::is(atty::Stream::Stderr) {
+        if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
             return Err(LlaError::Plugin(format!(
                 "Plugin '{}' requests new permissions ({}); reinstall from a TTY to approve them",
                 manifest.plugin.name,
@@ -1231,7 +1243,12 @@ impl PluginInstaller {
     }
 
     fn github_agent() -> Agent {
-        AgentBuilder::new().timeout(Duration::from_secs(60)).build()
+        // Bound connection setup and each stalled read, not the whole transfer,
+        // so large assets on slow links still complete.
+        AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(30))
+            .timeout_read(Duration::from_secs(60))
+            .build()
     }
 
     fn github_request(agent: &Agent, url: &str) -> Request {
@@ -1283,19 +1300,24 @@ impl PluginInstaller {
             .map_err(|err| LlaError::Plugin(format!("Failed to parse release metadata: {}", err)))
     }
 
+    /// Fetches the release's SHA-256 for `asset_name`. Fails closed: a release
+    /// without a checksum manifest, or a manifest that does not list the asset,
+    /// is an error rather than an unverified install.
     fn fetch_asset_checksum(
         agent: &Agent,
         release: &GithubRelease,
         asset_name: &str,
-    ) -> Result<Option<String>> {
-        let checksum_asset = release
+    ) -> Result<String> {
+        let asset = release
             .assets
             .iter()
-            .find(|asset| asset.name.eq_ignore_ascii_case("SHA256SUMS"));
-
-        let Some(asset) = checksum_asset else {
-            return Ok(None);
-        };
+            .find(|asset| asset.name.eq_ignore_ascii_case("SHA256SUMS"))
+            .ok_or_else(|| {
+                LlaError::Plugin(format!(
+                    "Release {} does not publish a SHA256SUMS manifest; refusing to install unverified asset '{}'",
+                    release.tag_name, asset_name
+                ))
+            })?;
 
         let response = Self::github_request(agent, &asset.browser_download_url)
             .call()
@@ -1305,19 +1327,12 @@ impl PluginInstaller {
             .into_string()
             .map_err(|err| LlaError::Plugin(format!("Failed to read checksum file: {}", err)))?;
 
-        let checksum_line = content
-            .lines()
-            .find(|line| line.trim().ends_with(asset_name));
-
-        Ok(checksum_line.map(|line| {
-            let mut parts = line.split_whitespace();
-            let checksum_part = parts.next().unwrap_or("");
-            if let Some(idx) = checksum_part.rfind(':') {
-                checksum_part[idx + 1..].to_string()
-            } else {
-                checksum_part.to_string()
-            }
-        }))
+        parse_checksum_manifest(&content, asset_name).ok_or_else(|| {
+            LlaError::Plugin(format!(
+                "SHA256SUMS for release {} has no entry for '{}'; refusing to install unverified asset",
+                release.tag_name, asset_name
+            ))
+        })
     }
 
     fn download_to_path(
@@ -1575,7 +1590,8 @@ impl PluginInstaller {
 
                 #[cfg(unix)]
                 if let Some(mode) = entry.unix_mode() {
-                    fs::set_permissions(&out_path, fs::Permissions::from_mode(mode))?;
+                    // Keep only rwx bits; never honour setuid/setgid/sticky from archives.
+                    fs::set_permissions(&out_path, fs::Permissions::from_mode(mode & 0o777))?;
                 }
             }
         } else {
@@ -1680,7 +1696,7 @@ impl PluginInstaller {
 
         let ui = self.ui();
 
-        if !atty::is(atty::Stream::Stdout) {
+        if !std::io::stdout().is_terminal() {
             return Ok(plugins.to_vec());
         }
 
@@ -1799,7 +1815,7 @@ impl PluginInstaller {
     }
 
     fn select_plugins(&self, plugin_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        if !atty::is(atty::Stream::Stdout) {
+        if !std::io::stdout().is_terminal() {
             return Ok(plugin_dirs.to_vec());
         }
 
@@ -1900,14 +1916,12 @@ impl PluginInstaller {
                 ui.highlight_text(&asset.name)
             ),
         ];
-        if let Some(ref sum) = checksum {
-            detail_lines.push(format!(
-                "  {}  {}  {}",
-                ui.muted_text("Checksum"),
-                ui.muted_text("│"),
-                ui.muted_text(sum)
-            ));
-        }
+        detail_lines.push(format!(
+            "  {}  {}  {}",
+            ui.muted_text("Checksum"),
+            ui.muted_text("│"),
+            ui.muted_text(&checksum)
+        ));
         let detail_box = BoxComponent::new(detail_lines.join("\n"))
             .style(BoxStyle::Rounded)
             .title(ui.accent_text("Release"))
@@ -1921,25 +1935,24 @@ impl PluginInstaller {
 
         self.download_to_path(&agent, &asset.browser_download_url, &archive_path, &ui)?;
 
-        if let Some(expected) = checksum.as_deref() {
-            let verify_message = ui.progress_message("Verifying", "checksum");
-            let verify_pb = self.create_spinner(&verify_message);
-            let actual = Self::calculate_sha256(&archive_path)?;
-            if actual.eq_ignore_ascii_case(expected) {
-                let verified_msg = ui.muted_text("Checksum verified");
-                ui.complete_progress_standalone(&verify_pb, StatusKind::Success, verified_msg);
-            } else {
-                let mismatch = format!(
-                    "Checksum mismatch (expected {}, got {})",
-                    ui.muted_text(expected),
-                    ui.error_text(&actual)
-                );
-                ui.complete_progress_standalone(&verify_pb, StatusKind::Error, mismatch);
-                return Err(LlaError::Plugin(format!(
-                    "Checksum verification failed: expected {}, got {}",
-                    expected, actual
-                )));
-            }
+        let expected = checksum.as_str();
+        let verify_message = ui.progress_message("Verifying", "checksum");
+        let verify_pb = self.create_spinner(&verify_message);
+        let actual = Self::calculate_sha256(&archive_path)?;
+        if actual.eq_ignore_ascii_case(expected) {
+            let verified_msg = ui.muted_text("Checksum verified");
+            ui.complete_progress_standalone(&verify_pb, StatusKind::Success, verified_msg);
+        } else {
+            let mismatch = format!(
+                "Checksum mismatch (expected {}, got {})",
+                ui.muted_text(expected),
+                ui.error_text(&actual)
+            );
+            ui.complete_progress_standalone(&verify_pb, StatusKind::Error, mismatch);
+            return Err(LlaError::Plugin(format!(
+                "Checksum verification failed: expected {}, got {}",
+                expected, actual
+            )));
         }
 
         let extract_message = ui.progress_message("Extracting", &asset.name);
@@ -2010,7 +2023,7 @@ impl PluginInstaller {
                 &plugin,
                 &release.tag_name,
                 &asset.name,
-                checksum.as_deref(),
+                Some(checksum.as_str()),
                 spinner.as_ref(),
             ) {
                 Ok(_) => {
@@ -2215,13 +2228,14 @@ impl PluginInstaller {
         let temp_dir = tempfile::tempdir()?;
         let start_time = Instant::now();
 
-        let mut child = Command::new("git")
-            .args(["clone", "--progress", url])
+        // Capture stderr for diagnostics; `output()` drains the pipe while
+        // waiting, so a chatty clone cannot fill it and deadlock.
+        let output = Command::new("git")
+            .args(["clone", "--quiet", "--", url])
             .current_dir(&temp_dir)
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
-
-        let status = child.wait()?;
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        let status = output.status;
         let elapsed = start_time.elapsed();
 
         if !status.success() {
@@ -2231,7 +2245,13 @@ impl PluginInstaller {
                 ui.error_text("Clone failed")
             );
             ui.complete_progress_standalone(&clone_pb, StatusKind::Error, message);
-            return Err(LlaError::Plugin("Failed to clone repository".to_string()));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr.trim();
+            return Err(LlaError::Plugin(if detail.is_empty() {
+                "Failed to clone repository".to_string()
+            } else {
+                format!("Failed to clone repository: {detail}")
+            }));
         }
 
         let cloned_msg = format!(
@@ -2948,7 +2968,7 @@ impl PluginInstaller {
                     };
 
                     let output = Command::new("git")
-                        .args(["clone", "--quiet", url])
+                        .args(["clone", "--quiet", "--", url])
                         .current_dir(&temp_dir)
                         .output()?;
 
@@ -3238,10 +3258,29 @@ impl PluginInstaller {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliBinaryTarget, PluginInstaller};
+    use super::{parse_checksum_manifest, CliBinaryTarget, PluginInstaller};
     #[cfg(any(feature = "dynamic-plugins", windows))]
     use std::fs;
     use std::io::Write;
+
+    #[test]
+    fn checksum_manifest_requires_exact_filename() {
+        let hash = "a".repeat(64);
+        let other = "b".repeat(64);
+        let manifest = format!(
+            "{other}  evil-lla-macos-arm64\n{hash} *lla-macos-arm64\nsha256:{other}  lla-macos-arm64.zip\n"
+        );
+        assert_eq!(
+            parse_checksum_manifest(&manifest, "lla-macos-arm64"),
+            Some(hash)
+        );
+        assert_eq!(
+            parse_checksum_manifest(&manifest, "lla-macos-arm64.zip"),
+            Some(other)
+        );
+        assert_eq!(parse_checksum_manifest(&manifest, "arm64"), None);
+        assert_eq!(parse_checksum_manifest("nothex  lla", "lla"), None);
+    }
 
     #[test]
     fn cli_asset_names_distinguish_gnu_and_musl() {
