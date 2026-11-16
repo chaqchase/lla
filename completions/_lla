@@ -66,10 +66,14 @@ _lla() {
 '-r[Reverse the sort order]' \
 '--sort-reverse[Reverse the sort order]' \
 '--sort-dirs-first[List directories before files (overrides config setting)]' \
+'--no-sort-dirs-first[Do not list directories before files (overrides config setting)]' \
 '--sort-case-sensitive[Enable case-sensitive sorting (overrides config setting)]' \
+'--no-sort-case-sensitive[Sort case-insensitively (overrides config setting)]' \
 '--sort-natural[Use natural sorting for numbers (overrides config setting)]' \
+'--no-sort-natural[Disable natural number ordering (overrides config setting)]' \
 '-c[Enable case-sensitive filtering (overrides config setting)]' \
 '--case-sensitive[Enable case-sensitive filtering (overrides config setting)]' \
+'--ignore-case[Match filters case-insensitively (overrides config setting)]' \
 '-R[Use recursive listing format]' \
 '--recursive[Use recursive listing format]' \
 '--include-dirs[Include directory sizes in metadata (recursive and potentially expensive)]' \
@@ -92,7 +96,9 @@ _lla() {
 '--respect-gitignore[Hide files that match .gitignore (and git exclude) rules]' \
 '--no-gitignore[Disable .gitignore filtering even if enabled in config]' \
 '--hide-group[Hide group column in long format]' \
+'--show-group[Show the group column in long format (overrides config setting)]' \
 '--relative-dates[Show relative dates (e.g., '\''2h ago'\'') in long format]' \
+'--absolute-dates[Show absolute dates in long format (overrides config setting)]' \
 '-i[Show inode numbers in long format]' \
 '--inode[Show inode numbers in long format]' \
 '-H[Show hard-link counts in long format]' \
@@ -104,7 +110,7 @@ _lla() {
 '--context[Show ACL or SELinux security context in long format]' \
 '-M[Show source, mount point, and filesystem in long format]' \
 '--mounts[Show source, mount point, and filesystem in long format]' \
-'::directory -- The directory to list:' \
+'*::directory -- The directories or files to list:' \
 ":: :_lla_commands" \
 "*::: :->lla" \
 && ret=0
@@ -134,6 +140,16 @@ _arguments "${_arguments_options[@]}" \
 '--setup[Setup shell integration for seamless directory jumping]' \
 '-h[Print help information]' \
 '--help[Print help information]' \
+&& ret=0
+;;
+(scan)
+_arguments "${_arguments_options[@]}" \
+'--top=[How many items to list per section in the summary (default: 10)]:N: ' \
+'--report[Print a summary instead of opening the interactive view]' \
+'(--report)--json[Print the results as JSON]' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'::path -- Folder to scan instead of your home folder:' \
 && ret=0
 ;;
 (install)
@@ -409,6 +425,7 @@ _lla_commands() {
     local commands; commands=(
 'diff:Compare two directories or a directory against a git reference' \
 'jump:Jump to a bookmarked or recent directory' \
+'scan:See what is filling your disk and clean it up' \
 'install:Install a plugin' \
 'plugin:Run actions or inspect Plugin Platform v3 packages' \
 'list-plugins:List all available plugins' \
@@ -562,6 +579,11 @@ _lla__shortcut__remove_commands() {
 _lla__plugin__run_commands() {
     local commands; commands=()
     _describe -t commands 'lla plugin run commands' commands "$@"
+}
+(( $+functions[_lla__scan_commands] )) ||
+_lla__scan_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla scan commands' commands "$@"
 }
 (( $+functions[_lla__shortcut_commands] )) ||
 _lla__shortcut_commands() {
