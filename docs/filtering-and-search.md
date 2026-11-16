@@ -97,9 +97,8 @@ modified = "<7d"
 
 Apply it with `lla --preset rust_sources`. Repeat `--refine <filter>` to apply
 additional name or path filters sequentially after the normal listing and
-plugin-decoration pipeline. Every refinement must match. Despite the historical
-CLI wording about a cache, the current implementation still walks the
-filesystem normally.
+plugin-decoration pipeline. Every refinement must match. Refinements always
+apply to a fresh walk of the filesystem; no listing is cached between runs.
 
 ## Search file contents
 

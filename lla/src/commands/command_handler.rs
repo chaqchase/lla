@@ -15,7 +15,7 @@ use colored::*;
 use dialoguer::{Input, Select};
 use lla_plugin_utils::ui::components::LlaDialoguerTheme;
 use std::fs::{self, create_dir_all, File};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 fn command_requires_dynamic_plugins(args: &Args) -> bool {
     let plugin_command = matches!(
@@ -161,7 +161,7 @@ pub fn handle_command(
             let resolved_plugin = config.resolve_plugin_alias(plugin_name);
             if action == "__default__" {
                 // If we are in a non-interactive context (no TTY), prefer help over an interactive menu.
-                let is_tty = atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout);
+                let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
 
                 // Best-effort: if the plugin has a "menu" action, open it; otherwise fallback to "help".
                 let preferred = if is_tty {

@@ -23,19 +23,45 @@ use std::collections::HashSet;
 use utils::color::set_theme;
 
 fn main() {
-    if let Err(e) = run() {
-        print_error(&e);
-        std::process::exit(1);
+    match run() {
+        Ok(true) => {}
+        Ok(false) => std::process::exit(1),
+        // A reader such as `head` closed the pipe; that is not an error.
+        Err(LlaError::Io(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(e) => {
+            print_error(&e);
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<()> {
+/// Lets listings die quietly on a closed pipe, like `ls`, instead of panicking
+/// inside `println!`. Only used for plain listings: network-facing commands
+/// keep Rust's default of ignoring SIGPIPE.
+#[cfg(unix)]
+fn restore_default_sigpipe() {
+    // SAFETY: called before any threads are spawned; resetting a signal
+    // disposition to its default has no other preconditions.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_default_sigpipe() {}
+
+/// Returns `Ok(false)` when some, but not all, listed paths failed; those
+/// errors have already been reported.
+fn run() -> Result<bool> {
     let (mut config, config_error) = load_config()?;
 
     set_theme(config.get_theme());
 
-    let args = Args::parse(&config)?;
+    let mut args = Args::parse(&config)?;
     theme::set_no_color(args.no_color);
+    if args.command.is_none() {
+        restore_default_sigpipe();
+    }
 
     if let Some(Command::Clean) = args.command {
         if !DYNAMIC_PLUGINS_AVAILABLE {
@@ -44,11 +70,61 @@ fn run() -> Result<()> {
         let mut plugin_config = config.clone();
         plugin_config.plugins_dir.clone_from(&args.plugins_dir);
         let mut plugin_manager = PluginManager::new(plugin_config);
-        return plugin_manager.clean_plugins(&args.plugins_dir);
+        return plugin_manager
+            .clean_plugins(&args.plugins_dir)
+            .map(|_| true);
     }
 
     let mut plugin_manager = initialize_plugin_manager(&args, &config)?;
-    handle_command(&args, &mut config, &mut plugin_manager, config_error)
+    if args.command.is_some() || args.directories.len() < 2 {
+        return handle_command(&args, &mut config, &mut plugin_manager, config_error)
+            .map(|_| true)
+            .map_err(|error| with_path(error, &args));
+    }
+
+    // Several paths: list each in turn like `ls`, report failures per path and
+    // keep going.
+    let directories = std::mem::take(&mut args.directories);
+    let mut config_error = config_error;
+    let mut all_ok = true;
+    let mut printed_any = false;
+    for directory in directories {
+        let is_dir = std::path::Path::new(&directory).is_dir();
+        args.directory = directory;
+        if is_dir && args.search.is_none() {
+            use std::io::Write;
+            let mut stdout = std::io::stdout().lock();
+            if printed_any {
+                writeln!(stdout)?;
+            }
+            writeln!(stdout, "{}:", args.directory)?;
+        }
+        match handle_command(&args, &mut config, &mut plugin_manager, config_error.take()) {
+            Ok(()) => printed_any = true,
+            Err(LlaError::Io(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                return Err(LlaError::Io(e));
+            }
+            Err(error) => {
+                print_error(&with_path(error, &args));
+                all_ok = false;
+            }
+        }
+    }
+    Ok(all_ok)
+}
+
+/// Names the path in filesystem errors from a listing, e.g.
+/// "/missing: No such file or directory (os error 2)".
+fn with_path(error: LlaError, args: &Args) -> LlaError {
+    match error {
+        LlaError::Io(e) if args.command.is_none() && e.kind() != std::io::ErrorKind::BrokenPipe => {
+            LlaError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {}", args.directory, e),
+            ))
+        }
+        other => other,
+    }
 }
 
 fn print_error(error: &LlaError) {

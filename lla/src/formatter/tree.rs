@@ -1,19 +1,31 @@
-use super::FileFormatter;
+use super::{render_entry_name, FileFormatter};
 use crate::error::Result;
 use crate::plugin::PluginManager;
-use crate::utils::color::*;
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
 use colored::Colorize;
 use lla_plugin_interface::proto::DecoratedEntry;
-use std::collections::{HashMap, HashSet};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-
-const BUFFER_SIZE: usize = 16384;
+use std::collections::HashMap;
+use std::path::Path;
 
 pub struct TreeFormatter {
     pub show_icons: bool,
+}
+
+struct Connectors {
+    branch: String,
+    last_branch: String,
+    pipe: String,
+    space: &'static str,
+}
+
+impl Connectors {
+    fn new() -> Self {
+        Self {
+            branch: "├── ".bright_black().to_string(),
+            last_branch: "└── ".bright_black().to_string(),
+            pipe: "│   ".bright_black().to_string(),
+            space: "    ",
+        }
+    }
 }
 
 impl TreeFormatter {
@@ -21,102 +33,71 @@ impl TreeFormatter {
         Self { show_icons }
     }
 
-    fn format_entry(&self, path: &Path, plugin_field: Option<&str>) -> String {
-        let colored_name = colorize_file_name(path).to_string();
-        let name = if self.show_icons {
-            format_with_icon(path, colored_name, true)
-        } else {
-            colored_name
-        };
-        let name = hyperlink::link_path(path, name);
-        match plugin_field.filter(|field| !field.is_empty()) {
-            Some(field) => format!("{name} {field}"),
-            None => name,
-        }
-    }
-
-    fn build_tree(
-        &self,
-        entries: &[DecoratedEntry],
-    ) -> (Vec<PathBuf>, HashMap<PathBuf, Vec<PathBuf>>) {
-        let mut tree: HashMap<PathBuf, Vec<PathBuf>> = HashMap::with_capacity(entries.len());
-        let mut path_set: HashSet<PathBuf> = HashSet::with_capacity(entries.len());
-        let mut child_paths = HashSet::new();
-
-        for entry in entries {
-            path_set.insert(PathBuf::from(&entry.path));
-        }
-
-        for path in path_set.iter() {
-            if let Some(parent) = path.parent() {
-                if path_set.contains(parent) {
-                    tree.entry(parent.to_path_buf())
-                        .or_default()
-                        .push(path.clone());
-                    child_paths.insert(path.clone());
-                }
-            }
-        }
-        for children in tree.values_mut() {
-            children.sort_unstable();
-        }
-        let mut root_paths: Vec<_> = path_set
-            .into_iter()
-            .filter(|path| !child_paths.contains(path))
+    /// Links every entry to its parent by index. Children keep the order of
+    /// `entries`, which the caller has already sorted.
+    fn build_tree(entries: &[DecoratedEntry]) -> (Vec<usize>, Vec<Vec<usize>>) {
+        let index_of: HashMap<&Path, usize> = entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (Path::new(&entry.path), index))
             .collect();
-        root_paths.sort_unstable();
 
-        (root_paths, tree)
+        let mut roots = Vec::new();
+        let mut children = vec![Vec::new(); entries.len()];
+        for (index, entry) in entries.iter().enumerate() {
+            let parent = Path::new(&entry.path)
+                .parent()
+                .and_then(|parent| index_of.get(parent))
+                .filter(|&&parent| parent != index);
+            match parent {
+                Some(&parent) => children[parent].push(index),
+                None => roots.push(index),
+            }
+        }
+        (roots, children)
     }
+}
 
-    #[allow(clippy::too_many_arguments)]
-    fn write_tree_recursive(
-        &self,
-        path: &Path,
-        prefix: &str,
-        is_last: bool,
-        tree: &HashMap<PathBuf, Vec<PathBuf>>,
-        plugin_fields: &HashMap<PathBuf, String>,
-        writer: &mut impl Write,
-        current_depth: usize,
-        max_depth: Option<usize>,
-    ) -> io::Result<()> {
-        if let Some(max) = max_depth {
-            if current_depth > max {
-                return Ok(());
-            }
+struct TreeWriter<'a> {
+    children: &'a [Vec<usize>],
+    names: &'a [String],
+    connectors: Connectors,
+    max_depth: Option<usize>,
+    prefix: String,
+    output: String,
+}
+
+impl TreeWriter<'_> {
+    fn write(&mut self, index: usize, is_last: bool, depth: usize) {
+        if self.max_depth.is_some_and(|max| depth > max) {
+            return;
         }
 
-        let node_prefix = if is_last { "└── " } else { "├── " };
-        let child_prefix = if is_last { "    " } else { "│   " };
+        self.output.push_str(&self.prefix);
+        self.output.push_str(if is_last {
+            &self.connectors.last_branch
+        } else {
+            &self.connectors.branch
+        });
+        self.output.push_str(&self.names[index]);
+        self.output.push('\n');
 
-        let formatted_name = self.format_entry(path, plugin_fields.get(path).map(String::as_str));
-        writeln!(
-            writer,
-            "{}{}{}",
-            prefix.bright_black(),
-            node_prefix.bright_black(),
-            formatted_name
-        )?;
-
-        if let Some(children) = tree.get(path) {
-            let new_prefix = format!("{}{}", prefix, child_prefix);
-            let last_idx = children.len().saturating_sub(1);
-            for (i, child) in children.iter().enumerate() {
-                let is_last_child = i == last_idx;
-                self.write_tree_recursive(
-                    child,
-                    &new_prefix,
-                    is_last_child,
-                    tree,
-                    plugin_fields,
-                    writer,
-                    current_depth + 1,
-                    max_depth,
-                )?;
-            }
+        let children = &self.children[index];
+        if children.is_empty() {
+            return;
         }
-        Ok(())
+
+        let prefix_len = self.prefix.len();
+        if is_last {
+            self.prefix.push_str(self.connectors.space);
+        } else {
+            self.prefix.push_str(&self.connectors.pipe);
+        }
+        let last = children.len() - 1;
+        for (position, &child) in children.iter().enumerate() {
+            self.write(child, position == last, depth + 1);
+        }
+        self.prefix.truncate(prefix_len);
     }
 }
 
@@ -127,41 +108,75 @@ impl FileFormatter for TreeFormatter {
         plugin_manager: &mut PluginManager,
         depth: Option<usize>,
     ) -> Result<String> {
-        if files.is_empty() {
-            return Ok(String::new());
-        }
-
-        if depth == Some(0) {
+        if files.is_empty() || depth == Some(0) {
             return Ok(String::new());
         }
 
         plugin_manager.prepare_format_fields(files, "tree");
-        let plugin_fields = files
+        let names: Vec<String> = files
             .iter()
-            .filter_map(|entry| {
+            .map(|entry| {
+                let name = render_entry_name(entry, self.show_icons);
                 let fields = plugin_manager.format_fields(entry, "tree").join(" ");
-                (!fields.is_empty()).then(|| (PathBuf::from(&entry.path), fields))
+                if fields.is_empty() {
+                    name
+                } else {
+                    format!("{name} {fields}")
+                }
             })
-            .collect::<HashMap<_, _>>();
+            .collect();
 
-        let (root_paths, tree) = self.build_tree(files);
-        let mut buffer = Vec::with_capacity(BUFFER_SIZE);
-
-        let last_idx = root_paths.len().saturating_sub(1);
-        for (i, path) in root_paths.iter().enumerate() {
-            let is_last = i == last_idx;
-            self.write_tree_recursive(
-                path,
-                "",
-                is_last,
-                &tree,
-                &plugin_fields,
-                &mut buffer,
-                0,
-                depth,
-            )?;
+        let (roots, children) = Self::build_tree(files);
+        let mut writer = TreeWriter {
+            children: &children,
+            names: &names,
+            connectors: Connectors::new(),
+            max_depth: depth,
+            prefix: String::new(),
+            output: String::with_capacity(files.len() * 48),
+        };
+        let last = roots.len().saturating_sub(1);
+        for (position, &root) in roots.iter().enumerate() {
+            writer.write(root, position == last, 0);
         }
 
-        Ok(String::from_utf8_lossy(&buffer).into_owned())
+        let mut output = writer.output;
+        if output.ends_with('\n') {
+            output.pop();
+        }
+        Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lla_plugin_interface::proto::EntryMetadata;
+
+    fn entry(path: &str, is_dir: bool) -> DecoratedEntry {
+        DecoratedEntry {
+            path: path.to_string(),
+            metadata: Some(EntryMetadata {
+                is_dir,
+                is_file: !is_dir,
+                ..EntryMetadata::default()
+            }),
+            ..DecoratedEntry::default()
+        }
+    }
+
+    #[test]
+    fn children_keep_the_sorted_input_order() {
+        let entries = vec![
+            entry("root", true),
+            entry("root/zeta", false),
+            entry("root/sub", true),
+            entry("root/sub/inner", false),
+            entry("root/alpha", false),
+        ];
+        let (roots, children) = TreeFormatter::build_tree(&entries);
+        assert_eq!(roots, vec![0]);
+        assert_eq!(children[0], vec![1, 2, 4]);
+        assert_eq!(children[2], vec![3]);
     }
 }

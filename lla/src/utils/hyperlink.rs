@@ -17,13 +17,26 @@ pub fn link_path(path: &Path, label: String) -> String {
     hyperlink(path, label)
 }
 
+/// Like [`link_path`] for entries that were just listed, skipping the
+/// existence check.
+pub fn link_listed(path: &Path, label: String) -> String {
+    if !ENABLED.load(Ordering::Relaxed) {
+        return label;
+    }
+    hyperlink(path, label)
+}
+
 fn hyperlink(path: &Path, label: String) -> String {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        std::env::current_dir()
+        static CURRENT_DIR: std::sync::OnceLock<Option<std::path::PathBuf>> =
+            std::sync::OnceLock::new();
+        CURRENT_DIR
+            .get_or_init(|| std::env::current_dir().ok())
+            .as_ref()
             .map(|directory| directory.join(path))
-            .unwrap_or_else(|_| path.to_path_buf())
+            .unwrap_or_else(|| path.to_path_buf())
     };
     let uri = file_uri(&absolute);
     format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", uri, label)

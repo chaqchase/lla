@@ -1,20 +1,24 @@
-use super::FileFormatter;
+use super::{render_entry_name, FileFormatter};
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::theme::{self, ColorValue};
-use crate::utils::color::{self, colorize_file_name, colorize_file_name_with_icon};
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
+use crate::utils::color;
 use colored::*;
 use lla_plugin_interface::proto::DecoratedEntry;
-use std::collections::HashMap;
-use std::path::Path;
-use std::process::Command;
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use terminal_size::{terminal_size, Width};
 use unicode_width::UnicodeWidthStr;
 
 const SUBJECT_MAX_LENGTH: usize = 48;
 const SUBJECT_MIN_LENGTH: usize = 16;
+/// Above this many distinct parent directories, scope history lookups to the
+/// whole repository instead of passing every directory as a pathspec.
+const MAX_PATHSPECS: usize = 64;
+/// Record separator emitted before each commit header in `git log` output.
+const COMMIT_MARKER: char = '\x1e';
 
 pub struct GitFormatter {
     pub show_icons: bool,
@@ -64,7 +68,7 @@ struct GitInfo {
     detached: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct CommitInfo {
     hash: String,
     subject: String,
@@ -119,6 +123,23 @@ struct RowData {
     time: String,
     author: String,
     plugins: String,
+}
+
+/// Row content that does not depend on the layout, computed once per listing.
+struct BaseRow {
+    status: String,
+    status_width: usize,
+    name: String,
+    name_width: usize,
+    commit: String,
+    commit_width: usize,
+    subject: String,
+    time: String,
+    time_width: usize,
+    author: String,
+    author_width: usize,
+    plugins: String,
+    plugin_width: usize,
 }
 
 impl FileGitStatus {
@@ -210,60 +231,314 @@ impl RepoStatus {
     }
 }
 
-impl GitFormatter {
-    fn get_git_info(path: &Path) -> Option<GitInfo> {
-        let status = Command::new("git")
-            .arg("rev-parse")
-            .arg("--is-inside-work-tree")
-            .current_dir(path)
-            .output()
-            .ok()?;
+/// Split NUL-terminated `-z` output into lossy UTF-8 records, dropping empty ones.
+fn split_nul(bytes: &[u8]) -> impl Iterator<Item = String> + '_ {
+    bytes
+        .split(|&b| b == 0)
+        .filter(|record| !record.is_empty())
+        .map(|record| String::from_utf8_lossy(record).into_owned())
+}
 
-        if !status.status.success() {
+/// Parse `git status -b --porcelain=v2 -z` output. Paths are relative to the
+/// repository root and are never quoted, so names with spaces or non-ASCII
+/// characters survive intact.
+fn parse_status_v2_z(bytes: &[u8]) -> (GitInfo, RepoStatus) {
+    let mut info = GitInfo::default();
+    let mut status = RepoStatus::default();
+    let mut records = split_nul(bytes);
+
+    while let Some(record) = records.next() {
+        if let Some(header) = record.strip_prefix("# ") {
+            let mut parts = header.split(' ');
+            let key = parts.next().unwrap_or_default();
+            let value = parts.next().unwrap_or_default();
+            match key {
+                "branch.head" => {
+                    info.detached = value == "(detached)";
+                    info.branch = if info.detached {
+                        "DETACHED".to_string()
+                    } else {
+                        value.to_string()
+                    };
+                }
+                "branch.oid" => info.head = value.to_string(),
+                "branch.upstream" => info.upstream = Some(value.to_string()),
+                "branch.ab" => {
+                    info.ahead = value.trim_start_matches('+').parse().unwrap_or(0);
+                    info.behind = parts
+                        .next()
+                        .unwrap_or_default()
+                        .trim_start_matches('-')
+                        .parse()
+                        .unwrap_or(0);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        let (kind, rest) = record.split_at(record.find(' ').unwrap_or(record.len()));
+        let rest = rest.strip_prefix(' ').unwrap_or(rest);
+        // Number of space-separated fields that precede the path in each record type.
+        let (xy, path) = match kind {
+            "1" => split_fields(rest, 7),
+            "2" => {
+                // Renames and copies are followed by a separate record holding the
+                // original path, which is not listed in the working tree.
+                records.next();
+                split_fields(rest, 8)
+            }
+            "u" => split_fields(rest, 9),
+            "?" => (Some("??"), Some(rest)),
+            "!" => (Some("!!"), Some(rest)),
+            _ => (None, None),
+        };
+
+        if let (Some(xy), Some(path)) = (xy, path) {
+            if !path.is_empty() {
+                status.record(path, FileGitStatus::from_raw(xy));
+            }
+        }
+    }
+
+    (info, status)
+}
+
+/// Return the first field and whatever follows `count` fields (the path, which
+/// may itself contain spaces).
+fn split_fields(rest: &str, count: usize) -> (Option<&str>, Option<&str>) {
+    let mut parts = rest.splitn(count + 1, ' ');
+    let first = parts.next();
+    (first, parts.nth(count - 1))
+}
+
+/// Incremental parser for
+/// `git log --format=%x1e%h%x00%s%x00%cr%x00%an --name-only -z` output fed one
+/// NUL-terminated token at a time.
+#[derive(Default)]
+struct LogStreamParser {
+    header: Option<Vec<String>>,
+}
+
+#[derive(Debug, PartialEq)]
+enum LogToken {
+    Commit(CommitInfo),
+    Path(String),
+}
+
+impl LogStreamParser {
+    fn feed(&mut self, token: &[u8]) -> Option<LogToken> {
+        let token = String::from_utf8_lossy(token);
+
+        if let Some(hash) = token.strip_prefix(COMMIT_MARKER) {
+            self.header = Some(vec![hash.to_string()]);
             return None;
         }
 
-        let mut info = GitInfo::default();
-
-        if let Ok(output) = Command::new("git")
-            .args(["status", "-b", "--porcelain=v2"])
-            .current_dir(path)
-            .output()
-        {
-            if output.status.success() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    if line.starts_with("# branch.head ") {
-                        if let Some(value) = line.split_whitespace().nth(2) {
-                            info.detached = value == "(detached)";
-                            info.branch = if info.detached {
-                                "DETACHED".to_string()
-                            } else {
-                                value.to_string()
-                            };
-                        }
-                    } else if line.starts_with("# branch.oid ") {
-                        if let Some(value) = line.split_whitespace().nth(2) {
-                            info.head = value.to_string();
-                        }
-                    } else if line.starts_with("# branch.upstream ") {
-                        if let Some(value) = line.split_whitespace().nth(2) {
-                            info.upstream = Some(value.to_string());
-                        }
-                    } else if line.starts_with("# branch.ab ") {
-                        let parts: Vec<&str> = line.split_whitespace().collect();
-                        if parts.len() >= 4 {
-                            info.ahead = parts[2].trim_start_matches('+').parse().unwrap_or(0);
-                            info.behind = parts[3].trim_start_matches('-').parse().unwrap_or(0);
-                        }
-                    }
-                }
+        if let Some(fields) = self.header.as_mut() {
+            fields.push(token.into_owned());
+            if fields.len() < 4 {
+                return None;
             }
+            let mut fields = self.header.take().unwrap_or_default().into_iter();
+            let mut next = || fields.next().unwrap_or_default();
+            return Some(LogToken::Commit(CommitInfo {
+                hash: next(),
+                subject: next(),
+                time: next(),
+                author: next(),
+            }));
         }
 
+        let path = token.strip_prefix('\n').unwrap_or(&token);
+        (!path.is_empty()).then(|| LogToken::Path(path.to_string()))
+    }
+}
+
+/// Assign each wanted path (file or directory, repo-relative) the newest commit
+/// touching it, consuming tokens until every wanted path is resolved. Returns
+/// `true` once all wanted paths are resolved, so the caller can stop reading.
+fn resolve_commits<T: AsRef<[u8]>>(
+    tokens: impl IntoIterator<Item = T>,
+    wanted: &HashSet<String>,
+    resolved: &mut HashMap<String, CommitInfo>,
+) -> bool {
+    let mut parser = LogStreamParser::default();
+    let mut current: Option<CommitInfo> = None;
+
+    if wanted.is_empty() {
+        return true;
+    }
+
+    for token in tokens {
+        match parser.feed(token.as_ref()) {
+            Some(LogToken::Commit(commit)) => current = Some(commit),
+            Some(LogToken::Path(path)) => {
+                let Some(commit) = current.as_ref() else {
+                    continue;
+                };
+                if record_path(&path, commit, wanted, resolved) && resolved.len() == wanted.len() {
+                    return true;
+                }
+            }
+            None => {}
+        }
+    }
+
+    resolved.len() == wanted.len()
+}
+
+/// Credit `commit` to `path` and every wanted ancestor directory that has not
+/// already been resolved by a newer commit. Returns whether anything changed.
+fn record_path(
+    path: &str,
+    commit: &CommitInfo,
+    wanted: &HashSet<String>,
+    resolved: &mut HashMap<String, CommitInfo>,
+) -> bool {
+    let mut changed = false;
+    let mut candidate = path;
+    loop {
+        if resolved.contains_key(candidate) {
+            // A newer commit already resolved this path, and with it every wanted
+            // ancestor, because ancestors are always visited together.
+            break;
+        }
+        if wanted.contains(candidate) {
+            resolved.insert(candidate.to_string(), commit.clone());
+            changed = true;
+        }
+        match candidate.rfind('/') {
+            Some(index) => candidate = &candidate[..index],
+            None => break,
+        }
+    }
+    changed
+}
+
+/// Collect all directories (repo-relative) that contain at least one of `files`.
+fn ancestor_dirs<'a>(files: impl IntoIterator<Item = &'a String>) -> HashSet<String> {
+    let mut dirs = HashSet::new();
+    for file in files {
+        let mut candidate = file.as_str();
+        while let Some(index) = candidate.rfind('/') {
+            candidate = &candidate[..index];
+            if !dirs.insert(candidate.to_string()) {
+                break;
+            }
+        }
+    }
+    dirs
+}
+
+/// Convert a relative path to the `/`-separated form git prints.
+fn to_git_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .args(["-c", "core.quotepath=off", "-c", "log.follow=false"]);
+    command
+}
+
+/// Paths for the listed entries, expressed relative to the repository root.
+struct EntryKeys {
+    keys: Vec<Option<String>>,
+}
+
+impl EntryKeys {
+    fn new(files: &[DecoratedEntry], root: &Path) -> Self {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let mut parents: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
+
+        let keys = files
+            .iter()
+            .map(|file| {
+                let path = Path::new(&file.path);
+                let absolute = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    cwd.join(path)
+                };
+
+                // Resolve the parent directory rather than the entry itself so a
+                // symlink is reported as the link git tracks, not its target.
+                let resolved = match (absolute.parent(), absolute.file_name()) {
+                    (Some(parent), Some(name)) => parents
+                        .entry(parent.to_path_buf())
+                        .or_insert_with(|| std::fs::canonicalize(parent).ok())
+                        .as_ref()
+                        .map(|parent| parent.join(name)),
+                    _ => std::fs::canonicalize(&absolute).ok(),
+                }?;
+
+                resolved.strip_prefix(root).ok().map(to_git_path)
+            })
+            .collect();
+
+        Self { keys }
+    }
+
+    /// Distinct parent directories of the entries, used to scope history walks.
+    fn pathspecs(&self) -> Vec<String> {
+        let parents: HashSet<String> = self
+            .keys
+            .iter()
+            .flatten()
+            .map(|key| match key.rfind('/') {
+                Some(index) => key[..index].to_string(),
+                None => ".".to_string(),
+            })
+            .collect();
+
+        if parents.len() > MAX_PATHSPECS || parents.contains(".") {
+            return vec![".".to_string()];
+        }
+        let mut parents: Vec<_> = parents.into_iter().collect();
+        parents.sort();
+        parents
+    }
+}
+
+impl GitFormatter {
+    fn repo_root(dir: &Path) -> Option<PathBuf> {
+        let output = git_command(dir)
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        std::fs::canonicalize(root).ok()
+    }
+
+    fn load_status(root: &Path) -> (GitInfo, RepoStatus) {
+        let output = git_command(root)
+            .args([
+                "status",
+                "-b",
+                "--porcelain=v2",
+                "-z",
+                "--untracked-files=all",
+            ])
+            .output();
+        let (mut info, status) = match output {
+            Ok(output) if output.status.success() => parse_status_v2_z(&output.stdout),
+            _ => (GitInfo::default(), RepoStatus::default()),
+        };
+
         if info.branch.is_empty() {
-            if let Ok(output) = Command::new("git")
+            if let Ok(output) = git_command(root)
                 .args(["rev-parse", "--abbrev-ref", "HEAD"])
-                .current_dir(path)
                 .output()
             {
                 if output.status.success() {
@@ -279,20 +554,118 @@ impl GitFormatter {
         }
 
         if info.head.is_empty() {
-            if let Ok(output) = Command::new("git")
+            if let Ok(output) = git_command(root)
                 .args(["rev-parse", "--short", "HEAD"])
-                .current_dir(path)
                 .output()
             {
                 if output.status.success() {
                     info.head = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 }
             }
+        } else if info.head.starts_with('(') {
+            // "(initial)" on a branch with no commits yet.
+            info.head.clear();
         } else if info.head.len() > 8 {
             info.head.truncate(8);
         }
 
-        Some(info)
+        (info, status)
+    }
+
+    /// Entries (files and directories) that have committed history and can
+    /// therefore be resolved by walking `git log`.
+    fn committed_paths(
+        root: &Path,
+        pathspecs: &[String],
+        status: &RepoStatus,
+    ) -> Option<HashSet<String>> {
+        let output = git_command(root)
+            .args(["--literal-pathspecs", "ls-files", "-z", "--"])
+            .args(pathspecs)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        // Newly added files are in the index but have no history yet.
+        let files: HashSet<String> = split_nul(&output.stdout)
+            .filter(|path| {
+                status
+                    .entries
+                    .get(path)
+                    .is_none_or(|entry| entry.staged != Some('A'))
+            })
+            .collect();
+        let mut committed = ancestor_dirs(&files);
+        committed.extend(files);
+        Some(committed)
+    }
+
+    /// Find the newest commit for every listed entry with a single `git log`
+    /// walk, stopping as soon as every entry has been resolved.
+    fn last_commits(
+        root: &Path,
+        keys: &EntryKeys,
+        status: &RepoStatus,
+    ) -> HashMap<String, CommitInfo> {
+        let mut resolved = HashMap::new();
+        let pathspecs = keys.pathspecs();
+        let Some(committed) = Self::committed_paths(root, &pathspecs, status) else {
+            return resolved;
+        };
+
+        let wanted: HashSet<String> = keys
+            .keys
+            .iter()
+            .flatten()
+            .filter(|key| committed.contains(*key))
+            .cloned()
+            .collect();
+        if wanted.is_empty() {
+            return resolved;
+        }
+
+        let format = format!("--format={}%h%x00%s%x00%cr%x00%an", COMMIT_MARKER);
+        let child = git_command(root)
+            .args([
+                "--literal-pathspecs",
+                "log",
+                format.as_str(),
+                "--name-only",
+                "--no-renames",
+                "-z",
+                "--",
+            ])
+            .args(&pathspecs)
+            .stdout(Stdio::piped())
+            .spawn();
+        let Ok(mut child) = child else {
+            return resolved;
+        };
+
+        if let Some(stdout) = child.stdout.take() {
+            let mut reader = BufReader::with_capacity(64 * 1024, stdout);
+            let tokens = std::iter::from_fn(|| {
+                let mut token = Vec::new();
+                match reader.read_until(0, &mut token) {
+                    Ok(0) | Err(_) => None,
+                    Ok(_) => {
+                        if token.last() == Some(&0) {
+                            token.pop();
+                        }
+                        Some(token)
+                    }
+                }
+            });
+            resolve_commits(tokens, &wanted, &mut resolved);
+        }
+
+        // Either everything resolved early or history ran out; in both cases the
+        // rest of the walk is not needed.
+        let _ = child.kill();
+        let _ = child.wait();
+        resolved
     }
 
     fn format_file_status(status: &FileGitStatus, theme: &theme::Theme) -> String {
@@ -467,219 +840,120 @@ impl GitFormatter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn prepare_table(
+    fn base_rows(
         files: &[DecoratedEntry],
+        keys: &EntryKeys,
         plugin_manager: &mut PluginManager,
-        workspace_root: &Path,
         repo_status: &RepoStatus,
+        commits: &HashMap<String, CommitInfo>,
         theme: &theme::Theme,
         hash_color: Color,
         time_color: Color,
         author_color: Color,
+        show_icons: bool,
+    ) -> Vec<BaseRow> {
+        files
+            .iter()
+            .zip(&keys.keys)
+            .map(|(file, key)| {
+                let name = render_entry_name(file, show_icons);
+
+                let file_status = key
+                    .as_deref()
+                    .map(|key| repo_status.status_for(key))
+                    .unwrap_or_else(FileGitStatus::clean);
+                let status = GitFormatter::format_file_status(&file_status, theme);
+
+                let commit_info = key
+                    .as_ref()
+                    .and_then(|key| commits.get(key))
+                    .cloned()
+                    .unwrap_or_default();
+
+                let commit = if commit_info.hash == "-" {
+                    "-".to_string()
+                } else {
+                    format!("@{}", commit_info.hash)
+                        .color(hash_color)
+                        .to_string()
+                };
+                let time = commit_info.time.color(time_color).to_string();
+                let author = if commit_info.author == "-" {
+                    "-".to_string()
+                } else {
+                    commit_info.author.color(author_color).to_string()
+                };
+                let plugins = plugin_manager.format_fields(file, "git").join(" ");
+
+                BaseRow {
+                    status_width: Self::strip_ansi(&status).width(),
+                    name_width: Self::strip_ansi(&name).width(),
+                    commit_width: Self::strip_ansi(&commit).width(),
+                    time_width: Self::strip_ansi(&time).width(),
+                    author_width: Self::strip_ansi(&author).width(),
+                    plugin_width: Self::strip_ansi(&plugins).width(),
+                    status,
+                    name,
+                    commit,
+                    subject: commit_info.subject,
+                    time,
+                    author,
+                    plugins,
+                }
+            })
+            .collect()
+    }
+
+    /// Lay out the precomputed rows for a given subject width. This only
+    /// truncates text and measures columns; it never touches git or the disk.
+    fn prepare_table(
+        rows: &[BaseRow],
         subject_color: Color,
         subject_limit: usize,
         include_plugins: bool,
-        show_icons: bool,
     ) -> PreparedTable {
-        let mut rows: Vec<RowData> = Vec::with_capacity(files.len());
-        let mut max_status_width: usize = 0;
-        let mut max_name_width: usize = 0;
-        let mut max_commit_width: usize = 0;
-        let mut max_subject_width: usize = 0;
-        let mut max_time_width: usize = 0;
-        let mut max_author_width: usize = 0;
-        let mut max_plugin_width: usize = 0;
+        let mut table = PreparedTable {
+            rows: Vec::with_capacity(rows.len()),
+            max_status_width: 0,
+            max_name_width: 0,
+            max_commit_width: 0,
+            max_subject_width: 0,
+            max_time_width: 0,
+            max_author_width: 0,
+            max_plugin_width: 0,
+        };
 
-        for file in files {
-            let path = Path::new(&file.path);
-            let name = colorize_file_name(path);
-            let name_with_icon = colorize_file_name_with_icon(
-                path,
-                format_with_icon(path, name.to_string(), show_icons),
-            )
-            .to_string();
-            let name_with_icon = hyperlink::link_path(path, name_with_icon);
+        for row in rows {
+            let subject = GitFormatter::truncate_text(&row.subject, subject_limit);
+            let subject_width = subject.width();
+            let subject = subject.color(subject_color).to_string();
 
-            let name_width = Self::strip_ansi(&name_with_icon).width();
-            max_name_width = max_name_width.max(name_width);
-
-            let relative_path = path.strip_prefix(workspace_root).unwrap_or(path);
-            let relative_path_str = relative_path.to_string_lossy();
-
-            let file_status = repo_status.status_for(relative_path_str.as_ref());
-            let status_display = GitFormatter::format_file_status(&file_status, theme);
-            let status_width = Self::strip_ansi(&status_display).width();
-            max_status_width = max_status_width.max(status_width);
-
-            let commit_info = GitFormatter::get_last_commit_info(workspace_root, relative_path)
-                .unwrap_or_default();
-            let hash = commit_info.hash;
-            let subject_text = commit_info.subject;
-            let time_text = commit_info.time;
-            let author_text = commit_info.author;
-
-            let commit_display = if hash == "-" {
-                "-".to_string()
-            } else {
-                format!("@{}", hash).color(hash_color).to_string()
-            };
-            let commit_width = Self::strip_ansi(&commit_display).width();
-            max_commit_width = max_commit_width.max(commit_width);
-
-            let subject_truncated = GitFormatter::truncate_text(&subject_text, subject_limit);
-            let subject_display = subject_truncated.color(subject_color).to_string();
-            let subject_width = Self::strip_ansi(&subject_display).width();
-            max_subject_width = max_subject_width.max(subject_width);
-
-            let time_display = time_text.color(time_color).to_string();
-            let time_width = Self::strip_ansi(&time_display).width();
-            max_time_width = max_time_width.max(time_width);
-
-            let author_display = if author_text == "-" {
-                "-".to_string()
-            } else {
-                author_text.color(author_color).to_string()
-            };
-            let author_width = Self::strip_ansi(&author_display).width();
-            max_author_width = max_author_width.max(author_width);
-
-            let plugin_fields = if include_plugins {
-                plugin_manager.format_fields(file, "git").join(" ")
-            } else {
-                String::new()
-            };
-
-            if include_plugins && !plugin_fields.is_empty() {
-                let plugin_width = Self::strip_ansi(&plugin_fields).width();
-                max_plugin_width = max_plugin_width.max(plugin_width);
+            table.max_status_width = table.max_status_width.max(row.status_width);
+            table.max_name_width = table.max_name_width.max(row.name_width);
+            table.max_commit_width = table.max_commit_width.max(row.commit_width);
+            table.max_subject_width = table.max_subject_width.max(subject_width);
+            table.max_time_width = table.max_time_width.max(row.time_width);
+            table.max_author_width = table.max_author_width.max(row.author_width);
+            if include_plugins {
+                table.max_plugin_width = table.max_plugin_width.max(row.plugin_width);
             }
 
-            rows.push(RowData {
-                status: status_display,
-                name: name_with_icon,
-                commit: commit_display,
-                subject: subject_display,
-                time: time_display,
-                author: author_display,
-                plugins: plugin_fields,
+            table.rows.push(RowData {
+                status: row.status.clone(),
+                name: row.name.clone(),
+                commit: row.commit.clone(),
+                subject,
+                time: row.time.clone(),
+                author: row.author.clone(),
+                plugins: if include_plugins {
+                    row.plugins.clone()
+                } else {
+                    String::new()
+                },
             });
         }
 
-        PreparedTable {
-            rows,
-            max_status_width,
-            max_name_width,
-            max_commit_width,
-            max_subject_width,
-            max_time_width,
-            max_author_width,
-            max_plugin_width,
-        }
-    }
-
-    fn get_repo_status(workspace_root: &Path) -> RepoStatus {
-        let mut repo_status = RepoStatus::default();
-
-        if let Ok(output) = Command::new("git")
-            .args(["status", "--porcelain=v2", "--untracked-files=all"])
-            .current_dir(workspace_root)
-            .output()
-        {
-            if output.status.success() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    if line.is_empty() || line.starts_with('#') {
-                        continue;
-                    }
-
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.is_empty() {
-                        continue;
-                    }
-
-                    match parts[0] {
-                        "1" | "2" if parts.len() >= 9 => {
-                            let xy = parts[1];
-                            let path_index = if parts[0] == "2" && parts.len() >= 10 {
-                                parts.len().saturating_sub(2)
-                            } else {
-                                parts.len().saturating_sub(1)
-                            };
-
-                            if let Some(path) = parts.get(path_index) {
-                                let status = FileGitStatus::from_raw(xy);
-                                repo_status.record(path, status);
-                            }
-                        }
-                        "u" if parts.len() >= 10 => {
-                            let xy = parts[1];
-                            if let Some(path) = parts.last() {
-                                let status = FileGitStatus::from_raw(xy);
-                                repo_status.record(path, status);
-                            }
-                        }
-                        "?" if parts.len() >= 2 => {
-                            let path = parts[1];
-                            let status = FileGitStatus::from_raw("??");
-                            repo_status.record(path, status);
-                        }
-                        "!" if parts.len() >= 2 => {
-                            let path = parts[1];
-                            let status = FileGitStatus::from_raw("!!");
-                            repo_status.record(path, status);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        if let Ok(output) = Command::new("git")
-            .args(["ls-files"])
-            .current_dir(workspace_root)
-            .output()
-        {
-            if output.status.success() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    repo_status
-                        .entries
-                        .entry(line.to_string())
-                        .or_insert_with(FileGitStatus::clean);
-                }
-            }
-        }
-
-        repo_status
-    }
-
-    fn get_last_commit_info(path: &Path, file_path: &Path) -> Option<CommitInfo> {
-        let output = Command::new("git")
-            .args([
-                "log",
-                "-1",
-                "--format=%h|%s|%cr|%an",
-                "--",
-                file_path.to_str()?,
-            ])
-            .current_dir(path)
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
-        }
-
-        let log = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<&str> = log.trim().splitn(4, '|').collect();
-        if parts.len() >= 4 {
-            Some(CommitInfo {
-                hash: parts[0].to_string(),
-                subject: parts[1].to_string(),
-                time: parts[2].to_string(),
-                author: parts[3].to_string(),
-            })
-        } else {
-            None
-        }
+        table
     }
 }
 
@@ -702,17 +976,31 @@ impl FileFormatter for GitFormatter {
         let subject_color = Self::get_theme_color(&theme.colors.file);
         let separator_color = Self::get_theme_color(&theme.colors.permission_none);
 
-        let workspace_root = Path::new(&files[0].path)
-            .ancestors()
-            .find(|p| p.join(".git").exists())
-            .unwrap_or(Path::new("."));
-
-        let git_info = match GitFormatter::get_git_info(workspace_root) {
-            Some(info) => info,
+        let first = Path::new(&files[0].path);
+        let probe_dir = match first.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        let root = match GitFormatter::repo_root(probe_dir) {
+            Some(root) => root,
             None => return Ok("Not a git repository".red().to_string()),
         };
 
-        let repo_status = GitFormatter::get_repo_status(workspace_root);
+        let (git_info, repo_status) = GitFormatter::load_status(&root);
+        let keys = EntryKeys::new(files, &root);
+        let commits = GitFormatter::last_commits(&root, &keys, &repo_status);
+        let base_rows = GitFormatter::base_rows(
+            files,
+            &keys,
+            plugin_manager,
+            &repo_status,
+            &commits,
+            theme,
+            hash_color,
+            time_color,
+            author_color,
+            self.show_icons,
+        );
 
         let branch_header = GitFormatter::format_branch_header(&git_info, theme);
         let summary_line = GitFormatter::format_summary(&repo_status, theme);
@@ -727,18 +1015,10 @@ impl FileFormatter for GitFormatter {
 
         let (prepared_rows, header_columns, separator_len, include_plugins_final) = loop {
             let prepared = GitFormatter::prepare_table(
-                files,
-                plugin_manager,
-                workspace_root,
-                &repo_status,
-                theme,
-                hash_color,
-                time_color,
-                author_color,
+                &base_rows,
                 subject_color,
                 subject_limit,
                 include_plugins,
-                self.show_icons,
             );
 
             let status_header = "Status".bold().to_string();
@@ -878,5 +1158,186 @@ impl FileFormatter for GitFormatter {
         }
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(hash: &str) -> CommitInfo {
+        CommitInfo {
+            hash: hash.to_string(),
+            subject: format!("subject {hash}"),
+            time: "1 day ago".to_string(),
+            author: "dev".to_string(),
+        }
+    }
+
+    fn log_bytes(commits: &[(&str, &[&str])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (hash, paths) in commits {
+            out.extend_from_slice(
+                format!("\x1e{hash}\0subject {hash}\x001 day ago\0dev\0").as_bytes(),
+            );
+            for (index, path) in paths.iter().enumerate() {
+                if index == 0 {
+                    out.push(b'\n');
+                }
+                out.extend_from_slice(path.as_bytes());
+                out.push(0);
+            }
+        }
+        out
+    }
+
+    fn tokens(bytes: &[u8]) -> Vec<&[u8]> {
+        let mut tokens: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
+        if tokens.last().is_some_and(|t| t.is_empty()) {
+            tokens.pop();
+        }
+        tokens
+    }
+
+    #[test]
+    fn status_parser_keeps_spaces_unicode_and_renames() {
+        let raw = concat!(
+            "# branch.oid 0123456789abcdef\0",
+            "# branch.head main\0",
+            "# branch.upstream origin/main\0",
+            "# branch.ab +2 -1\0",
+            "1 .M N... 100644 100644 100644 aaa aaa my notes.txt\0",
+            "2 R. N... 100644 100644 100644 aaa aaa R100 new name.md\0old name.md\0",
+            "u UU N... 100644 100644 100644 100644 a b c sub/conflict file.rs\0",
+            "? café.txt\0",
+            "? dir/with space/x\0",
+            "! target/out\0",
+        );
+        let (info, status) = parse_status_v2_z(raw.as_bytes());
+
+        assert_eq!(info.branch, "main");
+        assert_eq!(info.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((info.ahead, info.behind), (2, 1));
+        assert_eq!(info.head, "0123456789abcdef");
+
+        assert_eq!(status.status_for("my notes.txt").raw, ".M");
+        assert_eq!(status.status_for("new name.md").raw, "R.");
+        assert!(!status.entries.contains_key("old name.md"));
+        assert!(status.status_for("sub/conflict file.rs").is_conflict());
+        assert!(status.status_for("café.txt").is_untracked());
+        assert!(status.status_for("dir/with space/x").is_untracked());
+        assert!(status.status_for("target/out").is_ignored());
+        assert_eq!(status.untracked, 2);
+        assert_eq!(status.unstaged, 1);
+        assert_eq!(status.conflicts, 1);
+    }
+
+    #[test]
+    fn log_parser_reads_commits_and_paths() {
+        let bytes = log_bytes(&[("abc", &["a b.txt", "café.txt"]), ("def", &[])]);
+        let mut parser = LogStreamParser::default();
+        let parsed: Vec<_> = tokens(&bytes)
+            .into_iter()
+            .filter_map(|t| parser.feed(t))
+            .collect();
+        assert_eq!(
+            parsed,
+            vec![
+                LogToken::Commit(commit("abc")),
+                LogToken::Path("a b.txt".to_string()),
+                LogToken::Path("café.txt".to_string()),
+                LogToken::Commit(commit("def")),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_keeps_newest_commit_and_credits_directories() {
+        let bytes = log_bytes(&[
+            ("c3", &["src/deep/new.rs"]),
+            ("c2", &["README.md", "src/lib.rs"]),
+            ("c1", &["README.md", "docs/guide.md"]),
+        ]);
+        let wanted: HashSet<String> = ["README.md", "src", "src/lib.rs", "docs"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut resolved = HashMap::new();
+        assert!(resolve_commits(tokens(&bytes), &wanted, &mut resolved));
+        assert_eq!(resolved["src"].hash, "c3");
+        assert_eq!(resolved["src/lib.rs"].hash, "c2");
+        assert_eq!(resolved["README.md"].hash, "c2");
+        assert_eq!(resolved["docs"].hash, "c1");
+    }
+
+    #[test]
+    fn resolve_stops_once_everything_is_found() {
+        let bytes = log_bytes(&[("new", &["a"]), ("old", &["a", "b"])]);
+        let wanted: HashSet<String> = ["a".to_string()].into_iter().collect();
+        let mut resolved = HashMap::new();
+        let mut consumed = 0;
+        let counted = tokens(&bytes).into_iter().inspect(|_| consumed += 1);
+        assert!(resolve_commits(counted, &wanted, &mut resolved));
+        assert_eq!(resolved["a"].hash, "new");
+        assert_eq!(consumed, 5, "walk should stop after the first commit");
+    }
+
+    #[test]
+    fn ancestor_dirs_lists_every_parent() {
+        let files = vec!["a/b/c.txt".to_string(), "a/d.txt".to_string()];
+        let dirs = ancestor_dirs(&files);
+        let mut dirs: Vec<_> = dirs.into_iter().collect();
+        dirs.sort();
+        assert_eq!(dirs, vec!["a", "a/b"]);
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .args(["-c", "user.name=lla", "-c", "user.email=lla@example.com"])
+            .args(args)
+            .current_dir(dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+
+    #[test]
+    fn real_repo_reports_spaced_and_unicode_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        if !git(dir, &["init", "-q"]) {
+            eprintln!("git not available; skipping");
+            return;
+        }
+        std::fs::create_dir(dir.join("sub dir")).unwrap();
+        std::fs::write(dir.join("tracked file.txt"), "one").unwrap();
+        std::fs::write(dir.join("sub dir/inner.txt"), "one").unwrap();
+        assert!(git(dir, &["add", "."]));
+        assert!(git(dir, &["commit", "-qm", "first commit"]));
+        std::fs::write(dir.join("tracked file.txt"), "two").unwrap();
+        std::fs::write(dir.join("my notes.txt"), "").unwrap();
+        std::fs::write(dir.join("café.txt"), "").unwrap();
+
+        let root = GitFormatter::repo_root(dir).unwrap();
+        let (_, status) = GitFormatter::load_status(&root);
+        assert!(status.status_for("my notes.txt").is_untracked());
+        assert!(status.status_for("café.txt").is_untracked());
+        assert!(status.status_for("tracked file.txt").has_worktree_change());
+
+        let entries: Vec<DecoratedEntry> =
+            ["tracked file.txt", "sub dir", "my notes.txt", "café.txt"]
+                .iter()
+                .map(|name| DecoratedEntry {
+                    path: dir.join(name).to_string_lossy().into_owned(),
+                    ..Default::default()
+                })
+                .collect();
+        let keys = EntryKeys::new(&entries, &root);
+        assert_eq!(keys.keys[3].as_deref(), Some("café.txt"));
+        let commits = GitFormatter::last_commits(&root, &keys, &status);
+        assert_eq!(commits["tracked file.txt"].subject, "first commit");
+        assert_eq!(commits["sub dir"].subject, "first commit");
+        assert!(!commits.contains_key("my notes.txt"));
     }
 }

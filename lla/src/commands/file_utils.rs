@@ -1,6 +1,6 @@
 use crate::commands::args::{Args, OutputMode};
 use crate::config::Config;
-use crate::error::{LlaError, Result};
+use crate::error::Result;
 use crate::filter::{
     CaseInsensitiveFilter, CompositeFilter, ExtensionFilter, FileFilter, FilterOperation,
     GlobFilter, PatternFilter, RegexFilter,
@@ -12,17 +12,16 @@ use crate::formatter::{
     RecursiveFormatter, SizeMapFormatter, TableFormatter, TimelineFormatter, TreeFormatter,
 };
 use crate::lister::{
-    archive as archive_lister, BasicLister, FileLister, FuzzyLister, RecursiveLister,
+    archive as archive_lister, BasicLister, ExcludedPaths, FileLister, FuzzyLister, RecursiveLister,
 };
 use crate::plugin::PluginManager;
-use crate::sorter::{AlphabeticalSorter, DateSorter, FileSorter, SizeSorter, SortOptions};
-use crate::utils::cache::ListingCache;
+use crate::sorter::{
+    sort_entries, AlphabeticalSorter, DateSorter, FileSorter, SizeSorter, SortOptions,
+};
 use crate::utils::{fs_metadata, hyperlink};
 use ignore::WalkBuilder;
 use lla_plugin_interface::proto::{DecoratedEntry, EntryMetadata};
 use rayon::prelude::*;
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,11 +68,7 @@ pub fn list_directory(
     if path_is_archive {
         let decorated_files =
             list_and_decorate_archive_entries(args, &filter, plugin_manager, format)?;
-        let decorated_files = if !args.tree_format && !args.recursive_format {
-            sort_files(decorated_files, &sorter, args)?
-        } else {
-            decorated_files
-        };
+        let decorated_files = sort_files(decorated_files, &sorter, args)?;
 
         return match args.output_mode {
             OutputMode::Human => {
@@ -82,7 +77,9 @@ pub fn list_directory(
                     plugin_manager,
                     args.depth,
                 )?;
-                println!("{}", formatted_output);
+                if !formatted_output.is_empty() {
+                    println!("{}", formatted_output);
+                }
                 Ok(())
             }
             OutputMode::Json { pretty } => {
@@ -112,11 +109,7 @@ pub fn list_directory(
     // Single file path handling: allow listing one file
     if p.is_file() || path_is_symlink {
         let decorated_files = list_and_decorate_single_file(args, &filter, plugin_manager, format)?;
-        let decorated_files = if !args.tree_format && !args.recursive_format {
-            sort_files(decorated_files, &sorter, args)?
-        } else {
-            decorated_files
-        };
+        let decorated_files = sort_files(decorated_files, &sorter, args)?;
 
         return match args.output_mode {
             OutputMode::Human => {
@@ -125,7 +118,9 @@ pub fn list_directory(
                     plugin_manager,
                     args.depth,
                 )?;
-                println!("{}", formatted_output);
+                if !formatted_output.is_empty() {
+                    println!("{}", formatted_output);
+                }
                 Ok(())
             }
             OutputMode::Json { pretty } => {
@@ -152,56 +147,23 @@ pub fn list_directory(
         };
     }
 
-    let mut listing_cache: Option<ListingCache> = None;
-    let mut cache_key: Option<String> = None;
-    let mut cache_summary: Option<String> = None;
-    let mut cached_entries: Option<Vec<DecoratedEntry>> = None;
-
-    if !path_is_archive && p.is_dir() {
-        let context = ListingContext::from_args(args, config);
-        cache_summary = Some(context.summary());
-        let key = context.cache_key();
-        cache_key = Some(key.clone());
-        let cache = ListingCache::new()?;
-        if !args.refine_filters.is_empty() {
-            if let Some(entries) = cache.load(&key)? {
-                cached_entries = Some(entries);
-            }
-        }
-        listing_cache = Some(cache);
-    }
-
-    let mut decorated_files = if let Some(entries) = cached_entries {
-        entries
-    } else {
-        let fresh =
-            list_and_decorate_files(args, config, &lister, &filter, plugin_manager, format)?;
-        if let (Some(cache), Some(key), Some(summary)) = (
-            listing_cache.as_mut(),
-            cache_key.as_ref(),
-            cache_summary.as_ref(),
-        ) {
-            cache.save(key, summary, &fresh)?;
-        }
-        fresh
-    };
+    let mut decorated_files =
+        list_and_decorate_files(args, config, &lister, &filter, plugin_manager, format)?;
 
     if !args.refine_filters.is_empty() {
         decorated_files =
             apply_refine_filters(decorated_files, &args.refine_filters, args.case_sensitive)?;
     }
 
-    let decorated_files = if !args.tree_format && !args.recursive_format {
-        sort_files(decorated_files, &sorter, args)?
-    } else {
-        decorated_files
-    };
+    let decorated_files = sort_files(decorated_files, &sorter, args)?;
 
     match args.output_mode {
         OutputMode::Human => {
             let formatted_output =
                 formatter.format_files(decorated_files.as_slice(), plugin_manager, args.depth)?;
-            println!("{}", formatted_output);
+            if !formatted_output.is_empty() {
+                println!("{}", formatted_output);
+            }
             Ok(())
         }
         OutputMode::Json { pretty } => {
@@ -298,10 +260,20 @@ fn calculate_dir_size(path: &Path) -> std::io::Result<u64> {
     let mut pending = vec![path.to_path_buf()];
     let mut files = Vec::new();
 
+    let mut first_directory = true;
     while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
+        // Unreadable subdirectories are skipped so one permission error doesn't
+        // discard the size of everything else; the top directory must be readable.
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if first_directory => return Err(error),
+            Err(_) => continue,
+        };
+        first_directory = false;
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
 
             if file_type.is_symlink() {
                 continue;
@@ -321,7 +293,10 @@ fn calculate_dir_size(path: &Path) -> std::io::Result<u64> {
         .into_par_iter()
         .try_fold(
             || 0u64,
-            |total, file| Ok(total.saturating_add(fs::symlink_metadata(file)?.len())),
+            |total, file| {
+                let size = fs::symlink_metadata(file).map_or(0, |metadata| metadata.len());
+                Ok(total.saturating_add(size))
+            },
         )
         .try_reduce(|| 0u64, |left, right| Ok(left.saturating_add(right)))
 }
@@ -378,65 +353,27 @@ pub fn list_and_decorate_files(
 
     let should_calculate_dir_sizes = needs_directory_sizes(args, config);
 
+    let excluded = ExcludedPaths::new(config, Path::new(&args.directory));
     let entries: Vec<DecoratedEntry> = raw_paths
         .into_par_iter()
-        .filter(|path| {
-            // Exclude entries if they live under any excluded prefix
-            if config.exclude_paths.is_empty() {
-                return true;
-            }
-            // Ensure we compare absolute paths for robust prefix checks
-            let path_abs = match path.canonicalize() {
-                Ok(abs) => abs,
-                Err(_) => path.clone(),
-            };
-            !config
-                .exclude_paths
-                .iter()
-                .any(|ex| path_abs.starts_with(ex))
-        })
+        .filter(|path| !excluded.contains(path))
         .filter_map(|path| {
             let (mut metadata, target_metadata) = match metadata_for_path(&path, args) {
                 Ok(metadata) => metadata,
+                // Removed between reading the directory and inspecting it.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+                // `lstat` succeeds on broken symlinks, so any other failure means
+                // the entry itself could not be inspected (e.g. permissions).
                 Err(_) => {
-                    if path.file_name().is_some() {
-                        let mut custom_fields = HashMap::new();
-                        custom_fields.insert("invalid_symlink".to_string(), "true".to_string());
-
-                        if !args.show_symlink_target {
-                            custom_fields
-                                .insert("hide_symlink_target".to_string(), "true".to_string());
-                        }
-
-                        if args.show_symlink_target {
-                            if let Ok(target) = std::fs::read_link(&path) {
-                                custom_fields.insert(
-                                    "symlink_target".to_string(),
-                                    target.to_string_lossy().into_owned(),
-                                );
-                            }
-                        }
-
-                        return Some(DecoratedEntry {
-                            path: path.to_string_lossy().into_owned(),
-                            metadata: Some(EntryMetadata {
-                                size: 0,
-                                modified: 0,
-                                accessed: 0,
-                                created: 0,
-                                is_dir: false,
-                                is_file: false,
-                                is_symlink: true,
-                                permissions: 0,
-                                uid: 0,
-                                gid: 0,
-                                ..EntryMetadata::default()
-                            }),
-                            custom_fields,
-                            typed_fields: Default::default(),
-                        });
-                    }
-                    return None;
+                    path.file_name()?;
+                    let mut custom_fields = HashMap::new();
+                    custom_fields.insert("unreadable".to_string(), "true".to_string());
+                    return Some(DecoratedEntry {
+                        path: path.to_string_lossy().into_owned(),
+                        metadata: Some(EntryMetadata::default()),
+                        custom_fields,
+                        typed_fields: Default::default(),
+                    });
                 }
             };
 
@@ -573,7 +510,8 @@ fn list_files_with_gitignore(args: &Args, config: &Config) -> Result<Vec<PathBuf
     let mut file_counter = 0usize;
 
     for dent in builder.build() {
-        let entry = dent.map_err(|err| LlaError::Other(err.to_string()))?;
+        // Skip unreadable entries instead of aborting the whole listing.
+        let Ok(entry) = dent else { continue };
 
         if args.respect_gitignore && path_contains_git_dir(entry.path()) {
             if entry.file_type().is_some_and(|ft| ft.is_dir()) {
@@ -794,38 +732,29 @@ pub fn list_and_decorate_single_file(
 }
 
 pub fn sort_files(
-    files: Vec<DecoratedEntry>,
+    mut files: Vec<DecoratedEntry>,
     sorter: &Arc<dyn FileSorter + Send + Sync>,
     args: &Args,
 ) -> Result<Vec<DecoratedEntry>> {
-    let mut entries_with_paths: Vec<(PathBuf, &DecoratedEntry)> = files
-        .iter()
-        .map(|entry| (PathBuf::from(&entry.path), entry))
-        .collect();
-
     let options = SortOptions {
         reverse: args.sort_reverse,
         dirs_first: args.sort_dirs_first,
         case_sensitive: args.sort_case_sensitive,
         natural: args.sort_natural,
     };
-
-    sorter.sort_files_with_metadata(&mut entries_with_paths, options)?;
-
-    let sorted_files = entries_with_paths
-        .into_iter()
-        .map(|(_, entry)| entry)
-        .cloned()
-        .collect();
-
-    Ok(sorted_files)
+    sort_entries(&mut files, sorter.as_ref(), options);
+    Ok(files)
 }
 
 pub fn create_lister(args: &Args, config: &Config) -> Arc<dyn FileLister + Send + Sync> {
     if args.fuzzy_format {
-        Arc::new(FuzzyLister::new(config.clone(), args.respect_gitignore))
+        Arc::new(FuzzyLister::new(
+            config.clone(),
+            args.respect_gitignore,
+            args.show_icons,
+        ))
     } else if args.tree_format || args.recursive_format {
-        Arc::new(RecursiveLister::new(config.clone()))
+        Arc::new(RecursiveLister::new(config.clone(), args.no_dotfiles))
     } else {
         Arc::new(BasicLister)
     }
@@ -874,15 +803,29 @@ pub fn create_filter(args: &Args) -> Arc<dyn FileFilter + Send + Sync> {
 }
 
 fn create_base_filter(pattern: &str, case_insensitive: bool) -> Box<dyn FileFilter + Send + Sync> {
+    if let Some(pattern) = pattern.strip_prefix("regex:") {
+        let pattern = if case_insensitive {
+            format!("(?i){}", pattern)
+        } else {
+            pattern.to_string()
+        };
+        return Box::new(RegexFilter::new(pattern));
+    }
+
+    // The case-insensitive wrapper lowercases file names, so the pattern has to
+    // be lowercased too or `-f README` could never match.
+    let pattern = if case_insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.to_string()
+    };
     let base_filter: Box<dyn FileFilter + Send + Sync> =
-        if let Some(pattern) = pattern.strip_prefix("regex:") {
-            Box::new(RegexFilter::new(pattern.to_string()))
-        } else if let Some(pattern) = pattern.strip_prefix("glob:") {
+        if let Some(pattern) = pattern.strip_prefix("glob:") {
             Box::new(GlobFilter::new(pattern.to_string()))
         } else if let Some(pattern) = pattern.strip_prefix('.') {
             Box::new(ExtensionFilter::new(pattern.to_string()))
         } else {
-            Box::new(PatternFilter::new(pattern.to_string()))
+            Box::new(PatternFilter::new(pattern))
         };
 
     if case_insensitive {
@@ -1031,95 +974,6 @@ fn apply_refine_filters(
         .collect())
 }
 
-#[derive(Serialize)]
-struct ListingContext {
-    directory: String,
-    canonical_directory: Option<String>,
-    depth: Option<usize>,
-    tree_format: bool,
-    recursive_format: bool,
-    include_dir_sizes: bool,
-    dirs_only: bool,
-    files_only: bool,
-    symlinks_only: bool,
-    show_symlinks: bool,
-    no_dirs: bool,
-    no_files: bool,
-    no_symlinks: bool,
-    dereference_symlinks: bool,
-    collect_extended_metadata: bool,
-    collect_mount_metadata: bool,
-    no_dotfiles: bool,
-    almost_all: bool,
-    dotfiles_only: bool,
-    respect_gitignore: bool,
-    filter: Option<String>,
-    size: Option<String>,
-    modified: Option<String>,
-    created: Option<String>,
-    case_sensitive: bool,
-    preset_names: Vec<String>,
-    exclude_paths: Vec<String>,
-}
-
-impl ListingContext {
-    fn from_args(args: &Args, config: &Config) -> Self {
-        ListingContext {
-            directory: args.directory.clone(),
-            canonical_directory: canonicalize_path_for_cache(&args.directory),
-            depth: args.depth,
-            tree_format: args.tree_format,
-            recursive_format: args.recursive_format,
-            include_dir_sizes: needs_directory_sizes(args, config),
-            dirs_only: args.dirs_only,
-            files_only: args.files_only,
-            symlinks_only: args.symlinks_only,
-            show_symlinks: args.show_symlinks,
-            no_dirs: args.no_dirs,
-            no_files: args.no_files,
-            no_symlinks: args.no_symlinks,
-            dereference_symlinks: args.dereference_symlinks,
-            collect_extended_metadata: args.show_xattrs
-                || args.show_context
-                || !matches!(args.output_mode, OutputMode::Human),
-            collect_mount_metadata: args.show_mounts
-                || !matches!(args.output_mode, OutputMode::Human),
-            no_dotfiles: args.no_dotfiles,
-            almost_all: args.almost_all,
-            dotfiles_only: args.dotfiles_only,
-            respect_gitignore: args.respect_gitignore,
-            filter: args.filter.clone(),
-            size: args.size_filter_raw.clone(),
-            modified: args.modified_filter_raw.clone(),
-            created: args.created_filter_raw.clone(),
-            case_sensitive: args.case_sensitive,
-            preset_names: args.presets.clone(),
-            exclude_paths: config
-                .exclude_paths
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect(),
-        }
-    }
-
-    fn cache_key(&self) -> String {
-        let json = serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string());
-        let mut hasher = Sha256::new();
-        hasher.update(json.as_bytes());
-        format!("{:x}", hasher.finalize())
-    }
-
-    fn summary(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-fn canonicalize_path_for_cache(path: &str) -> Option<String> {
-    fs::canonicalize(path)
-        .ok()
-        .map(|p| p.to_string_lossy().into_owned())
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -1127,6 +981,7 @@ mod tests {
 
     fn args_with_include_dirs() -> Args {
         Args {
+            directories: vec![".".to_string()],
             directory: ".".to_string(),
             depth: None,
             long_format: false,
@@ -1148,13 +1003,9 @@ mod tests {
             sort_case_sensitive: false,
             sort_natural: false,
             filter: None,
-            presets: Vec::new(),
             size_filter: None,
-            size_filter_raw: None,
             modified_filter: None,
-            modified_filter_raw: None,
             created_filter: None,
-            created_filter_raw: None,
             case_sensitive: false,
             refine_filters: Vec::new(),
             enable_plugin: Vec::new(),
@@ -1199,9 +1050,6 @@ mod tests {
         let config = Config::default();
 
         assert!(!needs_directory_sizes(&args, &config));
-
-        let context = ListingContext::from_args(&args, &config);
-        assert!(!context.include_dir_sizes);
     }
 
     #[test]
@@ -1233,9 +1081,6 @@ mod tests {
         let mut sorted_args = args_with_include_dirs();
         sorted_args.sort_by = "size".to_string();
         assert!(needs_directory_sizes(&sorted_args, &config));
-
-        let context = ListingContext::from_args(&long_args, &config);
-        assert!(context.include_dir_sizes);
     }
 
     #[test]

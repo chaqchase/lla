@@ -1,10 +1,10 @@
 use super::column_config::ColumnKey;
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::config::DEFAULT_LONG_DATE_FORMAT;
 use crate::error::Result;
 use crate::plugin::PluginManager;
 use crate::utils::color::*;
-use crate::utils::icons::format_with_icon;
 use crate::utils::{fs_metadata, hyperlink};
 use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, Local};
@@ -180,13 +180,7 @@ impl LongFormatter {
         plugin_text: &str,
     ) -> String {
         let path = Path::new(&entry.path);
-        let colored_name = colorize_file_name(path).to_string();
-        let base_name = colorize_file_name_with_icon(
-            path,
-            format_with_icon(path, colored_name, self.show_icons),
-        )
-        .to_string();
-        let base_name = hyperlink::link_path(path, base_name);
+        let base_name = render_entry_name(entry, self.show_icons);
 
         let with_target =
             if metadata.is_symlink && !entry.custom_fields.contains_key("hide_symlink_target") {

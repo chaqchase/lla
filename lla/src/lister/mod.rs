@@ -17,4 +17,4 @@ mod recursive;
 
 pub use basic::BasicLister;
 pub use fuzzy::FuzzyLister;
-pub use recursive::RecursiveLister;
+pub use recursive::{ExcludedPaths, RecursiveLister};

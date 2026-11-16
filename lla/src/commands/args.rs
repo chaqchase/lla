@@ -3,11 +3,15 @@ use crate::error::{LlaError, Result};
 use crate::filter::{parse_size_range, parse_time_range, NumericRange, TimeRange};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use clap_complete::Shell;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 pub struct Args {
+    /// The path currently being listed. When several paths are given, the
+    /// listing loop sets this to each entry of `directories` in turn.
     pub directory: String,
+    pub directories: Vec<String>,
     pub depth: Option<usize>,
     pub long_format: bool,
     pub tree_format: bool,
@@ -28,13 +32,9 @@ pub struct Args {
     pub sort_case_sensitive: bool,
     pub sort_natural: bool,
     pub filter: Option<String>,
-    pub presets: Vec<String>,
     pub size_filter: Option<NumericRange>,
-    pub size_filter_raw: Option<String>,
     pub modified_filter: Option<TimeRange>,
-    pub modified_filter_raw: Option<String>,
     pub created_filter: Option<TimeRange>,
-    pub created_filter_raw: Option<String>,
     pub case_sensitive: bool,
     pub refine_filters: Vec<String>,
     pub enable_plugin: Vec<String>,
@@ -197,8 +197,9 @@ impl Args {
             )
             .arg(
                 Arg::with_name("directory")
-                    .help("The directory to list")
+                    .help("The directories or files to list")
                     .index(1)
+                    .multiple_values(true)
                     .default_value("."),
             )
             .subcommand(
@@ -308,6 +309,12 @@ impl Args {
                     .short('d')
                     .long("depth")
                     .takes_value(true)
+                    .validator(|value| {
+                        value
+                            .parse::<usize>()
+                            .map(|_| ())
+                            .map_err(|_| format!("'{}' is not a non-negative integer", value))
+                    })
                     .help("Set the depth for tree listing (default from config)"),
             )
             .arg(
@@ -409,14 +416,32 @@ impl Args {
                     .help("List directories before files (overrides config setting)"),
             )
             .arg(
+                Arg::with_name("no-sort-dirs-first")
+                    .long("no-sort-dirs-first")
+                    .overrides_with("sort-dirs-first")
+                    .help("Do not list directories before files (overrides config setting)"),
+            )
+            .arg(
                 Arg::with_name("sort-case-sensitive")
                     .long("sort-case-sensitive")
                     .help("Enable case-sensitive sorting (overrides config setting)"),
             )
             .arg(
+                Arg::with_name("no-sort-case-sensitive")
+                    .long("no-sort-case-sensitive")
+                    .overrides_with("sort-case-sensitive")
+                    .help("Sort case-insensitively (overrides config setting)"),
+            )
+            .arg(
                 Arg::with_name("sort-natural")
                     .long("sort-natural")
                     .help("Use natural sorting for numbers (overrides config setting)"),
+            )
+            .arg(
+                Arg::with_name("no-sort-natural")
+                    .long("no-sort-natural")
+                    .overrides_with("sort-natural")
+                    .help("Disable natural number ordering (overrides config setting)"),
             )
             .arg(
                 Arg::with_name("filter")
@@ -455,6 +480,12 @@ impl Args {
                     .short('c')
                     .long("case-sensitive")
                     .help("Enable case-sensitive filtering (overrides config setting)"),
+            )
+            .arg(
+                Arg::with_name("ignore-case")
+                    .long("ignore-case")
+                    .overrides_with("case-sensitive")
+                    .help("Match filters case-insensitively (overrides config setting)"),
             )
             .arg(
                 Arg::with_name("refine")
@@ -599,9 +630,21 @@ impl Args {
                     .help("Hide group column in long format"),
             )
             .arg(
+                Arg::with_name("show-group")
+                    .long("show-group")
+                    .overrides_with("hide-group")
+                    .help("Show the group column in long format (overrides config setting)"),
+            )
+            .arg(
                 Arg::with_name("relative-dates")
                     .long("relative-dates")
                     .help("Show relative dates (e.g., '2h ago') in long format"),
+            )
+            .arg(
+                Arg::with_name("absolute-dates")
+                    .long("absolute-dates")
+                    .overrides_with("relative-dates")
+                    .help("Show absolute dates in long format (overrides config setting)"),
             )
             .arg(
                 Arg::with_name("date-format")
@@ -941,8 +984,10 @@ impl Args {
         if args.len() > 1 {
             let potential_shortcut = &args[1];
             if config.get_shortcut(potential_shortcut).is_some() {
+                warn_if_shadowing_path(potential_shortcut, "shortcut");
                 return Ok(Self {
                     directory: ".".to_string(),
+                    directories: vec![".".to_string()],
                     depth: config.default_depth,
                     long_format: config.default_format == "long",
                     tree_format: config.default_format == "tree",
@@ -963,13 +1008,9 @@ impl Args {
                     sort_case_sensitive: config.sort.case_sensitive,
                     sort_natural: config.sort.natural,
                     filter: None,
-                    presets: Vec::new(),
                     size_filter: None,
-                    size_filter_raw: None,
                     modified_filter: None,
-                    modified_filter_raw: None,
                     created_filter: None,
-                    created_filter_raw: None,
                     case_sensitive: config.filter.case_sensitive,
                     refine_filters: Vec::new(),
                     enable_plugin: Vec::new(),
@@ -1027,6 +1068,11 @@ impl Args {
         }
 
         let matches = Self::build_cli(config).get_matches();
+        if let Some(name) = matches.subcommand_name() {
+            if args.get(1).map(String::as_str) == Some(name) {
+                warn_if_shadowing_path(name, "command");
+            }
+        }
         Self::from_matches(&matches, config)
     }
 
@@ -1340,10 +1386,6 @@ impl Args {
             }
             refinements
         };
-
-        let size_filter_raw = size_raw.clone();
-        let modified_filter_raw = modified_raw.clone();
-        let created_filter_raw = created_raw.clone();
         let size_filter = match &size_raw {
             Some(raw) => Some(parse_size_range(raw)?),
             None => None,
@@ -1373,8 +1415,15 @@ impl Args {
             .to_string();
         validate_long_date_format("date-format", &date_format)?;
 
+        let directories: Vec<String> = matches
+            .values_of("directory")
+            .map(|values| values.map(String::from).collect())
+            .filter(|values: &Vec<String>| !values.is_empty())
+            .unwrap_or_else(|| vec![".".to_string()]);
+
         Ok(Args {
-            directory: matches.value_of("directory").unwrap_or(".").to_string(),
+            directory: directories[0].clone(),
+            directories,
             depth: matches
                 .value_of("depth")
                 .and_then(|s| s.parse().ok())
@@ -1398,12 +1447,16 @@ impl Args {
             fuzzy_format: matches.is_present("fuzzy"),
             recursive_format: matches.is_present("recursive")
                 || (!has_format_flag && config.default_format == "recursive"),
+            // Configured icons are for terminals; piped output only gets them
+            // when --icons is passed explicitly.
             show_icons: matches.is_present("icons")
-                || (!matches.is_present("no-icons") && config.show_icons),
+                || (!matches.is_present("no-icons")
+                    && config.show_icons
+                    && std::io::stdout().is_terminal()),
             hyperlinks: match matches.value_of("hyperlink") {
                 Some("always") => true,
                 Some("auto") | Some("automatic") => {
-                    atty::is(atty::Stream::Stdout)
+                    std::io::stdout().is_terminal()
                         && std::env::var("TERM").map_or(true, |term| term != "dumb")
                 }
                 _ => false,
@@ -1414,19 +1467,34 @@ impl Args {
                 .unwrap_or(&config.default_sort)
                 .to_string(),
             sort_reverse: matches.is_present("sort-reverse"),
-            sort_dirs_first: matches.is_present("sort-dirs-first") || config.sort.dirs_first,
-            sort_case_sensitive: matches.is_present("sort-case-sensitive")
-                || config.sort.case_sensitive,
-            sort_natural: matches.is_present("sort-natural") || config.sort.natural,
+            sort_dirs_first: config_flag(
+                matches,
+                "sort-dirs-first",
+                "no-sort-dirs-first",
+                config.sort.dirs_first,
+            ),
+            sort_case_sensitive: config_flag(
+                matches,
+                "sort-case-sensitive",
+                "no-sort-case-sensitive",
+                config.sort.case_sensitive,
+            ),
+            sort_natural: config_flag(
+                matches,
+                "sort-natural",
+                "no-sort-natural",
+                config.sort.natural,
+            ),
             filter,
-            presets: preset_names,
             size_filter,
-            size_filter_raw,
             modified_filter,
-            modified_filter_raw,
             created_filter,
-            created_filter_raw,
-            case_sensitive: matches.is_present("case-sensitive") || config.filter.case_sensitive,
+            case_sensitive: config_flag(
+                matches,
+                "case-sensitive",
+                "ignore-case",
+                config.filter.case_sensitive,
+            ),
             refine_filters,
             enable_plugin: matches
                 .values_of("enable-plugin")
@@ -1466,9 +1534,18 @@ impl Args {
                 .value_of("permission-format")
                 .unwrap_or(&config.permission_format)
                 .to_string(),
-            hide_group: matches.is_present("hide-group") || config.formatters.long.hide_group,
-            relative_dates: matches.is_present("relative-dates")
-                || config.formatters.long.relative_dates,
+            hide_group: config_flag(
+                matches,
+                "hide-group",
+                "show-group",
+                config.formatters.long.hide_group,
+            ),
+            relative_dates: config_flag(
+                matches,
+                "relative-dates",
+                "absolute-dates",
+                config.formatters.long.relative_dates,
+            ),
             date_format,
             show_inode: matches.is_present("inode") || configured_column(config, &["inode", "ino"]),
             show_hard_links: matches.is_present("links")
@@ -1513,6 +1590,27 @@ impl Args {
                 .unwrap_or(2),
             search_pipelines,
         })
+    }
+}
+
+/// `lla config` runs the config command even when `./config` exists. Point
+/// out how to list the path instead, since that is what `ls` users expect.
+fn warn_if_shadowing_path(name: &str, kind: &str) {
+    if std::path::Path::new(name).symlink_metadata().is_ok() && std::io::stderr().is_terminal() {
+        eprintln!(
+            "note: running the `{name}` {kind}; to list the path instead, run `lla ./{name}`"
+        );
+    }
+}
+
+/// Resolves a boolean setting that has a config default plus `--flag` and
+/// `--no-flag` style overrides; the last one given on the command line wins.
+fn config_flag(matches: &ArgMatches, enable: &str, disable: &str, default: bool) -> bool {
+    match (matches.index_of(enable), matches.index_of(disable)) {
+        (Some(on), Some(off)) => on > off,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => default,
     }
 }
 

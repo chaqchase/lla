@@ -1,5 +1,4 @@
-use crate::utils::color::colorize_file_name_with_icon;
-use colored::Colorize;
+use crate::utils::color::{colorize_icon_as, FileKind};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::Path;
@@ -376,8 +375,8 @@ static FILE_ICONS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ])
 });
 
-pub fn get_icon(path: &Path) -> &'static str {
-    if path.is_dir() {
+pub fn get_icon_as(path: &Path, is_dir: bool) -> &'static str {
+    if is_dir {
         return get_folder_icon(path);
     }
     let filename = path
@@ -461,11 +460,18 @@ fn get_special_file_icon(filename: &str) -> Option<&'static str> {
 }
 
 pub fn format_with_icon(path: &Path, name: String, show_icons: bool) -> String {
-    if show_icons {
-        let icon_str = get_icon(path).bold();
-        let with_icon = format!("{} {}", icon_str, name);
-        colorize_file_name_with_icon(path, with_icon).to_string()
-    } else {
-        name
+    if !show_icons {
+        return name;
     }
+    format_with_icon_as(path, FileKind::of_path(path), name, true)
+}
+
+/// Prefixes an already-colored name with an icon styled for `kind`.
+pub fn format_with_icon_as(path: &Path, kind: FileKind, name: String, show_icons: bool) -> String {
+    if !show_icons {
+        return name;
+    }
+    // Symlinks get the icon of the link itself, not of a target directory.
+    let icon = get_icon_as(path, kind == FileKind::Directory);
+    format!("{} {}", colorize_icon_as(icon, path, kind), name)
 }

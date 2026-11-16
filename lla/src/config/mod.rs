@@ -196,13 +196,13 @@ pub struct ListerConfig {
     pub fuzzy: FuzzyConfig,
 }
 
+// Missing fields take the values from `Default`, so a partial `[sort]`
+// section keeps natural ordering on.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct SortConfig {
-    #[serde(default)]
     pub dirs_first: bool,
-    #[serde(default)]
     pub case_sensitive: bool,
-    #[serde(default)]
     pub natural: bool,
 }
 
@@ -239,7 +239,10 @@ pub struct FilterPreset {
     pub refine: Vec<String>,
 }
 
+// A config file only needs the keys it changes; everything else comes from
+// `Config::default()` instead of failing the whole file.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Config {
     pub default_sort: String,
     pub default_format: String,
@@ -248,26 +251,18 @@ pub struct Config {
     pub plugins_dir: PathBuf,
     /// Additional read-only or package-manager-owned plugin locations.
     /// Earlier entries take precedence over later entries.
-    #[serde(default, deserialize_with = "deserialize_paths_with_tilde")]
+    #[serde(deserialize_with = "deserialize_paths_with_tilde")]
     pub plugin_dirs: Vec<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_paths_with_tilde")]
+    #[serde(deserialize_with = "deserialize_paths_with_tilde")]
     pub exclude_paths: Vec<PathBuf>,
     pub default_depth: Option<usize>,
-    #[serde(default)]
     pub show_icons: bool,
-    #[serde(default)]
     pub include_dirs: bool,
-    #[serde(default)]
     pub sort: SortConfig,
-    #[serde(default)]
     pub filter: FilterConfig,
-    #[serde(default)]
     pub formatters: FormatterConfig,
-    #[serde(default)]
     pub listers: ListerConfig,
-    #[serde(default)]
     pub shortcuts: HashMap<String, ShortcutCommand>,
-    #[serde(default)]
     pub plugin_aliases: HashMap<String, String>,
     #[serde(default = "default_theme_name")]
     pub theme: String,
@@ -341,9 +336,26 @@ pub fn load_config_layers(start_dir: Option<&Path>) -> Result<(ConfigLayers, Opt
     };
 
     let mut effective_config = global_config.clone();
+    let mut config_error = config_error;
     let profile_path = match find_profile_file(start_dir)? {
         Some(path) => {
-            effective_config.apply_profile_file(&path)?;
+            // A broken project profile is reported like a broken global config:
+            // with its path, and without blocking the listing.
+            let mut profiled = effective_config.clone();
+            match profiled.apply_profile_file(&path) {
+                Ok(()) => effective_config = profiled,
+                Err(err) => {
+                    let error = LlaError::Config(ConfigErrorKind::InvalidFormat(format!(
+                        "ignoring {}: {}",
+                        path.display(),
+                        err
+                    )));
+                    config_error = Some(match config_error {
+                        Some(previous) => LlaError::Other(format!("{}\n{}", previous, error)),
+                        None => error,
+                    });
+                }
+            }
             Some(path)
         }
         None => None,
@@ -395,7 +407,7 @@ impl Config {
             let contents = fs::read_to_string(path)?;
             let config: Config = toml::from_str(&contents)?;
             config.ensure_plugins_dir()?;
-            config.validate()?;
+            config.validate_settings()?;
             Ok(config)
         } else {
             let config = Config::default();
@@ -763,7 +775,7 @@ editor = {}"#,
 
         *self = merged;
         self.ensure_plugins_dir()?;
-        self.validate()?;
+        self.validate_settings()?;
         Ok(())
     }
 
@@ -868,7 +880,48 @@ editor = {}"#,
             .unwrap_or_else(|| name.to_string())
     }
 
+    /// Full validation, including that every enabled plugin is installed.
+    /// Used when the user changes settings explicitly.
     pub fn validate(&self) -> Result<()> {
+        self.validate_settings()?;
+        self.validate_enabled_plugins()
+    }
+
+    #[allow(clippy::unused_self)]
+    fn validate_enabled_plugins(&self) -> Result<()> {
+        #[cfg(feature = "dynamic-plugins")]
+        for plugin in &self.enabled_plugins {
+            let possible_names = [
+                format!("lib{}.dylib", plugin),
+                format!("lib{}.so", plugin),
+                format!("{}.dll", plugin),
+                format!("{}.dylib", plugin),
+                format!("{}.so", plugin),
+                plugin.clone(),
+            ];
+
+            let exists = self.plugin_search_paths(None).iter().any(|plugin_dir| {
+                possible_names
+                    .iter()
+                    .any(|name| plugin_dir.join(name).exists())
+                    || plugin_dir.join(plugin).join("plugin.toml").is_file()
+            });
+
+            if !exists {
+                return Err(LlaError::Config(ConfigErrorKind::ValidationError(format!(
+                    "Enabled plugin not found: {}",
+                    plugin
+                ))));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validation applied whenever a config is loaded. A stale entry in
+    /// `enabled_plugins` is reported by the plugin loader instead, so it
+    /// doesn't throw away every other setting.
+    pub fn validate_settings(&self) -> Result<()> {
         if !["name", "size", "date"].contains(&self.default_sort.as_str()) {
             return Err(LlaError::Config(ConfigErrorKind::InvalidValue(
                 "default_sort".to_string(),
@@ -939,32 +992,6 @@ editor = {}"#,
                     "listers.recursive.max_entries".to_string(),
                     "Recursive lister max entries should not exceed 100,000".to_string(),
                 )));
-            }
-        }
-
-        #[cfg(feature = "dynamic-plugins")]
-        for plugin in &self.enabled_plugins {
-            let possible_names = [
-                format!("lib{}.dylib", plugin),
-                format!("lib{}.so", plugin),
-                format!("{}.dll", plugin),
-                format!("{}.dylib", plugin),
-                format!("{}.so", plugin),
-                plugin.clone(),
-            ];
-
-            let exists = self.plugin_search_paths(None).iter().any(|plugin_dir| {
-                possible_names
-                    .iter()
-                    .any(|name| plugin_dir.join(name).exists())
-                    || plugin_dir.join(plugin).join("plugin.toml").is_file()
-            });
-
-            if !exists {
-                return Err(LlaError::Config(ConfigErrorKind::ValidationError(format!(
-                    "Enabled plugin not found: {}",
-                    plugin
-                ))));
             }
         }
 

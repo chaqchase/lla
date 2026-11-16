@@ -1,11 +1,8 @@
+use super::render_entry_name;
 use super::FileFormatter;
 use crate::error::Result;
 use crate::plugin::PluginManager;
-use crate::utils::color::{colorize_file_name, colorize_file_name_with_icon};
-use crate::utils::hyperlink;
-use crate::utils::icons::format_with_icon;
 use lla_plugin_interface::proto::DecoratedEntry;
-use std::path::Path;
 pub struct DefaultFormatter {
     pub show_icons: bool,
 }
@@ -26,14 +23,7 @@ impl FileFormatter for DefaultFormatter {
         Ok(files
             .iter()
             .map(|file| {
-                let path = Path::new(&file.path);
-                let colored_name = colorize_file_name(path).to_string();
-                let name_with_icon = colorize_file_name_with_icon(
-                    path,
-                    format_with_icon(path, colored_name, self.show_icons),
-                )
-                .to_string();
-                let name_with_icon = hyperlink::link_path(path, name_with_icon);
+                let name_with_icon = render_entry_name(file, self.show_icons);
                 let plugin_fields = plugin_manager.format_fields(file, "default").join(" ");
                 if plugin_fields.is_empty() {
                     name_with_icon

@@ -4,10 +4,14 @@ This page is a compact map of the public CLI. `lla --help` and
 `lla <subcommand> --help` are authoritative for the installed version.
 
 ```text
-lla [OPTIONS] [directory] [SUBCOMMAND]
+lla [OPTIONS] [path]... [SUBCOMMAND]
 ```
 
-The directory defaults to `.` and may also be a supported archive or one file.
+The path defaults to `.` and may also be a supported archive or one file.
+With several paths, each directory is listed under a `path:` header like
+`ls`; a path that cannot be listed is reported and the rest are still listed,
+with exit status 1. If a path has the same name as a subcommand (for example
+a `config` directory), run `lla ./config` to list it.
 
 ## Views
 
@@ -33,15 +37,17 @@ See [Views and display](views.md) for screenshots and examples.
 | --- | --- | --- |
 | `--sort name\|size\|date` | `-s` | Select the sort key. |
 | `--sort-reverse` | `-r` | Reverse ordering. |
-| `--sort-dirs-first` | | Put directories first. |
+| `--sort-dirs-first` | | Put directories first, also when reversed. |
 | `--sort-case-sensitive` | | Use case-sensitive sorting. |
 | `--sort-natural` | | Sort embedded numbers naturally. |
+| `--no-sort-dirs-first`, `--no-sort-case-sensitive`, `--no-sort-natural` | | Turn off a sort setting enabled in config. |
 | `--filter <pattern>` | `-f` | Filter names or extensions. |
 | `--preset <name>` | | Apply a configured preset; repeatable. |
 | `--size <range>` | | Filter by file size. |
 | `--modified <range>` | | Filter by modification time. |
 | `--created <range>` | | Filter by creation time. |
 | `--case-sensitive` | `-c` | Use case-sensitive filtering. |
+| `--ignore-case` | | Turn off `filter.case_sensitive` from config. |
 | `--refine <pattern>` | | Apply sequential name/path refinements; repeatable. |
 | `--respect-gitignore` | | Apply Git ignore rules. |
 | `--no-gitignore` | | Override configured Git-ignore behavior. |
@@ -73,6 +79,7 @@ See [Filtering and search](filtering-and-search.md) for pattern and range syntax
 | `--permission-format <format>` | | Choose symbolic, octal, binary, verbose, or compact. |
 | `--hide-group` | | Hide the long-view group column. |
 | `--relative-dates` | | Use relative long-view timestamps. |
+| `--show-group`, `--absolute-dates` | | Turn off `hide_group` / `relative_dates` from config. |
 | `--date-format <format>` | | Set the Chrono date format. |
 | `--inode` | `-i` | Show inode numbers. |
 | `--links` | `-H` | Show hard-link counts. |

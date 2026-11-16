@@ -42,14 +42,32 @@ lla --fuzzy
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 
 Fuzzy view supports interactive search, multi-selection, and file actions.
+Matched characters are highlighted, matches in the file name rank above
+matches in its directory, and terminals at least 120 columns wide show a
+preview of the highlighted file.
+
+The finder draws on the terminal even when stdout is redirected, so
+`vim $(lla -F)` and `lla -F | xargs …` work; picks are printed as plain paths.
+
+### Query syntax
+
+| Query | Matches |
+| --- | --- |
+| `cfg mod` | Paths fuzzy-matching every space-separated term. |
+| `'exact` | Paths containing `exact` literally. |
+| `^src` / `.rs$` | Paths starting / ending with the text. |
+| `!test` | Paths not containing `test`. |
+
+Lowercase terms ignore case; a term containing an uppercase letter is
+case-sensitive.
 
 | Key | Action |
 | --- | --- |
-| `Ctrl+J` / `Ctrl+K` | Move down / up. |
-| `Ctrl+N` / `Ctrl+P` | Move down / up. |
-| `Ctrl+D` / `Ctrl+U` | Move half a page down / up. |
-| `Ctrl+G` / `Ctrl+Shift+G` | Jump to end / start. |
-| `Space` | Toggle selection. |
+| `Up` / `Down`, `Ctrl+K` / `Ctrl+J`, `Ctrl+P` / `Ctrl+N` | Move up / down. |
+| `Ctrl+U` / `Ctrl+D`, `PageUp` / `PageDown` | Move a page up / down. |
+| `Ctrl+G` / `Alt+G` (or `Ctrl+Home` / `Ctrl+End`) | Jump to start / end. |
+| `Tab` / `Shift+Tab` | Toggle selection and move down / up. |
+| `Ctrl+T` | Toggle the preview pane. |
 | `Enter` | Return the highlighted file or selected files. |
 | `Ctrl+E` | Open selected files in an editor. |
 | `Ctrl+Y` | Copy selected paths to the clipboard. |
@@ -57,8 +75,13 @@ Fuzzy view supports interactive search, multi-selection, and file actions.
 | `F2` | Rename the highlighted file; Enter confirms and Esc cancels. |
 | `Ctrl+C` / `Esc` | Exit. |
 
-Search input also supports `Ctrl+W` to delete the previous word, `Ctrl+H` for
-backspace, `Ctrl+A` or Home to move to the start, and End to move to the end.
+Search input also supports `Ctrl+W` or `Alt+Backspace` to delete the previous
+word, `Ctrl+H` for backspace, `Delete`, `Ctrl+A` or Home to move to the start,
+and End to move to the end.
+
+Plain entries in `listers.fuzzy.ignore_patterns` (such as `.git` or `target`)
+match whole path components, so `.git` does not hide `.github`. Use a `glob:`
+or `regex:` prefix for other matching.
 
 ### Choose the editor
 
