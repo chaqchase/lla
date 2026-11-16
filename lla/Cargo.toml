@@ -70,6 +70,8 @@ ureq.workspace = true
 sha2.workspace = true
 similar = "2"
 object = { version = "0.39", features = ["read"] }
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+trash = "5"
 
 [target.'cfg(unix)'.dependencies]
 users.workspace = true
@@ -77,6 +79,7 @@ xattr = "1.4"
 
 [target.'cfg(windows)'.dependencies]
 self-replace = "1.5.0"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"], optional = true }

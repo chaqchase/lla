@@ -96,6 +96,7 @@ pub enum Command {
     Clean,
     Shortcut(ShortcutAction),
     Jump(JumpAction),
+    Scan(crate::scan::ScanOptions),
     GenerateCompletion(Shell, Option<String>, Option<String>),
     Theme,
     ThemePull,
@@ -265,6 +266,46 @@ impl Args {
                             .takes_value(true)
                             .possible_values(["bash", "zsh", "fish"])
                             .help("Override shell detection for setup (bash|zsh|fish)"),
+                    ),
+            )
+            .subcommand(
+                SubCommand::with_name("scan")
+                    .about("See what is filling your disk and clean it up")
+                    .long_about(
+                        "Scans your home folder (or PATH) and groups what it finds into apps, \
+                        developer files, caches, downloads and so on, marking what is safe to \
+                        remove. In a terminal it opens an interactive view where you can browse, \
+                        mark and move things to the trash. When piped, or with --report or --json, \
+                        it prints a summary instead.",
+                    )
+                    .arg(
+                        Arg::with_name("path")
+                            .help("Folder to scan instead of your home folder")
+                            .index(1),
+                    )
+                    .arg(
+                        Arg::with_name("report")
+                            .long("report")
+                            .help("Print a summary instead of opening the interactive view"),
+                    )
+                    .arg(
+                        Arg::with_name("json")
+                            .long("json")
+                            .conflicts_with("report")
+                            .help("Print the results as JSON"),
+                    )
+                    .arg(
+                        Arg::with_name("top")
+                            .long("top")
+                            .takes_value(true)
+                            .value_name("N")
+                            .validator(|value| {
+                                value
+                                    .parse::<usize>()
+                                    .map(|_| ())
+                                    .map_err(|_| format!("'{value}' is not a number"))
+                            })
+                            .help("How many items to list per section in the summary (default: 10)"),
                     ),
             )
             .arg(
@@ -1315,6 +1356,16 @@ impl Args {
                 JumpAction::Prompt
             };
             Some(Command::Jump(action))
+        } else if let Some(scan_matches) = matches.subcommand_matches("scan") {
+            Some(Command::Scan(crate::scan::ScanOptions {
+                path: scan_matches.value_of("path").map(String::from),
+                json: scan_matches.is_present("json"),
+                report: scan_matches.is_present("report"),
+                top: scan_matches
+                    .value_of("top")
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            }))
         } else {
             matches.subcommand_matches("update").map(|update_matches| {
                 Command::Update(update_matches.value_of("name").map(String::from))
