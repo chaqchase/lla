@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-16
+
 ### Added
 
 - The fuzzy finder has three modes, switched with `Ctrl+F`: files, folders and
@@ -33,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Linux and from `HOMEBREW_CACHE`, and the uv cache on Windows.
 - On Windows, `lla scan` includes your Recycle Bin on every fixed drive and
   shows each entry under its original name.
+
 
 ## [0.8.0] - 2026-11-16
 
