@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-16
+
 ### Added
 
 - `lla scan` shows what is filling the disk and helps clean it up. It scans the
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files a keystroke went from up to 680 ms to under 260 ms, and the prompt
   never waits for it.
 - `lla scan` and the fuzzy finder take their colors from the current theme.
+
 
 ## [0.7.0] - 2026-11-16
 
