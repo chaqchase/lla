@@ -60,6 +60,8 @@ _lla() {
 '--git[Show git status and information (overrides config format)]' \
 '-F[Use interactive fuzzy finder]' \
 '--fuzzy[Use interactive fuzzy finder]' \
+'--dirs[Open the fuzzy finder on folders instead of files (implies -F)]' \
+'(--dirs)--contents[Open the fuzzy finder searching inside files (implies -F)]' \
 '--icons[Show icons for files and directories (overrides config setting)]' \
 '--no-icons[Hide icons for files and directories (overrides config setting)]' \
 '--no-color[Disable all colors in the output]' \
@@ -147,6 +149,7 @@ _arguments "${_arguments_options[@]}" \
 '--top=[How many items to list per section in the summary (default: 10)]:N: ' \
 '--report[Print a summary instead of opening the interactive view]' \
 '(--report)--json[Print the results as JSON]' \
+'--no-duplicates[Skip looking for duplicate files after the scan]' \
 '-h[Print help information]' \
 '--help[Print help information]' \
 '::path -- Folder to scan instead of your home folder:' \
@@ -367,6 +370,13 @@ _arguments "${_arguments_options[@]}" \
 ':shell -- Target shell:(bash fish zsh powershell elvish)' \
 && ret=0
 ;;
+(shell-init)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+':shell -- Target shell:(bash zsh fish powershell)' \
+&& ret=0
+;;
 (theme)
 _arguments "${_arguments_options[@]}" \
 '-h[Print help information]' \
@@ -437,6 +447,7 @@ _lla_commands() {
 'clean:This command will clean up invalid plugins' \
 'shortcut:Manage command shortcuts' \
 'completion:Generate shell completion scripts' \
+'shell-init:Print shell functions: j (jump) and lcd (pick a folder and cd into it)' \
 'theme:Interactive theme manager' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
@@ -584,6 +595,11 @@ _lla__plugin__run_commands() {
 _lla__scan_commands() {
     local commands; commands=()
     _describe -t commands 'lla scan commands' commands "$@"
+}
+(( $+functions[_lla__shell-init_commands] )) ||
+_lla__shell-init_commands() {
+    local commands; commands=()
+    _describe -t commands 'lla shell-init commands' commands "$@"
 }
 (( $+functions[_lla__shortcut_commands] )) ||
 _lla__shortcut_commands() {

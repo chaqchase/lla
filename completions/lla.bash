@@ -75,6 +75,9 @@ _lla() {
             scan)
                 cmd+="__scan"
                 ;;
+            shell-init)
+                cmd+="__shell__init"
+                ;;
             shortcut)
                 cmd+="__shortcut"
                 ;;
@@ -100,7 +103,7 @@ _lla() {
 
     case "${cmd}" in
         lla)
-            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -X -a -A -i -H -@ -Z -M --help --version --license --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --icons --no-icons --hyperlink --no-color --sort --sort-reverse --sort-dirs-first --no-sort-dirs-first --sort-case-sensitive --no-sort-case-sensitive --sort-natural --no-sort-natural --filter --preset --size --modified --created --case-sensitive --ignore-case --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --show-symlinks --no-dirs --no-files --no-symlinks --dereference --no-symlink-target --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --show-group --relative-dates --absolute-dates --date-format --inode --links --allocated-size --extended --context --mounts <directory>... diff jump scan install plugin list-plugins use init config update upgrade clean shortcut completion theme help"
+            opts="-h -V -d -l -t -T -g -S -G -F -s -r -f -c -R -X -a -A -i -H -@ -Z -M --help --version --license --json --ndjson --csv --pretty --search --search-context --depth --long --tree --table --grid --grid-ignore --sizemap --timeline --git --fuzzy --dirs --contents --icons --no-icons --hyperlink --no-color --sort --sort-reverse --sort-dirs-first --no-sort-dirs-first --sort-case-sensitive --no-sort-case-sensitive --sort-natural --no-sort-natural --filter --preset --size --modified --created --case-sensitive --ignore-case --refine --enable-plugin --search-pipe --disable-plugin --plugins-dir --recursive --include-dirs --dirs-only --files-only --symlinks-only --show-symlinks --no-dirs --no-files --no-symlinks --dereference --no-symlink-target --no-dotfiles --all --almost-all --dotfiles-only --respect-gitignore --no-gitignore --permission-format --hide-group --show-group --relative-dates --absolute-dates --date-format --inode --links --allocated-size --extended --context --mounts <directory>... diff jump scan install plugin list-plugins use init config update upgrade clean shortcut completion shell-init theme help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -490,7 +493,7 @@ _lla() {
             return 0
             ;;
         lla__scan)
-            opts="-h --report --json --top --help <path>"
+            opts="-h --report --json --top --no-duplicates --help <path>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -500,6 +503,20 @@ _lla() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        lla__shell__init)
+            opts="-h --help bash zsh fish powershell"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
