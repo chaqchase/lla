@@ -32,10 +32,10 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-fn write_config(home: &TempDir, contents: &str) {
-    let dir = home.path().join(".config/lla");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("config.toml"), contents).unwrap();
+/// Writes a project `.lla.toml`, which lla picks up from the working directory.
+/// Pointing HOME at a temp dir doesn't move the global config on Windows.
+fn write_profile(dir: &Path, contents: &str) {
+    fs::write(dir.join(".lla.toml"), contents).unwrap();
 }
 
 fn tree_fixture() -> TempDir {
@@ -159,8 +159,8 @@ fn tree_honours_sort_options() {
 #[test]
 fn config_flags_can_be_switched_off_per_command() {
     let home = TempDir::new().unwrap();
-    write_config(&home, "[sort]\ndirs_first = true\n");
     let root = tree_fixture();
+    write_profile(root.path(), "[sort]\ndirs_first = true\n");
 
     let output = lla(&home, root.path(), &[]);
     let text = stdout(&output);
@@ -188,8 +188,8 @@ fn invalid_depth_is_rejected() {
 #[test]
 fn piped_output_has_no_icons_from_config() {
     let home = TempDir::new().unwrap();
-    write_config(&home, "show_icons = true\n");
     let root = tree_fixture();
+    write_profile(root.path(), "show_icons = true\n");
     let output = lla(&home, root.path(), &[]);
     let text = stdout(&output);
     assert!(
