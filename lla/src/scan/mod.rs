@@ -2,6 +2,7 @@
 
 mod clean;
 mod disk;
+mod dupes;
 pub(crate) mod format;
 mod model;
 mod rules;
@@ -11,6 +12,7 @@ mod walk;
 use crate::error::{LlaError, Result};
 use crate::theme::palette::{self, Tone};
 use colored::{Color, Colorize};
+use dupes::Duplicates;
 use model::{Report, Scan};
 use parking_lot::Mutex;
 use rules::{Category, Rules, Safety};
@@ -26,6 +28,8 @@ pub struct ScanOptions {
     pub json: bool,
     pub report: bool,
     pub top: usize,
+    /// Look for duplicate files after the scan.
+    pub duplicates: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,10 +45,34 @@ pub(crate) struct Job {
     pub roots: Arc<Mutex<Vec<(PathBuf, RootPhase)>>>,
     pub started: Instant,
     rx: crossbeam_channel::Receiver<Scan>,
+    dupes: Option<DupeJob>,
+}
+
+/// The duplicate search that runs on the same thread once the scan is done.
+pub(crate) struct DupeJob {
+    pub progress: Arc<dupes::Progress>,
+    rx: crossbeam_channel::Receiver<Duplicates>,
+}
+
+impl DupeJob {
+    /// The result once it is ready. A search that stopped without one, because
+    /// it was cancelled or failed, counts as finding nothing.
+    pub fn try_finish(&self) -> Option<Duplicates> {
+        match self.rx.try_recv() {
+            Ok(found) => Some(found),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => Some(Duplicates::default()),
+            Err(crossbeam_channel::TryRecvError::Empty) => None,
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.progress.cancel();
+    }
 }
 
 impl Job {
-    pub fn start(targets: Vec<PathBuf>, custom: bool) -> Self {
+    /// With `duplicates`, the rules decide which files are worth comparing.
+    pub fn start(targets: Vec<PathBuf>, custom: bool, duplicates: Option<Rules>) -> Self {
         let progress = Arc::new(Progress::default());
         let roots = Arc::new(Mutex::new(
             targets
@@ -53,7 +81,13 @@ impl Job {
                 .collect::<Vec<_>>(),
         ));
         let (tx, rx) = crossbeam_channel::bounded(1);
+        let (dupe_tx, dupe_rx) = crossbeam_channel::bounded(1);
+        let dupe_progress = Arc::new(dupes::Progress::default());
         let started = Instant::now();
+        let dupes = duplicates.is_some().then(|| DupeJob {
+            progress: Arc::clone(&dupe_progress),
+            rx: dupe_rx,
+        });
         {
             let progress = Arc::clone(&progress);
             let roots = Arc::clone(&roots);
@@ -66,12 +100,22 @@ impl Job {
                     scanned.push((path.clone(), node));
                 }
                 let volume = targets.first().and_then(|path| disk::volume(path));
-                let _ = tx.send(Scan {
+                let scan = Scan {
                     roots: scanned,
                     volume,
                     elapsed: started.elapsed(),
                     custom,
-                });
+                };
+                let candidates = duplicates
+                    .filter(|_| !progress.cancelled())
+                    .map(|rules| dupes::candidates(&scan, &rules));
+                let _ = tx.send(scan);
+                if let Some(candidates) = candidates {
+                    let groups = dupes::find(candidates, &dupe_progress);
+                    if !dupe_progress.cancelled() {
+                        let _ = dupe_tx.send(Duplicates { groups });
+                    }
+                }
             });
         }
         Self {
@@ -79,6 +123,7 @@ impl Job {
             roots,
             started,
             rx,
+            dupes,
         }
     }
 
@@ -86,8 +131,16 @@ impl Job {
         self.rx.try_recv().ok()
     }
 
+    /// The duplicate search, which keeps running after the scan is handed over.
+    pub fn take_dupes(&mut self) -> Option<DupeJob> {
+        self.dupes.take()
+    }
+
     pub fn cancel(&self) {
         self.progress.cancel();
+        if let Some(dupes) = &self.dupes {
+            dupes.cancel();
+        }
     }
 }
 
@@ -132,18 +185,56 @@ pub fn run(options: ScanOptions) -> Result<()> {
         && std::io::stdout().is_terminal()
         && std::io::stdin().is_terminal();
     if interactive {
-        return tui::run(rules, targets, custom);
+        return tui::run(rules, targets, custom, options.duplicates);
     }
 
-    let job = Job::start(targets, custom);
+    let mut job = Job::start(targets, custom, options.duplicates.then(|| rules.clone()));
     let scan = wait_with_spinner(&job);
+    let duplicates = job.take_dupes().map(|dupes| wait_for_dupes(&dupes));
     let report = model::build(&scan, &rules, now());
     let top = if options.top == 0 { 10 } else { options.top };
     if options.json {
-        print_json(&scan, &report, top)
+        print_json(&scan, &report, duplicates.as_ref(), top)
     } else {
-        print_report(&scan, &report, &rules, top);
+        print_report(&scan, &report, &rules, duplicates.as_ref(), top);
         Ok(())
+    }
+}
+
+/// "1.2 GB of 4.0 GB" while comparing, or nothing during the quick first pass.
+pub(crate) fn dupe_progress(progress: &dupes::Progress) -> Option<String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let total = progress.total.load(Relaxed);
+    (total > 0).then(|| {
+        format!(
+            "{} of {}",
+            format::size(progress.hashed.load(Relaxed).min(total)),
+            format::size(total)
+        )
+    })
+}
+
+fn wait_for_dupes(job: &DupeJob) -> Duplicates {
+    let spinner = std::io::stderr().is_terminal().then(|| {
+        let bar = indicatif::ProgressBar::new_spinner();
+        bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+        bar.enable_steady_tick(Duration::from_millis(80));
+        bar
+    });
+    loop {
+        if let Some(found) = job.try_finish() {
+            if let Some(bar) = spinner {
+                bar.finish_and_clear();
+            }
+            return found;
+        }
+        if let Some(bar) = &spinner {
+            bar.set_message(match dupe_progress(&job.progress) {
+                Some(done) => format!("Checking duplicates · {done}"),
+                None => "Checking duplicates".to_string(),
+            });
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -231,7 +322,13 @@ fn scope_label(scan: &Scan, home: Option<&Path>) -> String {
         .join(", ")
 }
 
-fn print_report(scan: &Scan, report: &Report, rules: &Rules, top: usize) {
+fn print_report(
+    scan: &Scan,
+    report: &Report,
+    rules: &Rules,
+    duplicates: Option<&Duplicates>,
+    top: usize,
+) {
     let home = rules.home.as_deref();
     let mut out = String::new();
     let mut title = format!(
@@ -357,6 +454,42 @@ fn print_report(scan: &Scan, report: &Report, rules: &Rules, top: usize) {
         }
     }
 
+    if let Some(duplicates) = duplicates.filter(|found| !found.groups.is_empty()) {
+        out.push_str(&format!(
+            "\n{}  {}\n",
+            "Duplicates".bold(),
+            format!("{} in extra copies", format::size(duplicates.wasted())).yellow()
+        ));
+        for group in duplicates.groups.iter().take(top) {
+            out.push_str(&format!(
+                "  {:>9}  {}  {}\n",
+                format::size(group.wasted()),
+                format::tilde(&group.paths[0], home),
+                format!(
+                    "{} copies of {}",
+                    group.paths.len(),
+                    format::size(group.size)
+                )
+                .dimmed()
+            ));
+            const SHOWN: usize = 4;
+            for copy in group.paths.iter().skip(1).take(SHOWN) {
+                out.push_str(&format!(
+                    "  {:>9}  {}\n",
+                    "",
+                    format::tilde(copy, home).dimmed()
+                ));
+            }
+            if group.paths.len() > SHOWN + 1 {
+                out.push_str(&format!(
+                    "  {:>9}  {}\n",
+                    "",
+                    format!("and {} more", group.paths.len() - SHOWN - 1).dimmed()
+                ));
+            }
+        }
+    }
+
     out.push('\n');
     let unreadable = scan.unreadable();
     if unreadable > 0 {
@@ -383,7 +516,12 @@ fn print_report(scan: &Scan, report: &Report, rules: &Rules, top: usize) {
     print!("{out}");
 }
 
-fn print_json(scan: &Scan, report: &Report, top: usize) -> Result<()> {
+fn print_json(
+    scan: &Scan,
+    report: &Report,
+    duplicates: Option<&Duplicates>,
+    top: usize,
+) -> Result<()> {
     use serde_json::json;
     let categories: Vec<_> = report
         .ordered()
@@ -405,6 +543,7 @@ fn print_json(scan: &Scan, report: &Report, top: usize) -> Result<()> {
                         "stale": item.stale(report.now),
                         "protected": item.protected,
                         "loose_files": item.loose,
+                        "label": item.label,
                     })
                 })
                 .collect();
@@ -419,7 +558,7 @@ fn print_json(scan: &Scan, report: &Report, top: usize) -> Result<()> {
             })
         })
         .collect();
-    let value = json!({
+    let mut value = json!({
         "volume": scan.volume.as_ref().map(|volume| json!({
             "label": volume.label,
             "total": volume.total,
@@ -434,6 +573,20 @@ fn print_json(scan: &Scan, report: &Report, top: usize) -> Result<()> {
         "safe_bytes": report.safe_total(),
         "categories": categories,
     });
+    if let Some(duplicates) = duplicates {
+        value["duplicates"] = duplicates
+            .groups
+            .iter()
+            .take(top)
+            .map(|group| {
+                json!({
+                    "bytes": group.size,
+                    "wasted_bytes": group.wasted(),
+                    "paths": group.paths,
+                })
+            })
+            .collect();
+    }
     let text =
         serde_json::to_string_pretty(&value).map_err(|error| LlaError::Other(error.to_string()))?;
     println!("{text}");

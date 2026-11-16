@@ -121,11 +121,24 @@ fn make_writable(path: &Path) {
     }
 }
 
-/// Freedesktop trashes keep a `.trashinfo` file next to each trashed item.
+/// Trashes keep a record of where each item came from: freedesktop trashes a
+/// `.trashinfo` file, the Windows Recycle Bin a `$I…` file next to each `$R…`
+/// entry. Without it the item shows up again as a broken entry.
 fn forget_trash_info(path: &Path) {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return;
     };
+    let in_recycle_bin = parent
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("$Recycle.Bin"));
+    if in_recycle_bin {
+        if let Some(rest) = name.to_str().and_then(|name| name.strip_prefix("$R")) {
+            let _ = fs::remove_file(parent.join(format!("$I{rest}")));
+        }
+        return;
+    }
     if parent.file_name().and_then(|n| n.to_str()) != Some("files") {
         return;
     }
@@ -203,5 +216,26 @@ mod tests {
         assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
         assert!(!root.path().join("mod").exists());
         assert_eq!(outcome.deleted.len(), 1);
+    }
+
+    #[test]
+    fn deleting_from_the_recycle_bin_drops_its_record() {
+        let root = tempfile::TempDir::new().unwrap();
+        let bin = root.path().join("$Recycle.Bin/S-1-5-21-1");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("$RAB12CD.mp4"), "data").unwrap();
+        fs::write(bin.join("$IAB12CD.mp4"), "record").unwrap();
+        fs::write(bin.join("$IOTHER.txt"), "record").unwrap();
+        let outcome = clean(
+            &[Target {
+                path: bin.join("$RAB12CD.mp4"),
+                size: 4,
+                permanent: true,
+            }],
+            Method::Trash,
+        );
+        assert_eq!(outcome.deleted.len(), 1);
+        assert!(!bin.join("$IAB12CD.mp4").exists());
+        assert!(bin.join("$IOTHER.txt").exists());
     }
 }

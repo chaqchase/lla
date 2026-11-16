@@ -2,11 +2,12 @@
 
 use super::clean::{self, Method, Target};
 use super::disk::{self, Volume};
+use super::dupes::Duplicates;
 use super::format;
 use super::model::{self, culprit, Report, Scan};
 use super::rules::{artifact_info, Category, Rules, Safety};
 use super::walk::Node;
-use super::{category_tone, now, unreadable_hint, Job, RootPhase};
+use super::{category_tone, dupe_progress, now, unreadable_hint, DupeJob, Job, RootPhase};
 use crate::error::Result;
 use crate::theme::palette::{self, Palette as ThemePalette, Tone};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -17,7 +18,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -168,6 +169,18 @@ struct Row {
     permanent: bool,
     protected: bool,
     loose: bool,
+    kind: Kind,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum Kind {
+    Item,
+    /// A set of identical files, keyed by its first copy.
+    Group {
+        key: PathBuf,
+        open: bool,
+    },
+    Copy,
 }
 
 impl Row {
@@ -229,6 +242,11 @@ struct App {
     quit: bool,
     /// Rows that fit in the list, updated on every draw.
     page: usize,
+    /// Whether to look for duplicates, shown as an entry after the categories.
+    duplicates: bool,
+    dupe_job: Option<DupeJob>,
+    dupes: Option<Duplicates>,
+    expanded: BTreeSet<PathBuf>,
 }
 
 struct Guard;
@@ -255,7 +273,7 @@ impl Drop for Guard {
     }
 }
 
-pub fn run(rules: Rules, targets: Vec<PathBuf>, custom: bool) -> Result<()> {
+pub fn run(rules: Rules, targets: Vec<PathBuf>, custom: bool, duplicates: bool) -> Result<()> {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore_terminal();
@@ -264,10 +282,14 @@ pub fn run(rules: Rules, targets: Vec<PathBuf>, custom: bool) -> Result<()> {
 
     let guard = Guard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let job = Job::start(targets.clone(), custom);
+    let job = Job::start(targets.clone(), custom, duplicates.then(|| rules.clone()));
     let mut app = App::new(rules, targets, custom, Some(job), Palette::detect());
+    app.duplicates = duplicates;
     let result = app.event_loop(&mut terminal);
     if let Some(job) = &app.job {
+        job.cancel();
+    }
+    if let Some(job) = &app.dupe_job {
         job.cancel();
     }
     drop(terminal);
@@ -309,6 +331,10 @@ impl App {
             pal,
             quit: false,
             page: 10,
+            duplicates: false,
+            dupe_job: None,
+            dupes: None,
+            expanded: BTreeSet::new(),
         }
     }
 
@@ -323,7 +349,8 @@ impl App {
                 self.toast = None;
             }
             terminal.draw(|frame| self.draw(frame))?;
-            let animating = self.job.is_some() || self.tick < self.done_tick + 30;
+            let animating =
+                self.job.is_some() || self.dupe_job.is_some() || self.tick < self.done_tick + 30;
             let wait = if animating { 60 } else { 250 };
             if event::poll(Duration::from_millis(wait))? {
                 if let Event::Key(key) = event::read()? {
@@ -338,14 +365,21 @@ impl App {
     }
 
     fn poll_job(&mut self) {
-        let Some(job) = &self.job else {
-            return;
-        };
-        let Some(scan) = job.try_finish() else {
-            return;
-        };
-        self.job = None;
-        self.finish(scan);
+        if let Some(scan) = self.job.as_ref().and_then(Job::try_finish) {
+            if let Some(mut job) = self.job.take() {
+                self.dupe_job = job.take_dupes();
+            }
+            self.finish(scan);
+        }
+        if let Some(mut found) = self.dupe_job.as_ref().and_then(DupeJob::try_finish) {
+            self.dupe_job = None;
+            // Things may have been cleaned while the search ran.
+            found.prune_missing();
+            self.dupes = Some(found);
+            if self.in_dupes() {
+                self.refresh_rows();
+            }
+        }
     }
 
     fn finish(&mut self, scan: Scan) {
@@ -366,7 +400,7 @@ impl App {
         let report = model::build(scan, &self.rules, now());
         self.order = report.ordered();
         self.report = Some(report);
-        self.cat = self.cat.min(self.order.len().saturating_sub(1));
+        self.cat = self.cat.min(self.entries().saturating_sub(1));
         // Drop drill-downs into things that are gone.
         while let Some(top) = self.browse.last() {
             if scan.locate(&top.path).is_some() {
@@ -387,9 +421,19 @@ impl App {
         self.order.get(self.cat).copied()
     }
 
+    /// Categories plus the duplicates entry.
+    fn entries(&self) -> usize {
+        self.order.len() + usize::from(self.duplicates)
+    }
+
+    fn in_dupes(&self) -> bool {
+        self.duplicates && self.cat == self.order.len() && self.browse.is_empty()
+    }
+
     fn refresh_rows(&mut self) {
         self.rows = match self.browse.last() {
             Some(browse) => self.browse_rows(browse),
+            None if self.in_dupes() => self.dupe_rows(),
             None => self.category_rows(),
         };
         let len = self.rows.len();
@@ -422,10 +466,12 @@ impl App {
                         format::tilde(&item.path, home),
                     )
                 } else {
-                    let name = item.path.file_name().map_or_else(
-                        || item.path.display().to_string(),
-                        |n| n.to_string_lossy().into_owned(),
-                    );
+                    let name = item.label.clone().unwrap_or_else(|| {
+                        item.path.file_name().map_or_else(
+                            || item.path.display().to_string(),
+                            |n| n.to_string_lossy().into_owned(),
+                        )
+                    });
                     let parent = if one_place {
                         String::new()
                     } else {
@@ -434,7 +480,8 @@ impl App {
                             .map(|p| format::tilde(p, home))
                             .unwrap_or_default()
                     };
-                    (if item.dir { format!("{name}/") } else { name }, parent)
+                    let slash = item.dir && item.label.is_none();
+                    (if slash { format!("{name}/") } else { name }, parent)
                 };
                 Row {
                     name,
@@ -449,6 +496,7 @@ impl App {
                     permanent: item.permanent,
                     protected: item.protected,
                     loose: item.loose,
+                    kind: Kind::Item,
                 }
             })
             .collect();
@@ -492,6 +540,7 @@ impl App {
                     reason,
                     permanent: browse.permanent,
                     loose: false,
+                    kind: Kind::Item,
                 }
             })
             .collect();
@@ -509,9 +558,80 @@ impl App {
                 permanent: browse.permanent,
                 protected: true,
                 loose: true,
+                kind: Kind::Item,
             });
         }
         self.sort_rows(&mut rows);
+        rows
+    }
+
+    /// One row per set of copies, largest waste first, with its copies below
+    /// it when open.
+    fn dupe_rows(&self) -> Vec<Row> {
+        let Some(dupes) = &self.dupes else {
+            return Vec::new();
+        };
+        let home = self.rules.home.as_deref();
+        let newest = |path: &Path| {
+            self.scan
+                .as_ref()
+                .and_then(|scan| scan.locate(path))
+                .map_or(0, |node| node.newest)
+        };
+        let mut rows = Vec::new();
+        for group in &dupes.groups {
+            let key = group.paths[0].clone();
+            let open = self.expanded.contains(&key);
+            rows.push(Row {
+                name: key.file_name().map_or_else(
+                    || key.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                ),
+                location: format!(
+                    "{} copies of {}",
+                    group.paths.len(),
+                    format::size(group.size)
+                ),
+                path: None,
+                size: group.wasted(),
+                files: group.paths.len() as u64,
+                newest: group
+                    .paths
+                    .iter()
+                    .map(|path| newest(path))
+                    .max()
+                    .unwrap_or(0),
+                dir: false,
+                safety: Safety::Review,
+                reason: "the same file in more than one place",
+                permanent: false,
+                protected: false,
+                loose: false,
+                kind: Kind::Group {
+                    key: key.clone(),
+                    open,
+                },
+            });
+            if open {
+                for copy in &group.paths {
+                    rows.push(Row {
+                        name: format::tilde(copy, home),
+                        location: String::new(),
+                        path: Some(copy.clone()),
+                        size: group.size,
+                        files: 1,
+                        newest: newest(copy),
+                        dir: false,
+                        safety: Safety::Review,
+                        reason: "identical copy, lla always keeps one",
+                        permanent: false,
+                        protected: self.rules.is_protected(copy),
+                        loose: false,
+                        kind: Kind::Copy,
+                    });
+                }
+            }
+        }
         rows
     }
 
@@ -644,7 +764,7 @@ impl App {
 
     fn step(&mut self, delta: isize) {
         if self.focus == Focus::Categories && self.browse.is_empty() {
-            let len = self.order.len() as isize;
+            let len = self.entries() as isize;
             if len == 0 {
                 return;
             }
@@ -671,7 +791,7 @@ impl App {
         if self.order.is_empty() {
             return;
         }
-        let len = self.order.len() as isize;
+        let len = self.entries() as isize;
         self.cat = (self.cat as isize + delta).rem_euclid(len) as usize;
         self.browse.clear();
         self.sel = 0;
@@ -689,6 +809,15 @@ impl App {
         let Some(row) = self.current_row().cloned() else {
             return;
         };
+        if let Kind::Group { key, open } = &row.kind {
+            if *open {
+                self.expanded.remove(key);
+            } else {
+                self.expanded.insert(key.clone());
+            }
+            self.refresh_rows();
+            return;
+        }
         if !row.dir {
             return;
         }
@@ -761,8 +890,14 @@ impl App {
         let Some(row) = self.current_row().cloned() else {
             return;
         };
+        if let Kind::Group { open: false, .. } = row.kind {
+            self.open();
+            return;
+        }
         if !row.markable() {
-            let why = if row.loose {
+            let why = if matches!(row.kind, Kind::Group { .. }) {
+                "Mark the copies you want gone; press ⏎ to hide them"
+            } else if row.loose {
                 "Loose files can only be removed one by one; press ⏎ on the folder"
             } else {
                 "This folder holds things your system expects, so lla will not remove it"
@@ -772,6 +907,17 @@ impl App {
         }
         let path = row.path.clone().unwrap_or_default();
         if self.marks.remove(&path).is_none() {
+            let leaves_a_copy = self
+                .dupes
+                .as_ref()
+                .is_none_or(|dupes| dupes.may_mark(&path, |copy| self.marks.contains_key(copy)));
+            if !leaves_a_copy {
+                self.toast(
+                    "That would remove every copy; one always stays",
+                    Notice::Warn,
+                );
+                return;
+            }
             self.marks.insert(
                 path,
                 Mark {
@@ -784,6 +930,10 @@ impl App {
     }
 
     fn mark_all(&mut self) {
+        if self.in_dupes() {
+            self.mark_extra_copies();
+            return;
+        }
         let now = now();
         let in_category = self.browse.is_empty();
         let wanted: Vec<Row> = self
@@ -842,6 +992,60 @@ impl App {
         self.focus = Focus::Items;
     }
 
+    /// Marks every copy but the first of each set, or unmarks them all.
+    fn mark_extra_copies(&mut self) {
+        let Some(dupes) = &self.dupes else {
+            return;
+        };
+        let extras: Vec<(PathBuf, u64)> = dupes
+            .groups
+            .iter()
+            .flat_map(|group| {
+                group.paths[1..]
+                    .iter()
+                    .map(|path| (path.clone(), group.size))
+            })
+            .filter(|(path, _)| !self.rules.is_protected(path))
+            .collect();
+        if extras.is_empty() {
+            self.toast("No duplicates to mark", Notice::Info);
+            return;
+        }
+        let all_marked = extras.iter().all(|(path, _)| self.marks.contains_key(path));
+        let mut marked = 0;
+        let mut size = 0;
+        for (path, bytes) in &extras {
+            if all_marked {
+                self.marks.remove(path);
+            } else if dupes.may_mark(path, |copy| self.marks.contains_key(copy)) {
+                if !self.marks.contains_key(path) {
+                    marked += 1;
+                    size += bytes;
+                }
+                self.marks.insert(
+                    path.clone(),
+                    Mark {
+                        size: *bytes,
+                        permanent: false,
+                    },
+                );
+            }
+        }
+        if all_marked {
+            self.toast("Unmarked them", Notice::Info);
+        } else {
+            let copies = if marked == 1 { "copy" } else { "copies" };
+            self.toast(
+                format!(
+                    "Marked {marked} extra {copies}, {}; one of each stays",
+                    format::size(size)
+                ),
+                Notice::Info,
+            );
+        }
+        self.focus = Focus::Items;
+    }
+
     /// Marked paths without the ones already covered by a marked parent.
     fn marked_targets(&self) -> Vec<Target> {
         let mut targets: Vec<Target> = Vec::new();
@@ -882,6 +1086,20 @@ impl App {
                 permanent: row.permanent,
             });
         }
+        if let Some(dupes) = &self.dupes {
+            let kept = dupes.keep_one(&mut targets);
+            if let Some(first) = kept.first() {
+                let name = first
+                    .file_name()
+                    .unwrap_or(first.as_os_str())
+                    .to_string_lossy()
+                    .into_owned();
+                self.toast(format!("Keeping {name} so one copy stays"), Notice::Warn);
+            }
+            if targets.is_empty() {
+                return;
+            }
+        }
         targets.sort_by_key(|target| std::cmp::Reverse(target.size));
         self.modal = Some(Modal::Confirm { method, targets });
     }
@@ -907,6 +1125,15 @@ impl App {
         }
         for path in outcome.trashed.iter().chain(&outcome.deleted) {
             self.marks.remove(path);
+        }
+        if let Some(dupes) = &mut self.dupes {
+            let gone: Vec<PathBuf> = outcome
+                .trashed
+                .iter()
+                .chain(&outcome.deleted)
+                .cloned()
+                .collect();
+            dupes.forget(&gone);
         }
         self.rebuild();
 
@@ -967,7 +1194,16 @@ impl App {
         if self.job.is_some() {
             return;
         }
-        self.job = Some(Job::start(self.targets.clone(), self.custom));
+        if let Some(job) = self.dupe_job.take() {
+            job.cancel();
+        }
+        self.job = Some(Job::start(
+            self.targets.clone(),
+            self.custom,
+            self.duplicates.then(|| self.rules.clone()),
+        ));
+        self.dupes = None;
+        self.expanded.clear();
         self.scan = None;
         self.report = None;
         self.rows.clear();
@@ -1080,6 +1316,23 @@ impl App {
                     Span::styled(format!("{spinner} "), pal.fg(ui().accent)),
                     Span::styled(
                         format!("scanning {:.0}s", job.started.elapsed().as_secs_f64()),
+                        pal.dim(),
+                    ),
+                ]
+            }
+            None if self.dupe_job.is_some() => {
+                let spinner = SPINNER[(self.tick as usize / 2) % SPINNER.len()];
+                let done = self
+                    .dupe_job
+                    .as_ref()
+                    .and_then(|job| dupe_progress(&job.progress));
+                vec![
+                    Span::styled(format!("{spinner} "), pal.fg(ui().accent)),
+                    Span::styled(
+                        match done {
+                            Some(done) => format!("checking duplicates… {done}"),
+                            None => "checking duplicates…".to_string(),
+                        },
                         pal.dim(),
                     ),
                 ]
@@ -1352,6 +1605,41 @@ impl App {
                 Span::styled("·".repeat(bar_width - filled), pal.fg(ui().faint)),
             ]));
         }
+        if self.duplicates {
+            let selected = self.cat == self.order.len();
+            let mut label_style = Style::default();
+            if selected {
+                label_style = label_style.add_modifier(Modifier::BOLD);
+                if focused && !pal.mono {
+                    label_style = label_style.fg(pal.color(ui().accent));
+                }
+            }
+            let detail = match &self.dupes {
+                Some(dupes) if dupes.groups.is_empty() => {
+                    Span::styled(format!("{:>9}", "none"), pal.dim())
+                }
+                Some(dupes) => Span::styled(
+                    format!("{:>9}", format::size(dupes.wasted())),
+                    if selected {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    },
+                ),
+                None if self.dupe_job.is_some() => Span::styled(
+                    format!("{:>9}", SPINNER[(self.tick as usize / 2) % SPINNER.len()]),
+                    pal.fg(ui().accent),
+                ),
+                None => Span::styled(format!("{:>9}", "–"), pal.dim()),
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled(if selected { "› " } else { "  " }, pal.fg(ui().accent)),
+                Span::styled("◇ ", pal.fg(ui().accent)),
+                Span::styled(format!("{:<16}", "Duplicates"), label_style),
+                detail,
+            ]));
+        }
         if let Some(scan) = &self.scan {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -1379,6 +1667,10 @@ impl App {
 
     fn draw_items(&mut self, frame: &mut Frame, area: Rect) {
         let pal = self.pal;
+        if self.in_dupes() {
+            self.draw_dupes(frame, area);
+            return;
+        }
         let Some(category) = self.category() else {
             frame.render_widget(
                 Paragraph::new("Nothing found to show.").style(pal.dim()),
@@ -1707,6 +1999,223 @@ impl App {
         frame.render_widget(Paragraph::new(lines), area);
     }
 
+    fn draw_dupes(&mut self, frame: &mut Frame, area: Rect) {
+        let pal = self.pal;
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        let accent = ui().accent;
+        let width = area.width;
+        let mut lines: Vec<Line> = Vec::new();
+        let mut right = Vec::new();
+        if let Some(dupes) = self.dupes.as_ref().filter(|dupes| !dupes.groups.is_empty()) {
+            let extra = dupes.copies() - dupes.groups.len();
+            right.extend([
+                Span::styled(format::size(dupes.wasted()), bold),
+                Span::styled(
+                    format!(
+                        "  in {} extra {}",
+                        format::count(extra as u64),
+                        if extra == 1 { "copy" } else { "copies" }
+                    ),
+                    pal.dim(),
+                ),
+            ]);
+        }
+        lines.push(self.spread(
+            vec![Span::styled(
+                "Duplicates",
+                pal.fg(accent).add_modifier(Modifier::BOLD),
+            )],
+            right,
+            width,
+        ));
+        lines.push(Line::from(Span::styled(
+            "Large files stored more than once. One copy always stays.",
+            pal.dim(),
+        )));
+        let Some(dupes) = &self.dupes else {
+            let text = match &self.dupe_job {
+                Some(job) => match dupe_progress(&job.progress) {
+                    Some(done) => format!("Checking duplicates… {done}"),
+                    None => "Checking duplicates…".to_string(),
+                },
+                None => "Not checked.".to_string(),
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(format!("  {text}"), pal.dim())));
+            frame.render_widget(Paragraph::new(lines), area);
+            return;
+        };
+        if dupes.groups.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  No duplicate files of 1 MB or more.",
+                pal.dim(),
+            )));
+            frame.render_widget(Paragraph::new(lines), area);
+            return;
+        }
+        lines.push(Line::from(""));
+        let tail = 9 + 2 + 6;
+        lines.push(self.spread(
+            vec![Span::styled(
+                format!(
+                    "  {} · by space you would get back",
+                    plural(dupes.groups.len(), "file")
+                ),
+                pal.dim(),
+            )],
+            vec![Span::styled(
+                format!(
+                    "{:>width$}",
+                    "wasted  copies",
+                    width = tail.min(width as usize)
+                ),
+                pal.dim(),
+            )],
+            width,
+        ));
+
+        let focused = self.focus == Focus::Items;
+        let capacity = (area.height as usize)
+            .saturating_sub(lines.len() + if focused { 2 } else { 0 })
+            .max(1);
+        self.page = capacity;
+        let sel = self.sel;
+        let mut offset = self.offset.min(sel);
+        if sel >= offset + capacity {
+            offset = sel + 1 - capacity;
+        }
+        self.offset = offset;
+        let now = self.report.as_ref().map_or(0, |report| report.now);
+        for (index, row) in self.rows.iter().enumerate().skip(offset).take(capacity) {
+            let is_selected = index == sel && focused;
+            let marked = row
+                .path
+                .as_ref()
+                .is_some_and(|path| self.marks.contains_key(path));
+            let (indent, bullet, bullet_style) = match &row.kind {
+                Kind::Group { open: true, .. } => ("", "▾ ", pal.fg(accent)),
+                Kind::Group { .. } => ("", "▸ ", pal.fg(accent)),
+                _ if marked => ("    ", "◉ ", pal.fg(accent)),
+                _ => ("    ", "· ", pal.dim()),
+            };
+            let mut name_style = if row.path.is_some() {
+                Style::default()
+            } else {
+                bold
+            };
+            if is_selected {
+                name_style = name_style
+                    .add_modifier(Modifier::BOLD)
+                    .fg(pal.color(accent));
+            }
+            if marked {
+                name_style = name_style.fg(pal.color(accent));
+            }
+            let right = match row.kind {
+                Kind::Group { .. } => vec![
+                    Span::styled(format!("{:>9}", format::size(row.size)), bold),
+                    Span::styled(format!("  {:>6}", row.files), pal.dim()),
+                ],
+                _ => vec![
+                    Span::styled(format!("{:>9}", format::size(row.size)), pal.dim()),
+                    Span::styled(format!("  {:>6}", format::age(now, row.newest)), pal.dim()),
+                ],
+            };
+            let room = (width as usize).saturating_sub(2 + indent.len() + 2 + tail + 2);
+            let (name, location) = match row.kind {
+                Kind::Group { .. } => {
+                    let name = format::fit(&row.name, room);
+                    let left = room.saturating_sub(format::width(&name) + 2);
+                    let location = if left >= 8 {
+                        format!("  {}", format::fit(&row.location, left))
+                    } else {
+                        String::new()
+                    };
+                    (name, location)
+                }
+                _ => (format::fit_start(&row.name, room), String::new()),
+            };
+            lines.push(self.spread(
+                vec![
+                    Span::styled(if is_selected { "› " } else { "  " }, pal.fg(accent)),
+                    Span::raw(indent),
+                    Span::styled(bullet, bullet_style),
+                    Span::styled(name, name_style),
+                    Span::styled(location, pal.dim()),
+                ],
+                right,
+                width,
+            ));
+            if is_selected {
+                lines.push(self.dupe_detail(row, now));
+                lines.push(self.dupe_actions(row));
+            }
+        }
+        frame.render_widget(Paragraph::new(lines), area);
+    }
+
+    fn dupe_detail(&self, row: &Row, now: i64) -> Line<'static> {
+        let pal = self.pal;
+        let mut spans = vec![Span::styled("     └ ", pal.fg(ui().faint))];
+        if let Kind::Group { .. } = row.kind {
+            let each = row.size / row.files.saturating_sub(1).max(1);
+            spans.push(Span::styled(
+                format!(
+                    "{} copies of {} · keeping one frees {}",
+                    row.files,
+                    format::size(each),
+                    format::size(row.size)
+                ),
+                pal.dim(),
+            ));
+            return Line::from(spans);
+        }
+        spans.push(Span::styled(
+            row.safety.label(),
+            pal.fg(safety_tone(row.safety)),
+        ));
+        spans.push(Span::styled(format!(" · {}", row.reason), pal.dim()));
+        if row.newest > 0 {
+            spans.push(Span::styled(
+                format!(" · changed {}", format::long_age(now, row.newest)),
+                pal.dim(),
+            ));
+        }
+        Line::from(spans)
+    }
+
+    fn dupe_actions(&self, row: &Row) -> Line<'static> {
+        let pal = self.pal;
+        let key =
+            |text: &'static str| Span::styled(text, Style::default().add_modifier(Modifier::BOLD));
+        let label = |text: &'static str| Span::styled(text, pal.dim());
+        let mut spans = vec![Span::raw("       ")];
+        if let Kind::Group { open, .. } = row.kind {
+            spans.extend([
+                key("⏎ "),
+                label(if open {
+                    "hide copies   "
+                } else {
+                    "show copies   "
+                }),
+                key("a "),
+                label("mark every extra copy"),
+            ]);
+            return Line::from(spans);
+        }
+        spans.extend([key("o "), label("reveal   ")]);
+        if row.markable() {
+            spans.extend([
+                key("␣ "),
+                label("mark   "),
+                Span::styled("d ", pal.fg(ui().danger).add_modifier(Modifier::BOLD)),
+                label("move to trash"),
+            ]);
+        }
+        Line::from(spans)
+    }
+
     fn detail_line(&self, row: &Row, now: i64, width: u16) -> Line<'static> {
         let pal = self.pal;
         let bold = Style::default().add_modifier(Modifier::BOLD);
@@ -1820,6 +2329,16 @@ impl App {
         }
         let hints: &[(&str, &str)] = if self.report.is_none() {
             &[("q", "cancel")]
+        } else if self.focus == Focus::Items && self.in_dupes() {
+            &[
+                ("↑↓", "move"),
+                ("⏎", "copies"),
+                ("␣", "mark"),
+                ("a", "mark extra copies"),
+                ("d", "trash"),
+                ("o", "reveal"),
+                ("?", "help"),
+            ]
         } else if self.focus == Focus::Categories && self.browse.is_empty() {
             &[
                 ("↑↓", "category"),
@@ -1973,6 +2492,7 @@ impl App {
             ("tab", "next category"),
             ("space", "mark or unmark"),
             ("a", "mark everything cleanable here"),
+            ("", "in Duplicates, every copy but one"),
             ("u", "clear marks"),
             ("d", "move marked items to the trash"),
             ("D", "delete marked items for good"),
@@ -2072,7 +2592,7 @@ mod tests {
         .unwrap();
         fs::write(path.join("movie.mp4"), vec![0u8; 2 << 20]).unwrap();
         let rules = Rules::new(None, Vec::new());
-        let job = Job::start(vec![path.clone()], true);
+        let job = Job::start(vec![path.clone()], true, None);
         let scan = loop {
             if let Some(scan) = job.try_finish() {
                 break scan;
@@ -2159,7 +2679,7 @@ mod tests {
         if !custom {
             targets.extend(rules.system_roots());
         }
-        let job = Job::start(targets.clone(), custom);
+        let job = Job::start(targets.clone(), custom, None);
         let scan = loop {
             if let Some(scan) = job.try_finish() {
                 break scan;
@@ -2210,6 +2730,118 @@ mod tests {
         assert!(after + (3 << 20) <= before, "{before} -> {after}");
         let report = app.report.as_ref().unwrap();
         assert!(report.group(Category::Developer).items.is_empty());
+    }
+
+    #[test]
+    fn duplicates_view_draws_and_keeps_one_copy() {
+        let root = tempfile::TempDir::new().unwrap();
+        let path = root.path().canonicalize().unwrap();
+        let movie: Vec<u8> = (0..(2u32 << 20)).map(|i| (i % 251) as u8).collect();
+        for copy in ["movie.mp4", "backup/movie.mp4", "old/movie (1).mp4"] {
+            let file = path.join(copy);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, &movie).unwrap();
+        }
+        fs::write(path.join("other.bin"), vec![7u8; 2 << 20]).unwrap();
+        let rules = Rules::new(None, Vec::new());
+        let mut job = Job::start(vec![path.clone()], true, Some(rules.clone()));
+        let scan = loop {
+            if let Some(scan) = job.try_finish() {
+                break scan;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let dupes = job.take_dupes().unwrap();
+        let mut app = App::new(
+            rules,
+            vec![path.clone()],
+            true,
+            None,
+            Palette {
+                truecolor: true,
+                mono: false,
+            },
+        );
+        app.duplicates = true;
+        app.dupe_job = Some(dupes);
+        app.finish(scan);
+        // Still searching: the entry is there and drawing it is fine.
+        app.cat = app.order.len();
+        app.refresh_rows();
+        screen(&mut app, 120, 36);
+        while app.dupe_job.is_some() {
+            app.poll_job();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(app.dupes.as_ref().unwrap().groups.len(), 1);
+
+        let text = screen(&mut app, 120, 36);
+        assert!(text.contains("Duplicates"), "{text}");
+        assert!(text.contains("movie.mp4"), "{text}");
+        assert!(text.contains("3 copies"), "{text}");
+
+        // Into the list, open the set and mark every copy one by one.
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.rows.len(), 4);
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Down);
+            let row = app.current_row().cloned().unwrap();
+            app.toggle_mark();
+            app.set_selected(app.rows.iter().position(|r| r.path == row.path).unwrap());
+        }
+        assert_eq!(app.marks.len(), 2, "the last copy cannot be marked");
+        for (width, height) in [(150, 44), (100, 30), (80, 24), (60, 16), (30, 8)] {
+            screen(&mut app, width, height);
+        }
+        if std::env::var_os("LLA_SCAN_SHOW").is_some() {
+            println!("{}", screen(&mut app, 120, 30));
+        }
+
+        // Even when every copy gets marked some other way, cleaning keeps one.
+        app.marks.clear();
+        for copy in &app.dupes.as_ref().unwrap().groups[0].paths.clone() {
+            app.marks.insert(
+                copy.clone(),
+                Mark {
+                    size: 2 << 20,
+                    permanent: false,
+                },
+            );
+        }
+        app.ask_clean(Method::Delete);
+        let Some(Modal::Confirm { targets, .. }) = &app.modal else {
+            panic!("no confirmation");
+        };
+        assert_eq!(targets.len(), 2);
+        let targets: Vec<Target> = targets
+            .iter()
+            .map(|target| Target {
+                path: target.path.clone(),
+                size: target.size,
+                permanent: target.permanent,
+            })
+            .collect();
+        app.modal = None;
+        app.clean(Method::Delete, targets);
+        assert!(path.join("backup/movie.mp4").exists());
+        assert!(app.dupes.as_ref().unwrap().groups.is_empty());
+        screen(&mut app, 120, 36);
+
+        // 'a' marks all but the first copy.
+        app.dupes = Some(Duplicates {
+            groups: vec![super::super::dupes::Group {
+                size: 10,
+                paths: vec![path.join("a"), path.join("b"), path.join("c")],
+            }],
+        });
+        app.marks.clear();
+        app.refresh_rows();
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            app.marks.keys().cloned().collect::<Vec<_>>(),
+            vec![path.join("b"), path.join("c")]
+        );
     }
 
     #[test]
