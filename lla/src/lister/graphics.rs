@@ -273,7 +273,7 @@ mod tests {
         let lines = blocks(&image, 40, 30);
         assert!(!lines.is_empty() && lines.len() <= 30);
         let width = console::measure_text_width(&lines[0]);
-        assert!(width <= 40 && width >= 30, "{width}");
+        assert!((30..=40).contains(&width), "{width}");
         // A 2:1 image drawn 40 cells wide is about 10 rows of two pixels.
         assert!((8..=12).contains(&lines.len()), "{}", lines.len());
         assert!(lines[0].contains('▀'));

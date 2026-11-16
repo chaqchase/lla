@@ -212,6 +212,7 @@ pub fn handle_command(
         }
         Some(Command::Jump(action)) => jump::handle_jump(action, config),
         Some(Command::Scan(options)) => crate::scan::run(options.clone()),
+        Some(Command::ShellInit(shell)) => crate::commands::shell_init::run(shell),
         Some(Command::Clean) => unreachable!(),
         None => {
             if args.search.is_some() {

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The fuzzy finder has three modes, switched with `Ctrl+F`: files, folders and
+  text inside files. Text search shows matching lines as they are found, opens
+  the editor at the line with `Ctrl+E`, and the preview scrolls to it.
+  `lla --dirs` and `lla --contents` open the finder in those modes.
+- Images show up in the finder preview: at full resolution in Kitty, Ghostty
+  and WezTerm, and drawn with colored half blocks in other terminals.
+  Folders preview as a list of what is inside them.
+- `lla shell-init <shell>` prints `j` and a new `lcd` function, which picks a
+  folder with the finder and changes into it. Works in bash, zsh, fish and
+  PowerShell.
+- The finder remembers the file list of large folders between runs, so results
+  show up right away while the folder is read again. On a home folder with
+  2.6 million entries everything is searchable after 1.5 s instead of 7.4 s.
+  Turn it off with `listers.fuzzy.remember_index = false`.
+
 ## [0.8.0] - 2026-11-16
 
 ### Added

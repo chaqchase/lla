@@ -100,6 +100,7 @@ pub enum Command {
     Jump(JumpAction),
     Scan(crate::scan::ScanOptions),
     GenerateCompletion(Shell, Option<String>, Option<String>),
+    ShellInit(String),
     Theme,
     ThemePull,
     ThemeInstall(String),
@@ -1004,6 +1005,17 @@ impl Args {
                     ),
             )
             .subcommand(
+                SubCommand::with_name("shell-init")
+                    .about("Print shell functions: j (jump) and lcd (pick a folder and cd into it)")
+                    .arg(
+                        Arg::with_name("shell")
+                            .help("Target shell")
+                            .required(true)
+                            .possible_values(crate::commands::shell_init::SHELLS)
+                            .index(1),
+                    ),
+            )
+            .subcommand(
                 SubCommand::with_name("theme")
                     .about("Interactive theme manager")
                     .subcommand(
@@ -1151,6 +1163,10 @@ impl Args {
                 shell,
                 completion_matches.value_of("path").map(String::from),
                 completion_matches.value_of("output").map(String::from),
+            ))
+        } else if let Some(init_matches) = matches.subcommand_matches("shell-init") {
+            Some(Command::ShellInit(
+                init_matches.value_of("shell").unwrap().to_string(),
             ))
         } else if let Some(theme_matches) = matches.subcommand_matches("theme") {
             if theme_matches.subcommand_matches("pull").is_some() {
