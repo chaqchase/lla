@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most space, and marking with move-to-trash behind a confirmation.
   `--report` and `--json` print a summary instead. Works on macOS, Linux and
   Windows.
+- The fuzzy finder preview now highlights source code with line numbers,
+  shows CSV files as tables, lists what is inside archives, prints image sizes
+  and gives a hex dump for binary files.
+
+### Changed
+
+- The fuzzy finder searches in the background and uses a faster matcher, so
+  typing no longer stalls in large folders. On a home folder with 2.2 million
+  files a keystroke went from up to 680 ms to under 260 ms, and the prompt
+  never waits for it.
+- `lla scan` and the fuzzy finder take their colors from the current theme.
 
 ## [0.7.0] - 2026-11-16
 

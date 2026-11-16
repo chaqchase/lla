@@ -2,13 +2,14 @@
 
 mod clean;
 mod disk;
-mod format;
+pub(crate) mod format;
 mod model;
 mod rules;
 mod tui;
 mod walk;
 
 use crate::error::{LlaError, Result};
+use crate::theme::palette::{self, Tone};
 use colored::{Color, Colorize};
 use model::{Report, Scan};
 use parking_lot::Mutex;
@@ -193,21 +194,33 @@ fn wait_with_spinner(job: &Job) -> Scan {
     }
 }
 
+/// Category colors from the active theme, kept apart from each other when the
+/// theme has enough hues.
+pub(crate) fn category_tone(category: Category) -> Tone {
+    static TONES: std::sync::OnceLock<Vec<Tone>> = std::sync::OnceLock::new();
+    let tones = TONES.get_or_init(|| {
+        let ui = palette::current();
+        let mut tones = ui.distinct(&[
+            (215.0, Tone::rgb(94, 145, 255)),
+            (125.0, Tone::rgb(104, 211, 124)),
+            (28.0, Tone::rgb(255, 153, 72)),
+            (45.0, Tone::rgb(186, 168, 124)),
+            (175.0, Tone::rgb(64, 201, 183)),
+            (195.0, Tone::rgb(88, 196, 240)),
+            (330.0, Tone::rgb(244, 114, 182)),
+            (270.0, Tone::rgb(167, 124, 250)),
+            (55.0, Tone::rgb(250, 204, 82)),
+            (355.0, Tone::rgb(248, 93, 93)),
+        ]);
+        tones.push(ui.text.mix(ui.muted, 0.4));
+        tones.push(ui.muted);
+        tones
+    });
+    tones[category.index()]
+}
+
 fn category_color(category: Category) -> Color {
-    match category {
-        Category::Apps => Color::Blue,
-        Category::Developer => Color::Green,
-        Category::Caches => Color::Yellow,
-        Category::Logs => Color::BrightBlack,
-        Category::Downloads => Color::Cyan,
-        Category::Documents => Color::BrightCyan,
-        Category::Photos => Color::Magenta,
-        Category::Videos => Color::BrightMagenta,
-        Category::Music => Color::BrightYellow,
-        Category::Trash => Color::Red,
-        Category::Other => Color::White,
-        Category::System => Color::BrightBlack,
-    }
+    category_tone(category).colored()
 }
 
 fn scope_label(scan: &Scan, home: Option<&Path>) -> String {

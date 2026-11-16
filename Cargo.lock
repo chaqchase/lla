@@ -2270,7 +2270,6 @@ dependencies = [
  "dialoguer",
  "dirs",
  "flate2",
- "fuzzy-matcher",
  "glob",
  "hyper 1.11.0",
  "ignore",
@@ -2279,6 +2278,7 @@ dependencies = [
  "libloading",
  "lla_plugin_interface",
  "lla_plugin_utils",
+ "nucleo-matcher",
  "num_cpus",
  "object",
  "once_cell",
@@ -2295,6 +2295,7 @@ dependencies = [
  "sha2",
  "similar",
  "strip-ansi-escapes 0.1.1",
+ "syntect",
  "tar",
  "tempfile",
  "terminal_size",
@@ -2511,6 +2512,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "nucleo-matcher"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf33f538733d1a5a3494b836ba913207f14d9d4a1d3cd67030c5061bdd2cac85"
+dependencies = [
+ "memchr",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -1,0 +1,49 @@
+%YAML 1.2
+---
+# A small TOML grammar; syntect's bundled set has none.
+name: TOML
+file_extensions: [toml]
+scope: source.toml
+contexts:
+  main:
+    - match: '#.*$'
+      scope: comment.line.number-sign.toml
+    - match: '^\s*(\[\[?)([^\]#]*)(\]\]?)'
+      captures:
+        1: punctuation.definition.table.toml
+        2: entity.name.section.toml
+        3: punctuation.definition.table.toml
+    - match: '([A-Za-z0-9_\-]+|"[^"]*")\s*(=)'
+      captures:
+        1: support.type.property-name.toml
+        2: keyword.operator.assignment.toml
+    - include: values
+  values:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: string.quoted.triple.toml
+        - match: '"""'
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.toml
+    - match: "'''"
+      push:
+        - meta_scope: string.quoted.single.triple.toml
+        - match: "'''"
+          pop: true
+    - match: '"'
+      push:
+        - meta_scope: string.quoted.double.toml
+        - match: '\\.'
+          scope: constant.character.escape.toml
+        - match: '"|$'
+          pop: true
+    - match: "'[^']*'"
+      scope: string.quoted.single.toml
+    - match: '\b\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:\d{2})?'
+      scope: constant.other.date.toml
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.toml
+    - match: '(?<![\w.])[+-]?(0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+|\d[\d_]*(\.[\d_]+)?([eE][+-]?\d+)?|inf|nan)\b'
+      scope: constant.numeric.toml

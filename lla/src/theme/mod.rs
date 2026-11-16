@@ -1,3 +1,5 @@
+pub mod palette;
+
 use crate::config::Config;
 use crate::error::{LlaError, Result};
 use crate::utils::color::ColorState;

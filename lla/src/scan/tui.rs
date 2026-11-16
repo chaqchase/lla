@@ -6,8 +6,9 @@ use super::format;
 use super::model::{self, culprit, Report, Scan};
 use super::rules::{artifact_info, Category, Rules, Safety};
 use super::walk::Node;
-use super::{now, unreadable_hint, Job, RootPhase};
+use super::{category_tone, now, unreadable_hint, Job, RootPhase};
 use crate::error::Result;
+use crate::theme::palette::{self, Palette as ThemePalette, Tone};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{cursor, execute, terminal};
 use ratatui::backend::CrosstermBackend;
@@ -27,35 +28,15 @@ const MAP_ROWS: usize = 3;
 
 type Rgb = (u8, u8, u8);
 
-const ACCENT: Rgb = (125, 170, 255);
-const GREEN: Rgb = (120, 212, 140);
-const AMBER: Rgb = (240, 190, 90);
-const RED: Rgb = (248, 100, 100);
-const DIM: Rgb = (120, 123, 136);
-const FAINT: Rgb = (64, 66, 76);
-
-fn category_rgb(category: Category) -> Rgb {
-    match category {
-        Category::Apps => (94, 145, 255),
-        Category::Developer => (104, 211, 124),
-        Category::Caches => (255, 153, 72),
-        Category::Logs => (186, 168, 124),
-        Category::Downloads => (64, 201, 183),
-        Category::Documents => (88, 196, 240),
-        Category::Photos => (244, 114, 182),
-        Category::Videos => (167, 124, 250),
-        Category::Music => (250, 204, 82),
-        Category::Trash => (248, 93, 93),
-        Category::Other => (170, 174, 186),
-        Category::System => (108, 112, 124),
-    }
+fn ui() -> &'static ThemePalette {
+    palette::current()
 }
 
-fn safety_rgb(safety: Safety) -> Rgb {
+fn safety_tone(safety: Safety) -> Tone {
     match safety {
-        Safety::Safe => GREEN,
-        Safety::Review => AMBER,
-        Safety::Keep => DIM,
+        Safety::Safe => ui().success,
+        Safety::Review => ui().warning,
+        Safety::Keep => ui().muted,
     }
 }
 
@@ -80,25 +61,29 @@ impl Palette {
         Self { truecolor, mono }
     }
 
-    fn color(&self, rgb: Rgb) -> Color {
+    /// Named theme colors stay palette indexes so the terminal's own
+    /// palette applies; everything else is RGB, or the nearest of 256 colors.
+    fn color(&self, tone: Tone) -> Color {
         if self.mono {
             Color::Reset
+        } else if let Some(index) = tone.ansi {
+            Color::Indexed(index)
         } else if self.truecolor {
-            Color::Rgb(rgb.0, rgb.1, rgb.2)
+            Color::Rgb(tone.rgb.0, tone.rgb.1, tone.rgb.2)
         } else {
-            Color::Indexed(ansi256(rgb))
+            Color::Indexed(ansi256(tone.rgb))
         }
     }
 
-    fn fg(&self, rgb: Rgb) -> Style {
-        Style::default().fg(self.color(rgb))
+    fn fg(&self, tone: Tone) -> Style {
+        Style::default().fg(self.color(tone))
     }
 
     fn dim(&self) -> Style {
         if self.mono {
             Style::default().add_modifier(Modifier::DIM)
         } else {
-            self.fg(DIM)
+            self.fg(ui().muted)
         }
     }
 }
@@ -115,9 +100,8 @@ fn ansi256((r, g, b): Rgb) -> u8 {
     16 + 36 * level(r) + 6 * level(g) + level(b)
 }
 
-fn shade((r, g, b): Rgb, factor: f32) -> Rgb {
-    let scale = |v: u8| (f32::from(v) * factor).clamp(0.0, 255.0) as u8;
-    (scale(r), scale(g), scale(b))
+fn shade(tone: Tone, factor: f32) -> Tone {
+    tone.shade(factor)
 }
 
 /// Deterministic per-cell noise so the disk map has some texture.
@@ -207,7 +191,7 @@ enum Modal {
 }
 
 #[derive(Clone, Copy)]
-enum Tone {
+enum Notice {
     Good,
     Warn,
     Info,
@@ -215,7 +199,7 @@ enum Tone {
 
 struct Toast {
     text: String,
-    tone: Tone,
+    tone: Notice,
     at: Instant,
 }
 
@@ -564,7 +548,7 @@ impl App {
         self.rows.get(self.selected())
     }
 
-    fn toast(&mut self, text: impl Into<String>, tone: Tone) {
+    fn toast(&mut self, text: impl Into<String>, tone: Notice) {
         self.toast = Some(Toast {
             text: text.into(),
             tone,
@@ -636,7 +620,7 @@ impl App {
             KeyCode::Char('a') => self.mark_all(),
             KeyCode::Char('u') => {
                 self.marks.clear();
-                self.toast("Cleared all marks", Tone::Info);
+                self.toast("Cleared all marks", Notice::Info);
             }
             KeyCode::Char('d') | KeyCode::Delete => self.ask_clean(Method::Trash),
             KeyCode::Char('D') => self.ask_clean(Method::Delete),
@@ -649,7 +633,7 @@ impl App {
             KeyCode::Char('s') => {
                 self.sort = self.sort.next();
                 self.refresh_rows();
-                self.toast(format!("Sorted by {}", self.sort.label()), Tone::Info);
+                self.toast(format!("Sorted by {}", self.sort.label()), Notice::Info);
             }
             KeyCode::Char('o') => self.reveal(),
             KeyCode::Char('g') => self.go_to_culprit(),
@@ -743,7 +727,7 @@ impl App {
             return;
         };
         let Some((rel, _)) = culprit(node) else {
-            self.toast("No single folder dominates this one", Tone::Info);
+            self.toast("No single folder dominates this one", Notice::Info);
             return;
         };
         self.push_browse(path.clone(), &row);
@@ -783,7 +767,7 @@ impl App {
             } else {
                 "This folder holds things your system expects, so lla will not remove it"
             };
-            self.toast(why, Tone::Warn);
+            self.toast(why, Notice::Warn);
             return;
         }
         let path = row.path.clone().unwrap_or_default();
@@ -818,7 +802,7 @@ impl App {
             .cloned()
             .collect();
         if wanted.is_empty() {
-            self.toast("Nothing here is safe to mark in bulk", Tone::Info);
+            self.toast("Nothing here is safe to mark in bulk", Notice::Info);
             return;
         }
         let all_marked = wanted.iter().all(|row| {
@@ -841,7 +825,7 @@ impl App {
             }
         }
         if all_marked {
-            self.toast("Unmarked them", Tone::Info);
+            self.toast("Unmarked them", Notice::Info);
         } else {
             let label = if in_category { "cleanable" } else { "" };
             let size: u64 = wanted.iter().map(|row| row.size).sum();
@@ -852,7 +836,7 @@ impl App {
                     format::size(size)
                 )
                 .replace("  ", " "),
-                Tone::Info,
+                Notice::Info,
             );
         }
         self.focus = Focus::Items;
@@ -884,12 +868,12 @@ impl App {
             if self.focus == Focus::Categories && self.browse.is_empty() {
                 self.toast(
                     "Mark items with space first, or move into the list",
-                    Tone::Info,
+                    Notice::Info,
                 );
                 return;
             }
             if !row.markable() {
-                self.toast("lla will not remove this one", Tone::Warn);
+                self.toast("lla will not remove this one", Notice::Warn);
                 return;
             }
             targets.push(Target {
@@ -944,7 +928,7 @@ impl App {
             format!("Removed {}, freed {size}.", plural(count, "item"))
         };
         let tone = if outcome.failed.is_empty() {
-            Tone::Good
+            Notice::Good
         } else {
             let (path, error) = &outcome.failed[0];
             let name = path
@@ -958,7 +942,7 @@ impl App {
                 "{} failed: {name}: {error}",
                 plural(outcome.failed.len(), "item")
             ));
-            Tone::Warn
+            Notice::Warn
         };
         self.toast(text, tone);
     }
@@ -974,7 +958,7 @@ impl App {
         if let Err(error) = clean::reveal(&path) {
             self.toast(
                 format!("Could not open the file manager: {error}"),
-                Tone::Warn,
+                Notice::Warn,
             );
         }
     }
@@ -1093,7 +1077,7 @@ impl App {
             Some(job) => {
                 let spinner = SPINNER[(self.tick as usize / 2) % SPINNER.len()];
                 vec![
-                    Span::styled(format!("{spinner} "), pal.fg(ACCENT)),
+                    Span::styled(format!("{spinner} "), pal.fg(ui().accent)),
                     Span::styled(
                         format!("scanning {:.0}s", job.started.elapsed().as_secs_f64()),
                         pal.dim(),
@@ -1104,10 +1088,10 @@ impl App {
                 let unreadable = self.scan.as_ref().map_or(0, Scan::unreadable);
                 if unreadable > 0 {
                     vec![
-                        Span::styled("▲ ", pal.fg(AMBER)),
+                        Span::styled("▲ ", pal.fg(ui().warning)),
                         Span::styled(
                             format!("{} folders unreadable", format::count(unreadable)),
-                            pal.fg(AMBER),
+                            pal.fg(ui().warning),
                         ),
                         Span::styled(format!(" · {}", unreadable_hint()), pal.dim()),
                     ]
@@ -1139,10 +1123,10 @@ impl App {
             let safe = report.safe_total();
             if safe > 0 {
                 right.extend([
-                    Span::styled("✦ ", pal.fg(GREEN)),
+                    Span::styled("✦ ", pal.fg(ui().success)),
                     Span::styled(
                         format::size(safe),
-                        pal.fg(GREEN).add_modifier(Modifier::BOLD),
+                        pal.fg(ui().success).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(" safe to clean", pal.dim()),
                 ]);
@@ -1206,15 +1190,15 @@ impl App {
                                 factor = factor.max(0.9);
                             }
                         }
-                        ("•", shade(category_rgb(category), factor))
+                        ("•", shade(category_tone(category), factor))
                     }
-                    Some(_) => ("•", shade(ACCENT, 0.35 + 0.3 * texture)),
+                    Some(_) => ("•", shade(ui().accent, 0.35 + 0.3 * texture)),
                     None if index < scanned_cells => {
                         let wave =
                             ((self.tick as f32 * 0.25) - col as f32 * 0.12).sin() * 0.5 + 0.5;
-                        ("•", shade(ACCENT, 0.35 + 0.65 * wave * texture))
+                        ("•", shade(ui().accent, 0.35 + 0.65 * wave * texture))
                     }
-                    None => ("·", shade(FAINT, 0.7 + 0.3 * texture)),
+                    None => ("·", shade(ui().faint, 0.7 + 0.3 * texture)),
                 };
                 spans.push(Span::styled(glyph, pal.fg(rgb)));
             }
@@ -1259,7 +1243,10 @@ impl App {
         ];
         if unreadable > 0 {
             lines.push(Line::from(vec![
-                Span::styled(format!("{:>14}", format::count(unreadable)), pal.fg(AMBER)),
+                Span::styled(
+                    format!("{:>14}", format::count(unreadable)),
+                    pal.fg(ui().warning),
+                ),
                 Span::styled("  folders unreadable", pal.dim()),
             ]));
         }
@@ -1267,8 +1254,8 @@ impl App {
         for (path, phase) in job.roots.lock().iter() {
             let (mark, style, detail) = match phase {
                 RootPhase::Waiting => ("·", pal.dim(), String::new()),
-                RootPhase::Scanning => (spinner, pal.fg(ACCENT), String::new()),
-                RootPhase::Done(size) => ("✓", pal.fg(GREEN), format::size(*size)),
+                RootPhase::Scanning => (spinner, pal.fg(ui().accent), String::new()),
+                RootPhase::Done(size) => ("✓", pal.fg(ui().success), format::size(*size)),
             };
             lines.push(Line::from(vec![
                 Span::styled(format!("  {mark} "), style),
@@ -1340,14 +1327,14 @@ impl App {
             if selected {
                 label_style = label_style.add_modifier(Modifier::BOLD);
                 if focused && !pal.mono {
-                    label_style = label_style.fg(pal.color(category_rgb(*category)));
+                    label_style = label_style.fg(pal.color(category_tone(*category)));
                 }
             }
             let filled = ((group.size as f64 / largest as f64) * bar_width as f64).ceil() as usize;
             let filled = filled.min(bar_width);
             lines.push(Line::from(vec![
-                Span::styled(cursor, pal.fg(ACCENT)),
-                Span::styled("■ ", pal.fg(category_rgb(*category))),
+                Span::styled(cursor, pal.fg(ui().accent)),
+                Span::styled("■ ", pal.fg(category_tone(*category))),
                 Span::styled(
                     format!("{:<16}", format::fit(self.label(*category), 16)),
                     label_style,
@@ -1361,8 +1348,8 @@ impl App {
                     },
                 ),
                 Span::raw("  "),
-                Span::styled("•".repeat(filled), pal.fg(category_rgb(*category))),
-                Span::styled("·".repeat(bar_width - filled), pal.fg(FAINT)),
+                Span::styled("•".repeat(filled), pal.fg(category_tone(*category))),
+                Span::styled("·".repeat(bar_width - filled), pal.fg(ui().faint)),
             ]));
         }
         if let Some(scan) = &self.scan {
@@ -1380,10 +1367,10 @@ impl App {
             let targets = self.marked_targets();
             let size: u64 = targets.iter().map(|target| target.size).sum();
             lines.push(Line::from(vec![
-                Span::styled("  ◉ ", pal.fg(ACCENT)),
+                Span::styled("  ◉ ", pal.fg(ui().accent)),
                 Span::styled(
                     format!("{} marked · {}", targets.len(), format::size(size)),
-                    pal.fg(ACCENT),
+                    pal.fg(ui().accent),
                 ),
             ]));
         }
@@ -1404,7 +1391,7 @@ impl App {
         };
         let home = self.rules.home.as_deref();
         let bold = Style::default().add_modifier(Modifier::BOLD);
-        let color = category_rgb(category);
+        let color = category_tone(category);
         let group = report.group(category);
         let disk_total = self.volume.as_ref().map_or(0, |volume| volume.total);
         let width = area.width;
@@ -1431,7 +1418,7 @@ impl App {
                         .unwrap_or(Safety::Keep);
                     right.push(Span::styled(
                         format!("  {}", dominant.label()),
-                        pal.fg(safety_rgb(dominant)),
+                        pal.fg(safety_tone(dominant)),
                     ));
                 }
                 lines.push(self.spread(
@@ -1463,14 +1450,14 @@ impl App {
                     if unreadable > 0 {
                         lines.push(Line::from(""));
                         lines.push(Line::from(vec![
-                            Span::styled("▲ ", pal.fg(AMBER)),
+                            Span::styled("▲ ", pal.fg(ui().warning)),
                             Span::styled(
                                 format!(
                                     "{} folders could not be read, so their size lands here. To include them, {}.",
                                     format::count(unreadable),
                                     unreadable_hint()
                                 ),
-                                pal.fg(AMBER),
+                                pal.fg(ui().warning),
                             ),
                         ]));
                     }
@@ -1484,7 +1471,7 @@ impl App {
                 if group.safe > 0 {
                     summary.push(Span::styled(
                         format::size(group.safe),
-                        pal.fg(GREEN).add_modifier(Modifier::BOLD),
+                        pal.fg(ui().success).add_modifier(Modifier::BOLD),
                     ));
                     summary.push(Span::styled(" safe to clean", pal.dim()));
                 }
@@ -1495,14 +1482,14 @@ impl App {
                     }
                     summary.push(Span::styled(
                         format::size(group.stale.max(stale_only)),
-                        pal.fg(AMBER).add_modifier(Modifier::BOLD),
+                        pal.fg(ui().warning).add_modifier(Modifier::BOLD),
                     ));
                     summary.push(Span::styled(" untouched for 3+ months", pal.dim()));
                 }
                 let filter_hint = if self.filter {
                     vec![
-                        Span::styled("f ", pal.fg(ACCENT).add_modifier(Modifier::BOLD)),
-                        Span::styled("showing cleanable only", pal.fg(ACCENT)),
+                        Span::styled("f ", pal.fg(ui().accent).add_modifier(Modifier::BOLD)),
+                        Span::styled("showing cleanable only", pal.fg(ui().accent)),
                     ]
                 } else {
                     vec![
@@ -1554,7 +1541,7 @@ impl App {
                 )));
                 lines.push(self.spread(
                     vec![
-                        Span::styled(browse.safety.label(), pal.fg(safety_rgb(browse.safety))),
+                        Span::styled(browse.safety.label(), pal.fg(safety_tone(browse.safety))),
                         Span::styled(format!(" · {}", browse.reason), pal.dim()),
                     ],
                     vec![Span::styled("esc ", bold), Span::styled("back", pal.dim())],
@@ -1638,7 +1625,7 @@ impl App {
 
             let cursor = if is_selected && focused { "› " } else { "  " };
             let (bullet, bullet_style) = if marked {
-                ("◉ ", pal.fg(ACCENT))
+                ("◉ ", pal.fg(ui().accent))
             } else if row.dir {
                 ("▸ ", pal.fg(shade(color, 0.8)))
             } else {
@@ -1656,7 +1643,7 @@ impl App {
                 }
             }
             if marked {
-                name_style = name_style.fg(pal.color(ACCENT));
+                name_style = name_style.fg(pal.color(ui().accent));
             }
 
             let name_room = (width as usize).saturating_sub(4 + tail + 2);
@@ -1682,7 +1669,10 @@ impl App {
                     .min(bar_width);
                 right.push(Span::raw(" "));
                 right.push(Span::styled("•".repeat(filled), pal.fg(shade(color, 0.9))));
-                right.push(Span::styled("·".repeat(bar_width - filled), pal.fg(FAINT)));
+                right.push(Span::styled(
+                    "·".repeat(bar_width - filled),
+                    pal.fg(ui().faint),
+                ));
             }
             right.push(Span::styled(
                 format!(" {:>4}", format::percent(row.size, parent_size)),
@@ -1690,12 +1680,16 @@ impl App {
             ));
             right.push(Span::styled(
                 format!("  {:>6}", format::age(now, row.newest)),
-                if stale { pal.fg(AMBER) } else { pal.dim() },
+                if stale {
+                    pal.fg(ui().warning)
+                } else {
+                    pal.dim()
+                },
             ));
 
             lines.push(self.spread(
                 vec![
-                    Span::styled(cursor, pal.fg(ACCENT)),
+                    Span::styled(cursor, pal.fg(ui().accent)),
                     Span::styled(bullet, bullet_style),
                     Span::styled(name, name_style),
                     Span::styled(location, pal.dim()),
@@ -1716,9 +1710,9 @@ impl App {
     fn detail_line(&self, row: &Row, now: i64, width: u16) -> Line<'static> {
         let pal = self.pal;
         let bold = Style::default().add_modifier(Modifier::BOLD);
-        let mut spans = vec![Span::styled("     └ ", pal.fg(FAINT))];
+        let mut spans = vec![Span::styled("     └ ", pal.fg(ui().faint))];
         if row.protected && !row.loose {
-            spans.push(Span::styled("protected", pal.fg(RED)));
+            spans.push(Span::styled("protected", pal.fg(ui().danger)));
             spans.push(Span::styled(
                 " · lla will not remove this folder",
                 pal.dim(),
@@ -1727,7 +1721,7 @@ impl App {
         }
         spans.push(Span::styled(
             row.safety.label(),
-            pal.fg(safety_rgb(row.safety)),
+            pal.fg(safety_tone(row.safety)),
         ));
         spans.push(Span::styled(format!(" · {}", row.reason), pal.dim()));
         if row.newest > 0 {
@@ -1789,10 +1783,16 @@ impl App {
         if row.markable() {
             spans.extend([key("␣ "), label("mark   ")]);
             if row.permanent {
-                spans.push(Span::styled("d ", pal.fg(RED).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    "d ",
+                    pal.fg(ui().danger).add_modifier(Modifier::BOLD),
+                ));
                 spans.push(label("delete for good"));
             } else {
-                spans.push(Span::styled("d ", pal.fg(RED).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    "d ",
+                    pal.fg(ui().danger).add_modifier(Modifier::BOLD),
+                ));
                 spans.push(label("move to trash"));
             }
         }
@@ -1804,9 +1804,9 @@ impl App {
         let bold = Style::default().add_modifier(Modifier::BOLD);
         if let Some(toast) = &self.toast {
             let color = match toast.tone {
-                Tone::Good => GREEN,
-                Tone::Warn => AMBER,
-                Tone::Info => ACCENT,
+                Notice::Good => ui().success,
+                Notice::Warn => ui().warning,
+                Notice::Info => ui().accent,
             };
             let line = Line::from(vec![
                 Span::styled("● ", pal.fg(color)),
@@ -1852,10 +1852,10 @@ impl App {
             let targets = self.marked_targets();
             let size: u64 = targets.iter().map(|target| target.size).sum();
             right.extend([
-                Span::styled("◉ ", pal.fg(ACCENT)),
+                Span::styled("◉ ", pal.fg(ui().accent)),
                 Span::styled(
                     format!("{} marked · {}", targets.len(), format::size(size)),
-                    pal.fg(ACCENT).add_modifier(Modifier::BOLD),
+                    pal.fg(ui().accent).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("  d", bold),
                 Span::styled(" clean", pal.dim()),
@@ -1902,7 +1902,7 @@ impl App {
             };
             format!(" Move {} to {place}? ", plural(targets.len(), "item"))
         };
-        let border = if permanent { RED } else { ACCENT };
+        let border = if permanent { ui().danger } else { ui().accent };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -1932,11 +1932,11 @@ impl App {
             Span::styled("in total", pal.dim()),
         ]));
         let note = if permanent {
-            Span::styled(" This cannot be undone.", pal.fg(RED))
+            Span::styled(" This cannot be undone.", pal.fg(ui().danger))
         } else if some_permanent {
             Span::styled(
                 " Items already in the trash are deleted for good; the rest can be restored.",
-                pal.fg(AMBER),
+                pal.fg(ui().warning),
             )
         } else {
             Span::styled(
@@ -2008,7 +2008,7 @@ impl App {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("  {:<14}", safety.label()),
-                    pal.fg(safety_rgb(safety)),
+                    pal.fg(safety_tone(safety)),
                 ),
                 Span::styled(about, pal.dim()),
             ]));
@@ -2016,7 +2016,7 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(pal.fg(ACCENT))
+            .border_style(pal.fg(ui().accent))
             .title(Span::styled(" keys ", bold));
         frame.render_widget(Clear, rect);
         frame.render_widget(Paragraph::new(lines).block(block), rect);
