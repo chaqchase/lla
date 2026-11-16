@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-16
+
 ### Added
 
 - `lla` takes more than one path (`lla src docs`). Each directory is listed
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   download timeout.
 - Native plugins are called through the correct `extern "C"` ABI.
 - The youtube and google_search plugins fetch suggestions over HTTPS.
+
 
 ## [0.6.6] - 2026-10-07
 
