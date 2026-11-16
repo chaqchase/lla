@@ -361,7 +361,7 @@ jobs:
             target: x86_64-apple-darwin
             os_label: macos
             arch_label: amd64
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
             os_label: macos
             arch_label: arm64
