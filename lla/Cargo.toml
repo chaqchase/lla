@@ -80,7 +80,13 @@ xattr = "1.4"
 
 [target.'cfg(windows)'.dependencies]
 self-replace = "1.5.0"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 wasmtime = { version = "47.0.3", default-features = false, features = ["anyhow", "cache", "component-model", "cranelift", "runtime", "std"], optional = true }

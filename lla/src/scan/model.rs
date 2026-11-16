@@ -1,7 +1,7 @@
 //! Turns scanned trees into categories of items you can act on.
 
 use super::disk::Volume;
-use super::rules::{artifact_info, Category, Mode, Rules, Safety};
+use super::rules::{artifact_info, item_label, Category, Mode, Rules, Safety};
 use super::walk::Node;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -88,6 +88,8 @@ pub struct Item {
     pub protected: bool,
     /// Loose small files of a folder, shown as one row and not removable as a unit.
     pub loose: bool,
+    /// A readable name when the file name is an id, like an iPhone backup.
+    pub label: Option<String>,
 }
 
 impl Item {
@@ -177,6 +179,7 @@ impl Builder<'_> {
             permanent: ctx.permanent,
             protected: self.rules.is_protected(path),
             loose: false,
+            label: item_label(path),
         });
         (group, items.len() - 1)
     }
@@ -230,6 +233,7 @@ impl Builder<'_> {
                         permanent: ctx.permanent,
                         protected: true,
                         loose: true,
+                        label: None,
                     });
                 }
             } else {
@@ -308,6 +312,7 @@ pub fn build(scan: &Scan, rules: &Rules, now: i64) -> Report {
                     permanent: rule_less.permanent,
                     protected: true,
                     loose: true,
+                    label: None,
                 });
             }
             for child in &node.children {

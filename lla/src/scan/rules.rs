@@ -341,6 +341,7 @@ const PROTECTED_NAMES: &[&str] = &[
     "Applications",
 ];
 
+#[derive(Clone)]
 pub struct Rules {
     pub home: Option<PathBuf>,
     pub rules: Vec<Rule>,
@@ -548,6 +549,12 @@ fn home_rules(home: &Path, rules: &mut Vec<Rule>) {
         (".bundle/cache", Safe, "Bundler cache"),
         (".swiftpm", Safe, "Swift package cache"),
         (".platformio", Review, "PlatformIO toolchains"),
+        (
+            ".colima",
+            Review,
+            "Colima VM disks, docker system prune frees space inside them",
+        ),
+        (".lima", Review, "Lima VM disks"),
     ] {
         push(rules, h(rel), Developer, Item, safety, reason);
     }
@@ -614,15 +621,45 @@ fn home_rules(home: &Path, rules: &mut Vec<Rule>) {
                 "Xcode downloads it again when a device connects",
             ),
             (
-                "Library/Developer/CoreSimulator",
+                "Library/Developer/Xcode/tvOS DeviceSupport",
+                Safe,
+                "Xcode downloads it again when a device connects",
+            ),
+            (
+                "Library/Developer/Xcode/visionOS DeviceSupport",
+                Safe,
+                "Xcode downloads it again when a device connects",
+            ),
+            (
+                "Library/Developer/Xcode/macOS DeviceSupport",
+                Safe,
+                "Xcode downloads it again when a device connects",
+            ),
+            (
+                "Library/Developer/Xcode/UserData/Previews",
+                Safe,
+                "SwiftUI preview data, rebuilt when you open a preview",
+            ),
+            (
+                "Library/Developer/CoreSimulator/Devices",
                 Review,
                 "simulators, xcrun simctl delete unavailable removes old ones",
+            ),
+            (
+                "Library/Developer/CoreSimulator/Caches",
+                Safe,
+                "simulator caches, rebuilt when needed",
             ),
             ("Library/Android/sdk", Review, "Android SDK"),
             (
                 "Library/Containers/com.docker.docker",
                 Review,
-                "Docker disk image, docker system prune frees space inside it",
+                "Docker Desktop disk image, docker system prune frees space inside it",
+            ),
+            (
+                "Library/Group Containers/HUAQ24HBR6.dev.orbstack",
+                Review,
+                "OrbStack disk image, docker system prune frees space inside it",
             ),
             (
                 "Library/pnpm/store",
@@ -637,6 +674,22 @@ fn home_rules(home: &Path, rules: &mut Vec<Rule>) {
         ] {
             push(rules, h(rel), Developer, Item, safety, reason);
         }
+        push(
+            rules,
+            h("Library/Developer/CoreSimulator"),
+            Developer,
+            Container,
+            Review,
+            "simulator data",
+        );
+        push(
+            rules,
+            h("Library/Application Support/MobileSync/Backup"),
+            Apps,
+            Container,
+            Review,
+            IOS_BACKUP,
+        );
         rules.push(Rule {
             path: h(".Trash"),
             category: Trash,
@@ -699,23 +752,55 @@ fn home_rules(home: &Path, rules: &mut Vec<Rule>) {
             ("AppData/Local/pip/Cache", Safe, "pip cache"),
             ("AppData/Local/go-build", Safe, "Go build cache"),
             ("AppData/Local/Android/Sdk", Review, "Android SDK"),
-            ("AppData/Local/Docker", Review, "Docker data"),
+            (
+                "AppData/Local/Docker",
+                Review,
+                "Docker Desktop disk image, docker system prune frees space inside it",
+            ),
             ("AppData/Local/NuGet", Safe, "NuGet cache"),
+            (
+                "AppData/Local/uv/cache",
+                Safe,
+                "uv cache, same as uv cache clean",
+            ),
         ] {
             push(rules, h(rel), Developer, Item, safety, reason);
         }
+        for rel in [
+            "AppData/Roaming/Apple Computer/MobileSync/Backup",
+            // iTunes from the Microsoft Store keeps them here.
+            "Apple/MobileSync/Backup",
+        ] {
+            push(rules, h(rel), Apps, Container, Review, IOS_BACKUP);
+        }
+    }
+
+    // Command-line tools use ~/.cache on macOS too (uv, pre-commit, Hugging Face).
+    #[cfg(unix)]
+    push(
+        rules,
+        h(".cache"),
+        Caches,
+        Container,
+        Safe,
+        "apps rebuild their caches",
+    );
+
+    // Homebrew's download cache, wherever HOMEBREW_CACHE points.
+    #[cfg(unix)]
+    if let Some(cache) = std::env::var_os("HOMEBREW_CACHE").filter(|value| !value.is_empty()) {
+        push(
+            rules,
+            PathBuf::from(cache),
+            Developer,
+            Item,
+            Safe,
+            "Homebrew downloads, same as brew cleanup",
+        );
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        push(
-            rules,
-            h(".cache"),
-            Caches,
-            Container,
-            Safe,
-            "apps rebuild their caches",
-        );
         push(
             rules,
             h(".local/share/flatpak"),
@@ -752,6 +837,22 @@ fn home_rules(home: &Path, rules: &mut Vec<Rule>) {
             Review,
             "Android SDK",
         );
+        push(
+            rules,
+            h(".cache/Homebrew"),
+            Developer,
+            Item,
+            Safe,
+            "Homebrew downloads, same as brew cleanup",
+        );
+        push(
+            rules,
+            h(".local/share/pnpm/store"),
+            Developer,
+            Item,
+            Safe,
+            "pnpm store, prune with pnpm store prune",
+        );
         rules.push(Rule {
             path: h(".local/share/Trash/files"),
             category: Trash,
@@ -777,6 +878,18 @@ fn system_rules(rules: &mut Vec<Rule>) {
         Review,
         "app",
     );
+
+    #[cfg(windows)]
+    for bin in windows::recycle_bins() {
+        rules.push(Rule {
+            path: bin,
+            category: Trash,
+            mode: Container,
+            safety: Safe,
+            reason: "already in the Recycle Bin",
+            permanent: true,
+        });
+    }
 
     #[cfg(windows)]
     for var in ["ProgramFiles", "ProgramFiles(x86)"] {
@@ -847,9 +960,282 @@ fn system_rules(rules: &mut Vec<Rule>) {
     let _ = (Other, Keep, Item);
 }
 
+#[cfg_attr(all(unix, not(target_os = "macos")), allow(dead_code))]
+const IOS_BACKUP: &str = "device backup, delete old ones from Finder or iTunes";
+
+/// A friendlier name for items whose own name says nothing, like iPhone
+/// backups (a long hex id) or Recycle Bin entries (`$R1A2B3C.txt`).
+pub fn item_label(path: &Path) -> Option<String> {
+    let parent = path.parent()?;
+    let parent_name = parent.file_name()?.to_str()?;
+    let grandparent = parent.parent()?.file_name()?.to_str()?;
+    if parent_name == "Backup" && grandparent == "MobileSync" {
+        return backup_device_name(path);
+    }
+    if grandparent.eq_ignore_ascii_case("$Recycle.Bin") {
+        return recycled_name(path);
+    }
+    None
+}
+
+/// Reads "Device Name" from a backup's Info.plist, which Finder and iTunes
+/// write as XML.
+fn backup_device_name(backup: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut text = String::new();
+    std::fs::File::open(backup.join("Info.plist"))
+        .ok()?
+        .take(256 * 1024)
+        .read_to_string(&mut text)
+        .ok()?;
+    let after = &text[text.find("<key>Device Name</key>")?..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")?;
+    let name = after[start..start + end].trim();
+    (!name.is_empty()).then(|| format!("{name} backup"))
+}
+
+/// Windows keeps the original path of each `$R…` entry in the matching `$I…`
+/// file next to it.
+fn recycled_name(entry: &Path) -> Option<String> {
+    let name = entry.file_name()?.to_str()?;
+    let rest = name.strip_prefix("$R")?;
+    let info = std::fs::read(entry.with_file_name(format!("$I{rest}"))).ok()?;
+    let original = parse_recycle_info(&info)?;
+    let file = original.rsplit(['\\', '/']).next().unwrap_or(&original);
+    (!file.is_empty()).then(|| file.to_string())
+}
+
+/// The original path from a `$I` file: version 1 (Vista to 8) stores it in a
+/// fixed 520-byte field, version 2 (Windows 10 and later) after its length.
+fn parse_recycle_info(info: &[u8]) -> Option<String> {
+    let version = u64::from_le_bytes(info.get(0..8)?.try_into().ok()?);
+    let utf16 = match version {
+        1 => info.get(24..24 + 520)?,
+        2 => {
+            let chars = u32::from_le_bytes(info.get(24..28)?.try_into().ok()?) as usize;
+            info.get(28..28 + chars.checked_mul(2)?)?
+        }
+        _ => return None,
+    };
+    let units: Vec<u16> = utf16
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
+        .take_while(|unit| *unit != 0)
+        .collect();
+    let text = String::from_utf16_lossy(&units);
+    (!text.is_empty()).then_some(text)
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::path::PathBuf;
+
+    /// `X:\$Recycle.Bin\<SID>` for the current user on every fixed drive.
+    pub fn recycle_bins() -> Vec<PathBuf> {
+        let drives = fixed_drives();
+        match current_user_sid() {
+            Some(sid) => drives
+                .into_iter()
+                .map(|drive| drive.join("$Recycle.Bin").join(&sid))
+                .filter(|path| path.is_dir())
+                .collect(),
+            // Without the SID, other users' bins are the ones we cannot read.
+            None => drives
+                .into_iter()
+                .filter_map(|drive| std::fs::read_dir(drive.join("$Recycle.Bin")).ok())
+                .flat_map(|entries| entries.flatten())
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir() && std::fs::read_dir(path).is_ok())
+                .collect(),
+        }
+    }
+
+    fn fixed_drives() -> Vec<PathBuf> {
+        use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+        const DRIVE_FIXED: u32 = 3;
+        // SAFETY: no arguments.
+        let mask = unsafe { GetLogicalDrives() };
+        (0..26u8)
+            .filter(|bit| mask & (1 << bit) != 0)
+            .map(|bit| char::from(b'A' + bit))
+            .filter(|letter| {
+                let root: Vec<u16> = format!("{letter}:\\").encode_utf16().chain([0]).collect();
+                // SAFETY: `root` is a NUL-terminated wide string that outlives the call.
+                unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_FIXED }
+            })
+            .map(|letter| PathBuf::from(format!("{letter}:\\")))
+            .collect()
+    }
+
+    fn current_user_sid() -> Option<String> {
+        use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
+        use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+        use windows_sys::Win32::Security::{
+            GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        // SAFETY: the token is closed before returning, the buffer is sized by
+        // the first call and 8-byte aligned, and the string that
+        // ConvertSidToStringSidW allocates is released with LocalFree.
+        unsafe {
+            let mut token: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+                return None;
+            }
+            let mut needed = 0u32;
+            GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+            let mut buffer = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+            let ok = GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                needed,
+                &mut needed,
+            );
+            CloseHandle(token);
+            if ok == 0 {
+                return None;
+            }
+            let user = &*(buffer.as_ptr() as *const TOKEN_USER);
+            let mut text: *mut u16 = std::ptr::null_mut();
+            if ConvertSidToStringSidW(user.User.Sid, &mut text) == 0 || text.is_null() {
+                return None;
+            }
+            let mut len = 0;
+            while *text.add(len) != 0 {
+                len += 1;
+            }
+            let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+            LocalFree(text.cast());
+            Some(sid)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn classify(rules: &Rules, path: &Path) -> Option<(Category, Safety)> {
+        rules
+            .enclosing(path)
+            .map(|rule| (rule.category, rule.safety))
+    }
+
+    #[test]
+    fn package_caches_and_tool_data_are_classified() {
+        let home = PathBuf::from("/home/me");
+        let mut list = Vec::new();
+        home_rules(&home, &mut list);
+        let rules = Rules::new(Some(home.clone()), list);
+        let dev_safe = Some((Category::Developer, Safety::Safe));
+        for rel in [
+            ".npm/_cacache/content-v2/sha512/ab",
+            ".pnpm-store/v3/files",
+            ".yarn/berry/cache/react.zip",
+            ".cargo/registry/cache",
+            ".gradle/caches/modules-2",
+            ".m2/repository/org",
+            "go/pkg/mod/github.com",
+            ".bun/install/cache/react",
+        ] {
+            assert_eq!(classify(&rules, &home.join(rel)), dev_safe, "{rel}");
+        }
+        assert_eq!(
+            classify(&rules, &home.join(".colima/default")),
+            Some((Category::Developer, Safety::Review))
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            classify(&rules, &home.join(".cache/uv/archive-v0")),
+            Some((Category::Caches, Safety::Safe))
+        );
+        #[cfg(all(unix, not(target_os = "macos")))]
+        assert_eq!(
+            classify(&rules, &home.join(".cache/Homebrew/downloads")),
+            dev_safe
+        );
+        #[cfg(target_os = "macos")]
+        {
+            for (rel, category, safety) in [
+                (
+                    "Library/Developer/Xcode/tvOS DeviceSupport/17.0",
+                    Category::Developer,
+                    Safety::Safe,
+                ),
+                (
+                    "Library/Developer/CoreSimulator/Devices/ABC",
+                    Category::Developer,
+                    Safety::Review,
+                ),
+                (
+                    "Library/Developer/CoreSimulator/Caches/dyld",
+                    Category::Developer,
+                    Safety::Safe,
+                ),
+                (
+                    "Library/Application Support/MobileSync/Backup/00008030-001",
+                    Category::Apps,
+                    Safety::Review,
+                ),
+                (
+                    "Library/Caches/Homebrew/downloads",
+                    Category::Developer,
+                    Safety::Safe,
+                ),
+                (
+                    "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data",
+                    Category::Developer,
+                    Safety::Review,
+                ),
+            ] {
+                assert_eq!(
+                    classify(&rules, &home.join(rel)),
+                    Some((category, safety)),
+                    "{rel}"
+                );
+            }
+            // Each backup is its own item, so only the folder holding them is kept.
+            let backups = home.join("Library/Application Support/MobileSync/Backup");
+            assert!(rules.is_protected(&backups));
+            assert!(!rules.is_protected(&backups.join("00008030-001")));
+        }
+    }
+
+    #[test]
+    fn labels_backups_and_recycled_files() {
+        let root = tempfile::TempDir::new().unwrap();
+        let backup = root.path().join("MobileSync/Backup/00008030-001A");
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(
+            backup.join("Info.plist"),
+            "<plist><dict><key>Build Version</key><string>21A</string>\n\
+             <key>Device Name</key>\n\t<string>Sam's iPhone</string></dict></plist>",
+        )
+        .unwrap();
+        assert_eq!(item_label(&backup).as_deref(), Some("Sam's iPhone backup"));
+
+        let bin = root.path().join("$Recycle.Bin/S-1-5-21-1");
+        std::fs::create_dir_all(&bin).unwrap();
+        let original = r"C:\Users\me\Videos\trip.mp4";
+        let mut info = 2u64.to_le_bytes().to_vec();
+        info.extend(5_000_000u64.to_le_bytes());
+        info.extend(0u64.to_le_bytes());
+        let units: Vec<u16> = original.encode_utf16().chain([0]).collect();
+        info.extend((units.len() as u32).to_le_bytes());
+        info.extend(units.iter().flat_map(|unit| unit.to_le_bytes()));
+        std::fs::write(bin.join("$IAB12CD.mp4"), &info).unwrap();
+        std::fs::write(bin.join("$RAB12CD.mp4"), "x").unwrap();
+        assert_eq!(
+            item_label(&bin.join("$RAB12CD.mp4")).as_deref(),
+            Some("trip.mp4")
+        );
+        assert_eq!(item_label(&root.path().join("plain/file")), None);
+    }
 
     fn names(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()

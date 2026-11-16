@@ -306,6 +306,11 @@ impl Args {
                                     .map_err(|_| format!("'{value}' is not a number"))
                             })
                             .help("How many items to list per section in the summary (default: 10)"),
+                    )
+                    .arg(
+                        Arg::with_name("no-duplicates")
+                            .long("no-duplicates")
+                            .help("Skip looking for duplicate files after the scan"),
                     ),
             )
             .arg(
@@ -1365,6 +1370,7 @@ impl Args {
                     .value_of("top")
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
+                duplicates: !scan_matches.is_present("no-duplicates"),
             }))
         } else {
             matches.subcommand_matches("update").map(|update_matches| {
