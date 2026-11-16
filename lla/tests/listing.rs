@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 use tempfile::TempDir;
 
 /// Runs `lla` with an isolated home directory so no user config, history or
@@ -218,6 +218,7 @@ fn listing_does_not_write_a_listing_cache() {
 #[test]
 fn closed_pipe_does_not_panic() {
     use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
 
     let home = TempDir::new().unwrap();
     let root = TempDir::new().unwrap();

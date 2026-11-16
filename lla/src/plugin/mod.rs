@@ -999,7 +999,7 @@ impl PluginManager {
         missing.sort();
         for name in missing {
             eprintln!(
-                "⚠️ Enabled plugin '{name}' is not available; run `lla use` to update the enabled plugins"
+                "Warning: Enabled plugin not found: {name} (run `lla use` to update the enabled plugins)"
             );
         }
         Ok(())
