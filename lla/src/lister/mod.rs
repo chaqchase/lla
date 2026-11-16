@@ -13,9 +13,11 @@ pub trait FileLister {
 pub mod archive;
 mod basic;
 mod fuzzy;
+mod graphics;
+mod grep;
 mod preview;
 mod recursive;
 
 pub use basic::BasicLister;
-pub use fuzzy::FuzzyLister;
+pub use fuzzy::{FuzzyLister, SearchMode};
 pub use recursive::{ExcludedPaths, RecursiveLister};

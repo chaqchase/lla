@@ -22,6 +22,8 @@ pub struct Args {
     pub timeline_format: bool,
     pub git_format: bool,
     pub fuzzy_format: bool,
+    /// What the finder starts out listing.
+    pub fuzzy_mode: crate::lister::SearchMode,
     pub recursive_format: bool,
     pub show_icons: bool,
     pub hyperlinks: bool,
@@ -409,6 +411,17 @@ impl Args {
                     .short('F')
                     .long("fuzzy")
                     .help("Use interactive fuzzy finder"),
+            )
+            .arg(
+                Arg::with_name("fuzzy-dirs")
+                    .long("dirs")
+                    .help("Open the fuzzy finder on folders instead of files (implies -F)"),
+            )
+            .arg(
+                Arg::with_name("fuzzy-contents")
+                    .long("contents")
+                    .conflicts_with("fuzzy-dirs")
+                    .help("Open the fuzzy finder searching inside files (implies -F)"),
             )
             .arg(
                 Arg::with_name("icons")
@@ -1039,6 +1052,7 @@ impl Args {
                     timeline_format: config.default_format == "timeline",
                     git_format: config.default_format == "git",
                     fuzzy_format: false,
+                    fuzzy_mode: Default::default(),
                     recursive_format: false,
                     show_icons: config.show_icons,
                     hyperlinks: false,
@@ -1387,6 +1401,8 @@ impl Args {
             || matches.is_present("timeline")
             || matches.is_present("git")
             || matches.is_present("fuzzy")
+            || matches.is_present("fuzzy-dirs")
+            || matches.is_present("fuzzy-contents")
             || matches.is_present("recursive");
         let has_format_flag = has_view_format_flag || has_long_metadata_flag;
 
@@ -1495,7 +1511,16 @@ impl Args {
                 || (!has_format_flag && config.default_format == "timeline"),
             git_format: matches.is_present("git")
                 || (!has_format_flag && config.default_format == "git"),
-            fuzzy_format: matches.is_present("fuzzy"),
+            fuzzy_format: matches.is_present("fuzzy")
+                || matches.is_present("fuzzy-dirs")
+                || matches.is_present("fuzzy-contents"),
+            fuzzy_mode: if matches.is_present("fuzzy-dirs") {
+                crate::lister::SearchMode::Folders
+            } else if matches.is_present("fuzzy-contents") {
+                crate::lister::SearchMode::Text
+            } else {
+                crate::lister::SearchMode::Files
+            },
             recursive_format: matches.is_present("recursive")
                 || (!has_format_flag && config.default_format == "recursive"),
             // Configured icons are for terminals; piped output only gets them

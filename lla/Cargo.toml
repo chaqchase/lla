@@ -61,6 +61,9 @@ unicode-normalization = "0.1.22"
 num_cpus = "1.16"
 nucleo-matcher = "0.3"
 syntect = "5.2"
+memchr = "2"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 csv = "1"
 pathdiff = "0.2"
 zip = { version = "1", default-features = false, features = ["deflate"] }

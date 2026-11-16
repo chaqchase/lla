@@ -2,6 +2,7 @@
 //! tables for CSV, listings for archives, image sizes and hex dumps, all in
 //! the colors of the current theme.
 
+use super::graphics::{self, Graphic, Protocol};
 use crate::theme::palette::{self, Tone};
 use crate::utils::color::{colorize_date_relative, colorize_size};
 use colored::{ColoredString, Colorize};
@@ -15,9 +16,14 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{
     Color as SynColor, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSettings,
 };
-use syntect::parsing::{SyntaxDefinition, SyntaxReference, SyntaxSet};
+use syntect::parsing::{SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder};
 
 const MAX_BYTES: u64 = 64 * 1024;
+/// When opening at a matched line, read this far to reach it.
+const MAX_BYTES_AT_LINE: u64 = 8 * 1024 * 1024;
+/// Lines highlighted before the shown window so the colors are right there.
+const MAX_LEAD_IN_LINES: usize = 2_000;
+const MAX_FOLDER_ENTRIES: usize = 10_000;
 const BINARY_SNIFF_BYTES: usize = 8 * 1024;
 /// Lines are cut before highlighting; nothing past this fits on screen anyway,
 /// and minified files would otherwise take a long time.
@@ -29,11 +35,17 @@ pub struct Request {
     pub path: PathBuf,
     pub height: usize,
     pub width: usize,
+    /// Open at this line and mark it (text search results).
+    pub line: Option<u32>,
 }
 
+#[derive(Clone)]
 pub struct Preview {
     pub request: Request,
     pub lines: Vec<String>,
+    /// An image to draw over the preview with the Kitty protocol, and the
+    /// preview line its top sits on.
+    pub graphic: Option<(Graphic, usize)>,
 }
 
 /// Builds previews on their own thread so moving through results never waits
@@ -45,21 +57,18 @@ pub fn spawn_worker(requests: Receiver<Request>, previews: Sender<Preview>) {
             while let Ok(newer) = requests.try_recv() {
                 request = newer;
             }
-            let lines = match cache.iter().position(|cached| cached.request == request) {
-                Some(index) => cache[index].lines.clone(),
+            let preview = match cache.iter().find(|cached| cached.request == request) {
+                Some(cached) => cached.clone(),
                 None => {
-                    let lines = build(&request.path, request.height, request.width);
+                    let preview = render(&request);
                     if cache.len() == CACHE_SIZE {
                         cache.pop_front();
                     }
-                    cache.push_back(Preview {
-                        request: request.clone(),
-                        lines: lines.clone(),
-                    });
-                    lines
+                    cache.push_back(preview.clone());
+                    preview
                 }
             };
-            if previews.send(Preview { request, lines }).is_err() {
+            if previews.send(preview).is_err() {
                 return;
             }
         }
@@ -78,8 +87,31 @@ fn faint(text: &str) -> String {
     paint(text, palette::current().faint).to_string()
 }
 
-/// The lines shown for `path`: a header, a rule, then the content.
+#[cfg(test)]
 pub fn build(path: &Path, height: usize, width: usize) -> Vec<String> {
+    render(&Request {
+        path: path.to_path_buf(),
+        height,
+        width,
+        line: None,
+    })
+    .lines
+}
+
+/// A header, a rule, then the content.
+pub fn render(request: &Request) -> Preview {
+    let Request {
+        path,
+        height,
+        width,
+        line,
+    } = request;
+    let (height, width) = (*height, *width);
+    let done = |lines: Vec<String>, graphic: Option<(Graphic, usize)>| Preview {
+        request: request.clone(),
+        lines,
+        graphic,
+    };
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -87,44 +119,122 @@ pub fn build(path: &Path, height: usize, width: usize) -> Vec<String> {
     let metadata = match path.metadata() {
         Ok(metadata) => metadata,
         Err(e) => {
-            return vec![
-                name.bold().to_string(),
-                muted(&format!("cannot preview: {e}")),
-            ]
+            return done(
+                vec![
+                    name.bold().to_string(),
+                    muted(&format!("cannot preview: {e}")),
+                ],
+                None,
+            )
         }
     };
+    let room = height.saturating_sub(3);
 
-    let mut head = Vec::new();
-    let read = File::open(path).and_then(|file| file.take(MAX_BYTES).read_to_end(&mut head));
-    let body = match read {
-        Err(e) => Body::message(format!("cannot preview: {e}")),
-        Ok(_) if head.is_empty() => Body::message("empty file"),
-        Ok(_) => content(path, &head, metadata.len(), height.saturating_sub(3), width),
+    let body = if metadata.is_dir() {
+        folder(path, room)
+    } else {
+        let limit = if line.is_some() {
+            MAX_BYTES_AT_LINE
+        } else {
+            MAX_BYTES
+        };
+        let mut head = Vec::new();
+        let read = File::open(path).and_then(|file| file.take(limit).read_to_end(&mut head));
+        match read {
+            Err(e) => Body::message(format!("cannot preview: {e}")),
+            Ok(_) if head.is_empty() => Body::message("empty file"),
+            Ok(_) => content(path, &head, metadata.len(), room, width, *line),
+        }
     };
 
     let modified = metadata
         .modified()
         .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let mut details = vec![
-        colorize_size(metadata.len()).to_string(),
-        colorize_date_relative(&modified).to_string(),
-    ];
+    let mut details = Vec::new();
     if let Some(kind) = &body.kind {
-        details.insert(0, paint(kind, palette::current().accent).to_string());
+        details.push(paint(kind, palette::current().accent).to_string());
     }
+    if !metadata.is_dir() {
+        details.push(colorize_size(metadata.len()).to_string());
+    }
+    details.push(colorize_date_relative(&modified).to_string());
     let mut lines = vec![
         name.bold().to_string(),
         details.join(&faint("  ·  ")),
         faint(&"─".repeat(width)),
     ];
+    let graphic = body.graphic.map(|graphic| (graphic, lines.len()));
     lines.extend(body.lines);
     lines.truncate(height);
-    lines
+    done(lines, graphic)
+}
+
+/// The entries of a folder, folders first.
+fn folder(path: &Path, height: usize) -> Body {
+    let ui = palette::current();
+    let Ok(read) = std::fs::read_dir(path) else {
+        return Body::message("cannot read this folder");
+    };
+    let mut entries: Vec<(bool, String, u64)> = Vec::new();
+    let mut total = 0;
+    for entry in read.flatten() {
+        total += 1;
+        if entries.len() < MAX_FOLDER_ENTRIES {
+            let meta = entry.metadata().ok();
+            let dir = meta.as_ref().is_some_and(|meta| meta.is_dir());
+            let size = meta.map_or(0, |meta| meta.len());
+            entries.push((dir, entry.file_name().to_string_lossy().into_owned(), size));
+        }
+    }
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+    let shown = height.saturating_sub(1);
+    let mut lines: Vec<String> = entries
+        .iter()
+        .take(shown)
+        .map(|(dir, name, size)| {
+            if *dir {
+                format!(
+                    "{}  {}{}",
+                    faint(&format!("{:>9}", "-")),
+                    paint(name, ui.accent),
+                    muted(std::path::MAIN_SEPARATOR_STR)
+                )
+            } else {
+                format!(
+                    "{}  {}",
+                    muted(&format!("{:>9}", crate::scan::format::size(*size))),
+                    paint(name, ui.text)
+                )
+            }
+        })
+        .collect();
+    if total > shown {
+        lines.push(faint(&format!("… {} more", total - shown.min(total))));
+    }
+    if total == 0 {
+        lines.push(muted("empty folder"));
+    }
+    let count = if total > MAX_FOLDER_ENTRIES {
+        format!("{}+", crate::scan::format::count(MAX_FOLDER_ENTRIES as u64))
+    } else {
+        crate::scan::format::count(total as u64)
+    };
+    let items = if total == 1 { "item" } else { "items" };
+    Body {
+        kind: Some(format!("folder · {count} {items}")),
+        lines,
+        graphic: None,
+    }
 }
 
 struct Body {
     kind: Option<String>,
     lines: Vec<String>,
+    /// Drawn with the Kitty protocol over the first lines of the body.
+    graphic: Option<Graphic>,
 }
 
 impl Body {
@@ -132,6 +242,7 @@ impl Body {
         Self {
             kind: None,
             lines: vec![muted(&text.into())],
+            graphic: None,
         }
     }
 }
@@ -142,7 +253,14 @@ fn extension(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn content(path: &Path, head: &[u8], size: u64, height: usize, width: usize) -> Body {
+fn content(
+    path: &Path,
+    head: &[u8],
+    size: u64,
+    height: usize,
+    width: usize,
+    line: Option<u32>,
+) -> Body {
     let ext = extension(path);
     let name = path
         .file_name()
@@ -150,7 +268,7 @@ fn content(path: &Path, head: &[u8], size: u64, height: usize, width: usize) -> 
         .unwrap_or_default();
 
     if let Some((format, w, h)) = image_size(head) {
-        return image(format, w, h);
+        return image(path, format, w, h, height, width);
     }
     if ext == "zip" || ext == "jar" || ext == "whl" || head.starts_with(b"PK\x03\x04") {
         if let Some(body) = zip_listing(path, height) {
@@ -185,12 +303,12 @@ fn content(path: &Path, head: &[u8], size: u64, height: usize, width: usize) -> 
         }
         "json" if !truncated => {
             if let Some(pretty) = pretty_json(&text) {
-                return code(path, &pretty, "JSON", false, height);
+                return code(path, &pretty, "JSON", false, height, None);
             }
         }
         _ => {}
     }
-    code(path, &text, "", truncated, height)
+    code(path, &text, "", truncated, height, line)
 }
 
 /// Invalid UTF-8 can still be text in another encoding; only call it binary
@@ -203,45 +321,51 @@ fn mostly_text(bytes: &[u8]) -> bool {
     control * 100 <= bytes.len()
 }
 
-fn image(format: &str, width: u32, height: u32) -> Body {
+/// The image itself where the terminal can show it, then its size.
+fn image(path: &Path, format: &str, width: u32, height: u32, rows: usize, cols: usize) -> Body {
     let ui = palette::current();
-    let ratio = if height > 0 {
-        let gcd = gcd(width, height).max(1);
-        format!("{}:{}", width / gcd, height / gcd)
-    } else {
-        String::new()
-    };
-    let mut lines = vec![format!(
+    let mut info = vec![format!(
         "{}  {}",
         muted("dimensions"),
         paint(&format!("{width} × {height}"), ui.text).bold()
     )];
     let megapixels = f64::from(width) * f64::from(height) / 1e6;
     if megapixels >= 0.1 {
-        lines.push(format!(
+        info.push(format!(
             "{}  {}",
             muted("megapixels"),
             paint(&format!("{megapixels:.1}"), ui.text)
         ));
     }
-    if !ratio.is_empty() && ratio.len() <= 9 {
-        lines.push(format!(
-            "{}  {}",
-            muted("aspect    "),
-            paint(&ratio, ui.text)
-        ));
+
+    // Leave room for a blank line and the size underneath.
+    let picture_rows = rows.saturating_sub(info.len() + 1);
+    let protocol = graphics::protocol();
+    let decoded = (protocol != Protocol::Off && picture_rows >= 4)
+        .then(|| graphics::decode(path))
+        .flatten();
+    let mut lines = Vec::new();
+    let mut graphic = None;
+    if let Some(decoded) = decoded {
+        match protocol {
+            Protocol::Kitty => {
+                if let Some(picture) = graphics::kitty_graphic(&decoded, cols, picture_rows) {
+                    lines.extend(std::iter::repeat_n(String::new(), picture.rows as usize));
+                    graphic = Some(picture);
+                }
+            }
+            Protocol::Blocks => lines.extend(graphics::blocks(&decoded, cols, picture_rows)),
+            Protocol::Off => {}
+        }
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
     }
+    lines.extend(info);
     Body {
         kind: Some(format!("{format} image")),
         lines,
-    }
-}
-
-fn gcd(a: u32, b: u32) -> u32 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
+        graphic,
     }
 }
 
@@ -332,6 +456,7 @@ fn listing(kind: String, rows: Vec<(String, u64, bool)>, more: Option<String>) -
     Body {
         kind: Some(kind),
         lines,
+        graphic: None,
     }
 }
 
@@ -459,6 +584,7 @@ fn table(text: &str, delimiter: u8, height: usize) -> Option<Body> {
     Some(Body {
         kind: Some(format!("{label} · {columns} columns")),
         lines,
+        graphic: None,
     })
 }
 
@@ -487,17 +613,20 @@ pub fn sanitize(line: &str) -> String {
 
 fn syntaxes() -> &'static SyntaxSet {
     static SET: OnceLock<SyntaxSet> = OnceLock::new();
+    SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+/// Grammars syntect does not ship. They live in their own small set so the
+/// bundled one never has to be rebuilt, which is slow.
+fn extra_syntaxes() -> &'static SyntaxSet {
+    static SET: OnceLock<SyntaxSet> = OnceLock::new();
     SET.get_or_init(|| {
-        let defaults = SyntaxSet::load_defaults_newlines();
+        let mut builder = SyntaxSetBuilder::new();
         let toml = include_str!("syntaxes/toml.sublime-syntax");
-        match SyntaxDefinition::load_from_str(toml, true, None) {
-            Ok(definition) => {
-                let mut builder = defaults.into_builder();
-                builder.add(definition);
-                builder.build()
-            }
-            Err(_) => defaults,
+        if let Ok(definition) = SyntaxDefinition::load_from_str(toml, true, None) {
+            builder.add(definition);
         }
+        builder.build()
     })
 }
 
@@ -510,7 +639,8 @@ pub fn warm_up() {
     });
 }
 
-fn find_syntax<'a>(set: &'a SyntaxSet, path: &Path, first_line: &str) -> &'a SyntaxReference {
+/// The grammar for a file, and the set it belongs to.
+fn find_syntax(path: &Path, first_line: &str) -> (&'static SyntaxSet, &'static SyntaxReference) {
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -533,15 +663,19 @@ fn find_syntax<'a>(set: &'a SyntaxSet, path: &Path, first_line: &str) -> &'a Syn
         "Cargo.lock" | "poetry.lock" | "uv.lock" | "Pipfile" => Some("toml"),
         _ => None,
     };
-    set.find_syntax_by_extension(&ext)
-        .or_else(|| set.find_syntax_by_extension(&name))
-        .or_else(|| {
-            alias
-                .or(by_name)
-                .and_then(|ext| set.find_syntax_by_extension(ext))
-        })
-        .or_else(|| set.find_syntax_by_first_line(first_line))
-        .unwrap_or_else(|| set.find_syntax_plain_text())
+    let tokens = [Some(ext.as_str()), Some(name.as_str()), alias.or(by_name)];
+    for token in tokens.into_iter().flatten() {
+        for set in [syntaxes(), extra_syntaxes()] {
+            if let Some(syntax) = set.find_syntax_by_extension(token) {
+                return (set, syntax);
+            }
+        }
+    }
+    let set = syntaxes();
+    let syntax = set
+        .find_syntax_by_first_line(first_line)
+        .unwrap_or_else(|| set.find_syntax_plain_text());
+    (set, syntax)
 }
 
 /// Syntax colors for the preview, taken from the lla theme.
@@ -632,22 +766,49 @@ fn decode(color: SynColor) -> Tone {
 
 /// `truncated` when only the start of the file was read, so the line count
 /// would be wrong.
-fn code(path: &Path, text: &str, kind: &str, truncated: bool, height: usize) -> Body {
-    let set = syntaxes();
+fn code(
+    path: &Path,
+    text: &str,
+    kind: &str,
+    truncated: bool,
+    height: usize,
+    focus: Option<u32>,
+) -> Body {
     let first_line = text.lines().next().unwrap_or("");
-    let syntax = find_syntax(set, path, first_line);
-    let plain = syntax.name == set.find_syntax_plain_text().name;
+    let (set, syntax) = find_syntax(path, first_line);
+    let plain = syntax.name == "Plain Text";
     let mut highlighter = HighlightLines::new(syntax, highlight_theme());
 
-    let lines: Vec<&str> = text.lines().take(height).collect();
-    let gutter = lines.len().max(1).to_string().len();
+    // With a focus line, show it a third of the way down.
+    let first = focus.map_or(0, |line| (line as usize).saturating_sub(1 + height / 3));
+    let lead_in = first.min(MAX_LEAD_IN_LINES);
+    let mut all = text.lines().skip(first - lead_in);
+    if !plain {
+        // Run the lines above the window through the highlighter so strings
+        // and comments that started earlier are colored right.
+        for line in all.by_ref().take(lead_in) {
+            let _ = highlighter.highlight_line(&format!("{}\n", sanitize(line)), set);
+        }
+    } else {
+        all.by_ref().take(lead_in).for_each(drop);
+    }
+    let lines: Vec<&str> = all.take(height).collect();
+    let gutter = (first + lines.len()).max(1).to_string().len();
     let ui = palette::current();
     let number_tone = ui.muted.mix(ui.faint, 0.5);
     let rendered = lines
         .iter()
         .enumerate()
         .map(|(index, line)| {
-            let number = paint(&format!("{:>gutter$} ", index + 1), number_tone).to_string();
+            let number = first + index + 1;
+            let focused = focus == Some(number as u32);
+            let number = if focused {
+                paint(&format!("{number:>gutter$}▌"), ui.warning)
+                    .bold()
+                    .to_string()
+            } else {
+                paint(&format!("{number:>gutter$} "), number_tone).to_string()
+            };
             let clean = sanitize(line);
             let body = if plain {
                 paint(&clean, ui.text).to_string()
@@ -694,6 +855,7 @@ fn code(path: &Path, text: &str, kind: &str, truncated: bool, height: usize) -> 
     Body {
         kind: Some(kind),
         lines: rendered,
+        graphic: None,
     }
 }
 
@@ -797,6 +959,7 @@ fn binary(head: &[u8], height: usize, width: usize) -> Body {
     Body {
         kind: Some(binary_kind(head).to_string()),
         lines,
+        graphic: None,
     }
 }
 
@@ -865,6 +1028,60 @@ mod tests {
         let empty = dir.path().join("empty");
         std::fs::write(&empty, "").unwrap();
         assert_eq!(strip(&build(&empty, 20, 60))[3], "empty file");
+    }
+
+    #[test]
+    fn toml_lines_folders_and_images() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let toml = dir.path().join("Cargo.toml");
+        std::fs::write(&toml, "[package]\nname = \"lla\"\n").unwrap();
+        assert!(strip(&build(&toml, 20, 60))[1].starts_with("TOML · 2 lines"));
+        let lock = dir.path().join("Cargo.lock");
+        std::fs::write(&lock, "version = 4\n").unwrap();
+        assert!(strip(&build(&lock, 20, 60))[1].starts_with("TOML"));
+
+        // Opening at a line puts it a third of the way down and marks it.
+        let long = dir.path().join("long.txt");
+        let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(&long, text).unwrap();
+        let preview = render(&Request {
+            path: long.clone(),
+            height: 13,
+            width: 60,
+            line: Some(50),
+        });
+        let lines = strip(&preview.lines);
+        let marked: Vec<_> = lines.iter().filter(|line| line.contains('▌')).collect();
+        assert_eq!(marked, vec!["50▌line 50"]);
+        assert_eq!(lines[3], "47 line 47");
+
+        let folder_path = dir.path().join("folder");
+        std::fs::create_dir_all(folder_path.join("sub")).unwrap();
+        std::fs::write(folder_path.join("a.txt"), "a").unwrap();
+        let lines = strip(&build(&folder_path, 20, 60));
+        assert!(lines[1].starts_with("folder · 2 items"), "{lines:?}");
+        assert!(lines[3].trim_start().starts_with("-  sub"), "{lines:?}");
+        assert!(lines[4].ends_with("a.txt"));
+
+        // Blocks are the fallback everywhere; the size is always listed.
+        let png = dir.path().join("dot.png");
+        image::RgbaImage::from_pixel(64, 32, image::Rgba([0, 128, 255, 255]))
+            .save(&png)
+            .unwrap();
+        let preview = render(&Request {
+            path: png,
+            height: 20,
+            width: 60,
+            line: None,
+        });
+        let lines = strip(&preview.lines);
+        assert!(lines[1].starts_with("PNG image"));
+        assert!(lines.iter().any(|line| line.contains("64 × 32")));
+        match graphics::protocol() {
+            Protocol::Kitty => assert!(preview.graphic.is_some()),
+            Protocol::Blocks => assert!(lines.iter().any(|line| line.contains('▀'))),
+            Protocol::Off => {}
+        }
     }
 
     #[test]

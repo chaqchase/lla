@@ -1,5 +1,7 @@
 #![cfg_attr(test, allow(dead_code))]
 
+use super::graphics::{self, Protocol};
+use super::grep;
 use super::preview;
 use super::FileLister;
 use crate::error::Result;
@@ -26,7 +28,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtomicOrdering},
     Arc,
 };
 use std::thread;
@@ -36,6 +38,11 @@ const CHUNK_SIZE: usize = 1000;
 const MAX_RESULTS: usize = 2000;
 /// How many greedy matches per result get rescored with the optimal matcher.
 const RESCORE_FACTOR: usize = 4;
+/// Files searched between checks for a newer query in text mode.
+const TEXT_CHUNK: usize = 256;
+/// How often text search shows what it has found so far.
+const TEXT_PARTIAL_MS: u64 = 120;
+const TEXT_MIN_CHARS: usize = 2;
 const POLL_INTERVAL_MS: u64 = 16;
 const BATCH_CHECK_MS: u64 = 100;
 const SPINNER_INTERVAL_MS: u64 = 80;
@@ -139,7 +146,11 @@ fn open_path(path: &Path) -> std::io::Result<()> {
     }
 }
 
-fn open_in_editor(paths: &[PathBuf], config_editor: Option<&str>) -> std::io::Result<()> {
+fn open_in_editor(
+    paths: &[PathBuf],
+    line: Option<u32>,
+    config_editor: Option<&str>,
+) -> std::io::Result<()> {
     if paths.is_empty() {
         return Ok(());
     }
@@ -181,8 +192,13 @@ fn open_in_editor(paths: &[PathBuf], config_editor: Option<&str>) -> std::io::Re
     let program = parts.next().unwrap_or(editor);
     let mut cmd = ProcessCommand::new(program);
     cmd.args(parts);
-    for path in paths {
-        cmd.arg(path);
+    match (line, paths) {
+        (Some(line), [path]) => {
+            cmd.args(editor_line_args(program, path, line));
+        }
+        _ => {
+            cmd.args(paths);
+        }
     }
     // When lla's stdout is captured (e.g. `vim $(lla -F)`), give the editor the
     // terminal instead of the pipe.
@@ -194,6 +210,30 @@ fn open_in_editor(paths: &[PathBuf], config_editor: Option<&str>) -> std::io::Re
     }
     let _ = cmd.spawn()?.wait();
     Ok(())
+}
+
+/// Arguments that open `path` at `line`, in the form the editor understands.
+fn editor_line_args(program: &str, path: &Path, line: u32) -> Vec<std::ffi::OsString> {
+    let name = Path::new(program)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let with_line = || {
+        let mut arg = path.as_os_str().to_os_string();
+        arg.push(format!(":{line}"));
+        arg
+    };
+    match name.as_str() {
+        "vi" | "vim" | "nvim" | "gvim" | "mvim" | "nano" | "pico" | "emacs" | "emacsclient"
+        | "micro" | "kak" | "joe" | "ne" | "mg" => {
+            vec![format!("+{line}").into(), path.as_os_str().to_os_string()]
+        }
+        "code" | "code-insiders" | "codium" | "cursor" | "windsurf" => {
+            vec!["-g".into(), with_line()]
+        }
+        "hx" | "helix" | "zed" | "subl" | "sublime_text" | "mate" => vec![with_line()],
+        _ => vec![path.as_os_str().to_os_string()],
+    }
 }
 
 fn rename_file(old_path: &Path, new_name: &str) -> std::io::Result<PathBuf> {
@@ -298,9 +338,17 @@ struct FileEntry {
     name_byte: usize,
     name_char: usize,
     depth: u16,
+    folder: bool,
 }
 
 impl FileEntry {
+    fn folder(path: PathBuf, root: &Path) -> Self {
+        Self {
+            folder: true,
+            ..Self::new(path, root)
+        }
+    }
+
     fn new(path: PathBuf, root: &Path) -> Self {
         let rel_path = path.strip_prefix(root).unwrap_or(&path);
         let rel = rel_path.to_string_lossy().into_owned();
@@ -324,6 +372,7 @@ impl FileEntry {
             name_char,
             depth,
             path,
+            folder: false,
         }
     }
 
@@ -602,6 +651,7 @@ fn can_narrow(previous: &str, next: &str) -> bool {
 
 struct MatchCache {
     query: String,
+    folders: bool,
     /// Number of index entries the cached matches were computed over.
     scanned: usize,
     matches: Vec<(u32, i64)>,
@@ -653,10 +703,11 @@ impl SearchIndex {
         self.cache = None;
     }
 
-    fn search(&mut self, raw: &str, query: &Query, limit: usize) -> SearchResults {
+    /// Searches files, or folders when `folders` is set.
+    fn search(&mut self, raw: &str, query: &Query, limit: usize, folders: bool) -> SearchResults {
         if query.is_empty() {
             self.cache = None;
-            return self.browse(limit);
+            return self.browse(limit, folders);
         }
 
         let entries = &self.entries;
@@ -664,13 +715,16 @@ impl SearchIndex {
         let init = || (Matcher::new(match_config()), Vec::new());
         let score = |(matcher, buf): &mut (Matcher, Vec<char>), idx: usize| {
             let entry = &entries[idx];
+            if entry.folder != folders {
+                return None;
+            }
             query
                 .score(entry, matcher, buf, false)
                 .map(|score| (idx as u32, rank_key(score, entry)))
         };
 
         let matches: Vec<(u32, i64)> = match self.cache.take() {
-            Some(cache) if can_narrow(&cache.query, raw) => {
+            Some(cache) if cache.folders == folders && can_narrow(&cache.query, raw) => {
                 let mut matches: Vec<_> = cache
                     .matches
                     .par_iter()
@@ -729,6 +783,7 @@ impl SearchIndex {
         let matched = matches.len();
         self.cache = Some(MatchCache {
             query: raw.to_string(),
+            folders,
             scanned: entries.len(),
             matches,
         });
@@ -739,9 +794,13 @@ impl SearchIndex {
     }
 
     /// Results for an empty query: shallow paths first, then alphabetical.
-    fn browse(&self, limit: usize) -> SearchResults {
+    fn browse(&self, limit: usize, folders: bool) -> SearchResults {
         let entries = &self.entries;
-        let mut ids: Vec<u32> = (0..entries.len() as u32).collect();
+        let mut ids: Vec<u32> = (0..entries.len() as u32)
+            .into_par_iter()
+            .filter(|&id| entries[id as usize].folder == folders)
+            .collect();
+        let matched = ids.len();
         let items = take_best(&mut ids, limit, |a, b| {
             let (a, b) = (&entries[*a as usize], &entries[*b as usize]);
             a.depth
@@ -749,10 +808,7 @@ impl SearchIndex {
                 .then_with(|| a.rel_lower.cmp(&b.rel_lower))
                 .then_with(|| a.rel.cmp(&b.rel))
         });
-        SearchResults {
-            items,
-            matched: entries.len(),
-        }
+        SearchResults { items, matched }
     }
 }
 
@@ -785,54 +841,123 @@ where
     std::mem::take(items)
 }
 
+/// What the finder lists: file names, folder names, or lines inside files.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchMode {
+    #[default]
+    Files,
+    Folders,
+    Text,
+}
+
+impl SearchMode {
+    fn next(self) -> Self {
+        match self {
+            Self::Files => Self::Folders,
+            Self::Folders => Self::Text,
+            Self::Text => Self::Files,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Files => "files",
+            Self::Folders => "folders",
+            Self::Text => "text",
+        }
+    }
+}
+
 enum SearchRequest {
-    Query(String),
+    Query { text: String, mode: SearchMode },
     Rename { old: PathBuf, new: PathBuf },
 }
 
-/// What the search thread sends back. The best matches are copied out so the
-/// UI never has to touch the index.
+/// One result: a file or folder, and in text mode the matching line.
+#[derive(Clone, Debug)]
+struct Row {
+    entry: FileEntry,
+    hit: Option<grep::Hit>,
+}
+
+impl Row {
+    fn same(&self, other: &Row) -> bool {
+        self.entry.path == other.entry.path
+            && self.hit.as_ref().map(|hit| hit.line) == other.hit.as_ref().map(|hit| hit.line)
+    }
+}
+
+/// What the search thread sends back. The rows are copied out so the UI never
+/// has to touch the index.
 struct SearchUpdate {
     query: String,
-    entries: Vec<FileEntry>,
+    mode: SearchMode,
+    rows: Vec<Row>,
     matched: usize,
     total: usize,
     /// The query changed, so the selection goes back to the top.
     reset: bool,
     indexing_done: bool,
+    /// A text search is still running; more rows will follow.
+    busy: bool,
+}
+
+/// Text search results kept so newly indexed files can be searched without
+/// starting over.
+struct TextCache {
+    query: String,
+    scanned: usize,
+    rows: Vec<Row>,
+    /// Stopped at the result limit.
+    full: bool,
 }
 
 struct Searcher {
     root: PathBuf,
     index: SearchIndex,
     query: String,
-    /// The query of the last update sent.
-    shown: Option<String>,
+    mode: SearchMode,
+    /// The query and mode of the last update sent.
+    shown: Option<(String, SearchMode)>,
     /// Files arrived since the last update.
     grown: bool,
     /// Something other than new files changed the results.
     stale: bool,
     indexing_done: bool,
+    text: Option<TextCache>,
+    /// Bumped by the UI for every query, so a text search can tell that it
+    /// has been overtaken.
+    generation: Arc<AtomicU64>,
+    /// `generation` when the requests were last read.
+    seen: u64,
 }
 
 impl Searcher {
-    fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf, generation: Arc<AtomicU64>) -> Self {
         Self {
             root,
             index: SearchIndex::new(),
             query: String::new(),
+            mode: SearchMode::Files,
             shown: None,
             grown: false,
             stale: true,
             indexing_done: false,
+            text: None,
+            generation,
+            seen: 0,
         }
     }
 
     fn apply(&mut self, request: SearchRequest) {
         match request {
-            SearchRequest::Query(query) => self.query = query,
+            SearchRequest::Query { text, mode } => {
+                self.query = text;
+                self.mode = mode;
+            }
             SearchRequest::Rename { old, new } => {
                 self.index.replace_path(&old, &new, &self.root);
+                self.text = None;
                 self.stale = true;
             }
         }
@@ -848,10 +973,14 @@ impl Searcher {
         self.stale = true;
     }
 
+    fn current(&self) -> (String, SearchMode) {
+        (self.query.clone(), self.mode)
+    }
+
     /// `None` when a search is due now, otherwise how long to wait for more
     /// input. New files are shown at most every `interval`.
     fn wait(&self, last: Option<Instant>, interval: Duration) -> Option<Duration> {
-        if self.stale || self.shown.as_deref() != Some(self.query.as_str()) {
+        if self.stale || self.shown.as_ref() != Some(&self.current()) {
             return None;
         }
         if !self.grown {
@@ -861,25 +990,109 @@ impl Searcher {
         interval.checked_sub(since).filter(|left| !left.is_zero())
     }
 
-    fn update(&mut self) -> SearchUpdate {
-        let parsed = Query::parse(&self.query);
-        let results = self.index.search(&self.query, &parsed, MAX_RESULTS);
-        let reset = self.shown.as_deref() != Some(self.query.as_str());
-        self.shown = Some(self.query.clone());
-        self.grown = false;
-        self.stale = false;
+    fn update_with(&self, rows: Vec<Row>, matched: usize, reset: bool, busy: bool) -> SearchUpdate {
         SearchUpdate {
             query: self.query.clone(),
-            entries: results
-                .items
-                .iter()
-                .map(|&id| self.index.entry(id).clone())
-                .collect(),
-            matched: results.matched,
+            mode: self.mode,
+            rows,
+            matched,
             total: self.index.len(),
             reset,
             indexing_done: self.indexing_done,
+            busy,
         }
+    }
+
+    /// Runs the current search and sends the results. Returns false once the
+    /// finder has closed.
+    fn update(&mut self, updates: &Sender<SearchUpdate>) -> bool {
+        let reset = self.shown.as_ref() != Some(&self.current());
+        self.shown = Some(self.current());
+        self.grown = false;
+        self.stale = false;
+        if self.mode == SearchMode::Text {
+            return self.search_text(reset, updates);
+        }
+        self.text = None;
+        let parsed = Query::parse(&self.query);
+        let folders = self.mode == SearchMode::Folders;
+        let results = self
+            .index
+            .search(&self.query, &parsed, MAX_RESULTS, folders);
+        let rows = results
+            .items
+            .iter()
+            .map(|&id| Row {
+                entry: self.index.entry(id).clone(),
+                hit: None,
+            })
+            .collect();
+        updates
+            .send(self.update_with(rows, results.matched, reset, false))
+            .is_ok()
+    }
+
+    fn search_text(&mut self, reset: bool, updates: &Sender<SearchUpdate>) -> bool {
+        let pattern = (self.query.trim().chars().count() >= TEXT_MIN_CHARS)
+            .then(|| grep::pattern(&self.query))
+            .flatten();
+        let Some(pattern) = pattern else {
+            self.text = None;
+            return updates
+                .send(self.update_with(Vec::new(), 0, reset, false))
+                .is_ok();
+        };
+
+        // Carry on over newly indexed files when the text is unchanged.
+        let mut cache = match self.text.take() {
+            Some(cache) if cache.query == self.query => cache,
+            _ => TextCache {
+                query: self.query.clone(),
+                scanned: 0,
+                rows: Vec::new(),
+                full: false,
+            },
+        };
+        let mut reset = reset;
+        let mut last_sent = Instant::now();
+        let total = self.index.len();
+        while !cache.full && cache.scanned < total {
+            if self.generation.load(AtomicOrdering::SeqCst) != self.seen {
+                // A newer query is waiting; drop this one.
+                return true;
+            }
+            let end = (cache.scanned + TEXT_CHUNK).min(total);
+            let found: Vec<Row> = self.index.entries[cache.scanned..end]
+                .par_iter()
+                .filter(|entry| !entry.folder)
+                .flat_map_iter(|entry| {
+                    grep::search_file(&entry.path, &pattern, grep::MAX_HITS_PER_FILE)
+                        .into_iter()
+                        .map(|hit| Row {
+                            entry: entry.clone(),
+                            hit: Some(hit),
+                        })
+                })
+                .collect();
+            cache.rows.extend(found);
+            cache.scanned = end;
+            if cache.rows.len() >= MAX_RESULTS {
+                cache.rows.truncate(MAX_RESULTS);
+                cache.full = true;
+            }
+            let more = !cache.full && cache.scanned < total;
+            if more && last_sent.elapsed() >= Duration::from_millis(TEXT_PARTIAL_MS) {
+                let update = self.update_with(cache.rows.clone(), cache.rows.len(), reset, true);
+                if updates.send(update).is_err() {
+                    return false;
+                }
+                reset = false;
+                last_sent = Instant::now();
+            }
+        }
+        let update = self.update_with(cache.rows.clone(), cache.rows.len(), reset, false);
+        self.text = Some(cache);
+        updates.send(update).is_ok()
     }
 }
 
@@ -890,13 +1103,17 @@ fn spawn_searcher(
     batches: Receiver<Vec<FileEntry>>,
     requests: Receiver<SearchRequest>,
     updates: Sender<SearchUpdate>,
+    generation: Arc<AtomicU64>,
 ) {
     thread::spawn(move || {
-        let mut searcher = Searcher::new(root);
+        let mut searcher = Searcher::new(root, generation);
         let mut batches = Some(batches);
         let interval = Duration::from_millis(BATCH_CHECK_MS);
         let mut last_search: Option<Instant> = None;
         loop {
+            // Read the generation first: a query sent after this point
+            // cancels the search about to start.
+            searcher.seen = searcher.generation.load(AtomicOrdering::SeqCst);
             while let Ok(request) = requests.try_recv() {
                 searcher.apply(request);
             }
@@ -919,7 +1136,7 @@ fn spawn_searcher(
             }
 
             let Some(timeout) = searcher.wait(last_search, interval) else {
-                if updates.send(searcher.update()).is_err() {
+                if !searcher.update(&updates) {
                     return;
                 }
                 last_search = Some(Instant::now());
@@ -1046,10 +1263,17 @@ impl ParallelVisitor for IndexVisitor<'_> {
         let Ok(entry) = entry else {
             return WalkState::Continue;
         };
-        if entry.depth() == 0 || !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        let Some(kind) = entry.file_type() else {
+            return WalkState::Continue;
+        };
+        if entry.depth() == 0 || !(kind.is_file() || kind.is_dir()) {
             return WalkState::Continue;
         }
-        let file = FileEntry::new(entry.into_path(), self.root);
+        let file = if kind.is_dir() {
+            FileEntry::folder(entry.into_path(), self.root)
+        } else {
+            FileEntry::new(entry.into_path(), self.root)
+        };
         if self.rules.matches(&file.rel) {
             return WalkState::Continue;
         }
@@ -1182,7 +1406,7 @@ impl LineEditor {
 
 #[derive(Default)]
 struct ResultList {
-    items: Vec<FileEntry>,
+    items: Vec<Row>,
     matched: usize,
     selected: usize,
     offset: usize,
@@ -1191,22 +1415,26 @@ struct ResultList {
 }
 
 impl ResultList {
-    fn selected_entry(&self) -> Option<&FileEntry> {
+    fn selected_row(&self) -> Option<&Row> {
         self.items.get(self.selected)
     }
 
-    /// Replaces the results. Unless `reset`, keeps the same entry selected
-    /// when it is still present (new files arriving while indexing).
-    fn set(&mut self, items: Vec<FileEntry>, matched: usize, reset: bool) {
+    fn selected_entry(&self) -> Option<&FileEntry> {
+        self.selected_row().map(|row| &row.entry)
+    }
+
+    /// Replaces the results. Unless `reset`, keeps the same row selected when
+    /// it is still present (new files arriving while indexing).
+    fn set(&mut self, items: Vec<Row>, matched: usize, reset: bool) {
         let previous = if reset {
             None
         } else {
-            self.selected_entry().map(|entry| entry.path.clone())
+            self.selected_row().cloned()
         };
         self.items = items;
         self.matched = matched;
         self.selected = previous
-            .and_then(|path| self.items.iter().position(|item| item.path == path))
+            .and_then(|previous| self.items.iter().position(|item| item.same(&previous)))
             .unwrap_or(if reset { 0 } else { self.selected });
         if reset {
             self.offset = 0;
@@ -1267,11 +1495,18 @@ enum Action {
     Search,
     Accept,
     Cancel,
-    Edit(Vec<PathBuf>),
+    /// Paths, and the line to open at when there is a single one.
+    Edit(Vec<PathBuf>, Option<u32>),
 }
 
 struct App {
     searches: Sender<SearchRequest>,
+    generation: Arc<AtomicU64>,
+    mode_kind: SearchMode,
+    /// The mode of the rows on screen, which lags behind `mode_kind` until
+    /// the search answers.
+    shown_mode: SearchMode,
+    busy: bool,
     /// For highlighting the visible rows.
     matcher: RefCell<Matcher>,
     total: usize,
@@ -1285,6 +1520,8 @@ struct App {
     previews: Sender<preview::Request>,
     preview: Option<preview::Preview>,
     preview_pending: Option<preview::Request>,
+    /// The Kitty image on screen: file, column, row, width and height.
+    placed: Option<(PathBuf, u16, u16, u16, u16)>,
     indexed: usize,
     indexing_done: bool,
     started: Instant,
@@ -1293,11 +1530,17 @@ struct App {
 impl App {
     fn new(
         show_icons: bool,
+        mode: SearchMode,
         searches: Sender<SearchRequest>,
+        generation: Arc<AtomicU64>,
         previews: Sender<preview::Request>,
     ) -> Self {
         Self {
             searches,
+            generation,
+            mode_kind: mode,
+            shown_mode: mode,
+            busy: false,
             matcher: RefCell::new(Matcher::new(match_config())),
             total: 0,
             query: LineEditor::default(),
@@ -1310,6 +1553,7 @@ impl App {
             previews,
             preview: None,
             preview_pending: None,
+            placed: None,
             indexed: 0,
             indexing_done: false,
             started: Instant::now(),
@@ -1317,18 +1561,22 @@ impl App {
     }
 
     fn search(&self) {
-        let _ = self
-            .searches
-            .send(SearchRequest::Query(self.query.text.clone()));
+        self.generation.fetch_add(1, AtomicOrdering::SeqCst);
+        let _ = self.searches.send(SearchRequest::Query {
+            text: self.query.text.clone(),
+            mode: self.mode_kind,
+        });
     }
 
     fn apply(&mut self, update: SearchUpdate, reset: bool) {
         // Highlights follow the query the results are for, which can lag
         // behind what has been typed.
         self.parsed = Query::parse(&update.query);
-        self.results.set(update.entries, update.matched, reset);
+        self.shown_mode = update.mode;
+        self.results.set(update.rows, update.matched, reset);
         self.total = update.total;
         self.indexing_done = update.indexing_done;
+        self.busy = update.busy;
     }
 
     fn show_preview(&mut self, preview: preview::Preview) {
@@ -1446,8 +1694,21 @@ impl App {
                 if paths.is_empty() {
                     Action::None
                 } else {
-                    Action::Edit(paths)
+                    let line = if self.results.marked.is_empty() {
+                        self.results
+                            .selected_row()
+                            .and_then(|row| row.hit.as_ref())
+                            .map(|hit| hit.line)
+                    } else {
+                        None
+                    };
+                    Action::Edit(paths, line)
                 }
+            }
+            KeyCode::Char('f') if ctrl => {
+                self.mode_kind = self.mode_kind.next();
+                self.status = None;
+                Action::Search
             }
             KeyCode::F(2) => {
                 if let Some(entry) = self.selected_entry() {
@@ -1562,18 +1823,57 @@ impl App {
         } else {
             Vec::new()
         };
+        // Where the preview image belongs, if there is one.
+        let preview_x = (list_width + 2) as u16;
+        let wanted = self
+            .preview
+            .as_ref()
+            .filter(|_| preview_width > 0 && graphics::protocol() == Protocol::Kitty)
+            .and_then(|shown| {
+                let (graphic, top) = shown.graphic.as_ref()?;
+                Some((
+                    shown.request.path.clone(),
+                    preview_x,
+                    (top + 2) as u16,
+                    graphic.cols,
+                    graphic.rows,
+                ))
+            });
+        // Rows under an image that is already up are left alone, so it is
+        // not painted over.
+        let keep = |row: usize| {
+            let row = (row + 2) as u16;
+            matches!((&wanted, &self.placed), (Some(a), Some(b)) if a == b && row >= a.2 && row < a.2 + a.4)
+        };
         for row in 0..list_height {
             queue!(out, cursor::MoveTo(0, (row + 2) as u16))?;
             let line = rows.get(row).map(String::as_str).unwrap_or("");
             queue!(out, Print(fit(line, list_width)))?;
             if preview_width > 0 {
-                let text = preview.get(row).map(String::as_str).unwrap_or("");
+                queue!(out, Print(tint(" │", palette::current().faint)))?;
+                if !keep(row) {
+                    let text = preview.get(row).map(String::as_str).unwrap_or("");
+                    queue!(out, Print(fit(text, preview_width)))?;
+                }
+            }
+        }
+        if wanted != self.placed {
+            if self.placed.is_some() {
+                queue!(out, Print(graphics::kitty_delete()))?;
+            }
+            if let (Some(place), Some((graphic, _))) = (
+                &wanted,
+                self.preview
+                    .as_ref()
+                    .and_then(|shown| shown.graphic.as_ref()),
+            ) {
                 queue!(
                     out,
-                    Print(tint(" │", palette::current().faint)),
-                    Print(fit(text, preview_width))
+                    cursor::MoveTo(place.1, place.2),
+                    Print(graphics::kitty_place(graphic))
                 )?;
             }
+            self.placed = wanted;
         }
 
         let (status, status_cursor) = self.render_status(width);
@@ -1587,7 +1887,8 @@ impl App {
         let (col, row) = match status_cursor {
             Some(col) => (col, height - 1),
             None => (
-                prompt_width() + console::measure_text_width(self.query.before_cursor()),
+                console::measure_text_width(&self.prompt_prefix())
+                    + console::measure_text_width(self.query.before_cursor()),
                 0,
             ),
         };
@@ -1599,42 +1900,65 @@ impl App {
         out.flush()
     }
 
+    /// The mode name and the prompt arrow.
+    fn prompt_prefix(&self) -> String {
+        let ui = palette::current();
+        format!(
+            " {}{}",
+            tint(self.mode_kind.label(), ui.muted),
+            PROMPT.color(ui.accent.colored()).bold()
+        )
+    }
+
     fn render_prompt(&self, width: usize) -> String {
         let ui = palette::current();
         let accent = ui.accent.colored();
         let input = if self.query.text.is_empty() {
-            tint(
-                "Type to search  ('exact ^prefix suffix$ !exclude)",
-                ui.muted,
-            )
+            let placeholder = match self.mode_kind {
+                SearchMode::Files => "Type to search  ('exact ^prefix suffix$ !exclude)",
+                SearchMode::Folders => "Type to search folders",
+                SearchMode::Text => "Type to search inside files",
+            };
+            tint(placeholder, ui.muted)
         } else {
             self.query.text.color(ui.text.colored()).bold().to_string()
         };
 
-        let spinner = if self.indexing_done {
+        let spinner = if self.indexing_done && !self.busy {
             String::new()
         } else {
             let frame = (self.started.elapsed().as_millis() / SPINNER_INTERVAL_MS as u128) as usize
                 % SPINNER_FRAMES.len();
             format!("{} ", SPINNER_FRAMES[frame].color(accent))
         };
-        let counter = format!(
-            "{}{} ",
-            spinner,
-            tint(format!("{}/{}", self.results.matched, self.total), ui.muted)
-        );
+        let count = if self.shown_mode == SearchMode::Text {
+            let more = if self.results.matched >= MAX_RESULTS {
+                "+"
+            } else {
+                ""
+            };
+            format!("{}{} lines", self.results.matched, more)
+        } else {
+            format!("{}/{}", self.results.matched, self.total)
+        };
+        let counter = format!("{}{} ", spinner, tint(count, ui.muted));
 
-        let left = format!("{}{}", PROMPT.color(accent).bold(), input);
+        let left = format!("{}{}", self.prompt_prefix(), input);
         let room = width.saturating_sub(console::measure_text_width(&counter));
         format!("{}{}", fit(&left, room), counter)
     }
 
     fn render_rows(&self, width: usize) -> Vec<String> {
         if self.results.items.is_empty() {
+            let short = self.query.text.trim().chars().count() < TEXT_MIN_CHARS;
             let message = if !self.indexing_done && self.total == 0 {
                 format!("Indexing files... {} found", self.indexed)
             } else if self.total == 0 {
                 "No files found".to_string()
+            } else if self.mode_kind == SearchMode::Text && short {
+                format!("Type at least {TEXT_MIN_CHARS} characters to search inside files")
+            } else if self.busy || self.shown_mode != self.mode_kind {
+                "Searching...".to_string()
             } else {
                 format!("No matches ({} files indexed)", self.total)
             };
@@ -1652,10 +1976,14 @@ impl App {
             .take(self.results.height);
 
         window
-            .map(|(idx, entry)| {
-                let positions = self.parsed.positions(entry, &mut self.matcher.borrow_mut());
+            .map(|(idx, row)| {
+                let entry = &row.entry;
                 let selected = idx == self.results.selected;
                 let marked = self.results.marked.contains(&entry.path);
+                if let Some(hit) = &row.hit {
+                    return render_hit_row(entry, hit, selected, marked, self.show_icons, width);
+                }
+                let positions = self.parsed.positions(entry, &mut self.matcher.borrow_mut());
                 let meta = if show_meta {
                     entry_meta(&entry.path, show_perms)
                 } else {
@@ -1725,13 +2053,14 @@ impl App {
     /// The preview for the selected file. Previews are built on another
     /// thread; until the new one arrives the previous one stays up.
     fn preview_lines(&mut self, height: usize, width: usize) -> Vec<String> {
-        let Some(path) = self.selected_entry().map(|entry| entry.path.clone()) else {
+        let Some(row) = self.results.selected_row() else {
             return Vec::new();
         };
         let request = preview::Request {
-            path,
+            path: row.entry.path.clone(),
             height,
             width,
+            line: row.hit.as_ref().map(|hit| hit.line),
         };
         let ready = self
             .preview
@@ -1752,10 +2081,6 @@ const PROMPT: &str = " ❯ ";
 
 fn tint(text: impl AsRef<str>, tone: Tone) -> String {
     text.as_ref().color(tone.colored()).to_string()
-}
-
-fn prompt_width() -> usize {
-    console::measure_text_width(PROMPT)
 }
 
 /// Truncates (ANSI-aware) and pads `text` to exactly `width` columns, so rows
@@ -1805,6 +2130,77 @@ fn highlight_runs(
     out
 }
 
+/// A text-mode row: `path:line  matching text`.
+fn render_hit_row(
+    entry: &FileEntry,
+    hit: &grep::Hit,
+    selected: bool,
+    marked: bool,
+    show_icons: bool,
+    width: usize,
+) -> String {
+    let ui = palette::current();
+    let pointer = if selected {
+        "▌".color(ui.accent.colored()).bold().to_string()
+    } else {
+        " ".to_string()
+    };
+    let mark = if marked {
+        "●".color(ui.warning.colored()).bold().to_string()
+    } else {
+        " ".to_string()
+    };
+    let base = colorize_file_name(&entry.path).fgcolor();
+    let name = match base {
+        Some(color) => entry.name().color(color),
+        None => entry.name().normal(),
+    };
+    let name = if selected { name.bold() } else { name };
+    let dir = if entry.dir().is_empty() {
+        String::new()
+    } else {
+        tint(
+            format!("{}{}", entry.dir(), std::path::MAIN_SEPARATOR),
+            ui.muted,
+        )
+    };
+    let location = format_with_icon(
+        &entry.path,
+        format!("{dir}{name}{}", tint(format!(":{}", hit.line), ui.faint)),
+        show_icons,
+    );
+
+    // Keep the path to at most 45% of the row so the line stays readable.
+    let location = fit_trimmed(&location, width * 45 / 100);
+    let text = highlight_ranges(
+        &hit.text,
+        &hit.ranges,
+        |s| tint(s, ui.text),
+        |s| s.color(ui.warning.colored()).bold().to_string(),
+    );
+    format!(" {pointer}{mark} {location}  {text}")
+}
+
+/// Like `fit` but without padding.
+fn fit_trimmed(text: &str, width: usize) -> String {
+    if console::measure_text_width(text) > width {
+        console::truncate_str(text, width, "…").into_owned()
+    } else {
+        text.to_string()
+    }
+}
+
+/// Styles the char `ranges` of `text` with `highlighted`, the rest with `plain`.
+fn highlight_ranges(
+    text: &str,
+    ranges: &[(usize, usize)],
+    plain: impl Fn(&str) -> String,
+    highlighted: impl Fn(&str) -> String,
+) -> String {
+    let positions: Vec<usize> = ranges.iter().flat_map(|&(from, to)| from..to).collect();
+    highlight_runs(text, 0, &positions, plain, highlighted)
+}
+
 fn entry_meta(path: &Path, show_perms: bool) -> String {
     let Ok(metadata) = path.metadata() else {
         return String::new();
@@ -1812,7 +2208,11 @@ fn entry_meta(path: &Path, show_perms: bool) -> String {
     let modified = metadata
         .modified()
         .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let size = format!("{:>7}", colorize_size(metadata.len()));
+    let size = if metadata.is_dir() {
+        format!("      {}", tint("-", palette::current().faint))
+    } else {
+        format!("{:>7}", colorize_size(metadata.len()))
+    };
     let date = colorize_date(&modified);
     if show_perms {
         let perms = colorize_permissions(fs_metadata::permission_mode(&metadata), Some("symbolic"));
@@ -1863,6 +2263,11 @@ fn render_row(
         },
         hl,
     );
+    let name = if entry.folder {
+        format!("{name}{}", tint(std::path::MAIN_SEPARATOR_STR, ui.muted))
+    } else {
+        name
+    };
     let name = format_with_icon(&entry.path, name, show_icons);
     let dir = highlight_runs(
         entry.dir(),
@@ -1912,6 +2317,7 @@ impl TerminalSession {
     }
 
     fn suspend(&mut self) -> io::Result<()> {
+        clear_images(&mut self.out);
         execute!(self.out, terminal::LeaveAlternateScreen, cursor::Show)?;
         terminal::disable_raw_mode()
     }
@@ -1926,8 +2332,15 @@ impl TerminalSession {
     }
 }
 
+fn clear_images(out: &mut impl Write) {
+    if graphics::protocol() == Protocol::Kitty {
+        let _ = execute!(out, Print(graphics::kitty_delete()));
+    }
+}
+
 impl Drop for TerminalSession {
     fn drop(&mut self) {
+        clear_images(&mut self.out);
         let _ = execute!(self.out, terminal::LeaveAlternateScreen, cursor::Show);
         let _ = terminal::disable_raw_mode();
     }
@@ -1938,14 +2351,21 @@ pub struct FuzzyLister {
     config: crate::config::Config,
     respect_gitignore: bool,
     show_icons: bool,
+    mode: SearchMode,
 }
 
 impl FuzzyLister {
-    pub fn new(config: crate::config::Config, respect_gitignore: bool, show_icons: bool) -> Self {
+    pub fn new(
+        config: crate::config::Config,
+        respect_gitignore: bool,
+        show_icons: bool,
+        mode: SearchMode,
+    ) -> Self {
         Self {
             show_icons,
             config,
             respect_gitignore,
+            mode,
         }
     }
 
@@ -1966,14 +2386,30 @@ impl FuzzyLister {
 
         let (search_sender, search_requests) = unbounded();
         let (update_sender, updates) = unbounded();
-        spawn_searcher(root, receiver, search_requests, update_sender);
+        let generation = Arc::new(AtomicU64::new(0));
+        spawn_searcher(
+            root,
+            receiver,
+            search_requests,
+            update_sender,
+            Arc::clone(&generation),
+        );
         let (preview_sender, preview_requests) = unbounded();
         let (preview_done, previews) = unbounded();
         preview::spawn_worker(preview_requests, preview_done);
         preview::warm_up();
 
         let mut session = TerminalSession::enter()?;
-        let mut app = App::new(self.show_icons, search_sender, preview_sender);
+        let mut app = App::new(
+            self.show_icons,
+            self.mode,
+            search_sender,
+            generation,
+            preview_sender,
+        );
+        if self.mode != SearchMode::Files {
+            app.search();
+        }
         let poll_interval = Duration::from_millis(POLL_INTERVAL_MS);
         let spinner_interval = Duration::from_millis(SPINNER_INTERVAL_MS);
         let mut last_draw = Instant::now();
@@ -2011,10 +2447,12 @@ impl FuzzyLister {
                                 }
                                 Action::Accept => return Ok(app.accept()),
                                 Action::Cancel => return Ok(Vec::new()),
-                                Action::Edit(paths) => {
+                                Action::Edit(paths, line) => {
                                     session.suspend()?;
+                                    app.placed = None;
                                     let opened = open_in_editor(
                                         &paths,
+                                        line,
                                         self.config.listers.fuzzy.editor.as_deref(),
                                     );
                                     session.resume()?;
@@ -2083,7 +2521,7 @@ mod tests {
     fn search(index: &mut SearchIndex, raw: &str) -> Vec<String> {
         let query = Query::parse(raw);
         index
-            .search(raw, &query, MAX_RESULTS)
+            .search(raw, &query, MAX_RESULTS, false)
             .items
             .into_iter()
             .map(|id| index.entry(id).rel.clone())
@@ -2121,7 +2559,7 @@ mod tests {
                 typed.push(step);
             }
             let started = Instant::now();
-            let results = index.search(&typed, &Query::parse(&typed), MAX_RESULTS);
+            let results = index.search(&typed, &Query::parse(&typed), MAX_RESULTS, false);
             let took = started.elapsed();
             total += took;
             println!(
@@ -2222,7 +2660,10 @@ mod tests {
         let mut index = index_of(&refs);
 
         let first = Query::parse("a");
-        assert_eq!(index.search("a", &first, MAX_RESULTS).matched, refs.len());
+        assert_eq!(
+            index.search("a", &first, MAX_RESULTS, false).matched,
+            refs.len()
+        );
         let narrowed = search(&mut index, "ab");
         assert_eq!(
             narrowed,
@@ -2261,8 +2702,8 @@ mod tests {
             search(&mut index, ""),
             vec!["a.rs", "z.rs", "b/deep.rs", "a/b/c.rs"]
         );
-        assert_eq!(index.search("", &Query::default(), 2).matched, 4);
-        assert_eq!(index.search("", &Query::default(), 2).items.len(), 2);
+        assert_eq!(index.search("", &Query::default(), 2, false).matched, 4);
+        assert_eq!(index.search("", &Query::default(), 2, false).items.len(), 2);
     }
 
     #[test]
@@ -2348,7 +2789,15 @@ mod tests {
 
     #[test]
     fn result_list_keeps_selection_when_results_grow() {
-        let entries = |names: &[&str]| names.iter().map(|name| entry(name)).collect::<Vec<_>>();
+        let entries = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| Row {
+                    entry: entry(name),
+                    hit: None,
+                })
+                .collect::<Vec<_>>()
+        };
         let selected = |list: &ResultList| list.selected_entry().map(|entry| entry.rel.clone());
         let mut list = ResultList::default();
         list.set_height(2);
@@ -2365,6 +2814,97 @@ mod tests {
         assert_eq!(list.selected, 0);
     }
 
+    /// Indexes `root` like the finder does and runs one query in `mode`.
+    fn search_tree(root: &Path, text: &str, mode: SearchMode) -> SearchUpdate {
+        let (sender, batches) = bounded(16);
+        spawn_indexer(
+            root.to_path_buf(),
+            false,
+            Arc::new(IgnoreRules::new(&[])),
+            sender,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (requests, request_receiver) = unbounded();
+        let (update_sender, updates) = unbounded();
+        spawn_searcher(
+            root.to_path_buf(),
+            batches,
+            request_receiver,
+            update_sender,
+            Arc::new(AtomicU64::new(0)),
+        );
+        requests
+            .send(SearchRequest::Query {
+                text: text.into(),
+                mode,
+            })
+            .unwrap();
+        let update = updates
+            .iter()
+            .find(|update| update.query == text && update.indexing_done && !update.busy)
+            .unwrap();
+        drop(requests);
+        update
+    }
+
+    #[test]
+    fn folder_and_text_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/lister")).unwrap();
+        std::fs::write(
+            root.join("src/lister/fuzzy.rs"),
+            "fn search() {}\n// TODO later\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(root.join("notes.txt"), "nothing\nTODO: write docs\n").unwrap();
+
+        let folders = search_tree(root, "lister", SearchMode::Folders);
+        let names: Vec<_> = folders
+            .rows
+            .iter()
+            .map(|row| row.entry.name().to_string())
+            .collect();
+        assert_eq!(names, vec!["lister"]);
+        assert!(folders.rows.iter().all(|row| row.entry.folder));
+
+        let files = search_tree(root, "lister", SearchMode::Files);
+        assert!(files.rows.iter().all(|row| !row.entry.folder));
+        assert_eq!(files.rows[0].entry.name(), "fuzzy.rs");
+
+        let text = search_tree(root, "todo", SearchMode::Text);
+        let mut found: Vec<_> = text
+            .rows
+            .iter()
+            .map(|row| (row.entry.name().to_string(), row.hit.as_ref().unwrap().line))
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![("fuzzy.rs".to_string(), 2), ("notes.txt".to_string(), 2)]
+        );
+
+        // One character is not enough to search file contents.
+        assert!(search_tree(root, "t", SearchMode::Text).rows.is_empty());
+    }
+
+    #[test]
+    fn editors_get_the_line_in_their_own_syntax() {
+        let path = Path::new("src/main.rs");
+        let args = |program: &str| {
+            editor_line_args(program, path, 42)
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(args("nvim"), vec!["+42", "src/main.rs"]);
+        assert_eq!(args("/usr/local/bin/code"), vec!["-g", "src/main.rs:42"]);
+        assert_eq!(args("hx"), vec!["src/main.rs:42"]);
+        assert_eq!(args("notepad"), vec!["src/main.rs"]);
+    }
+
     #[test]
     fn searches_run_on_their_own_thread() {
         let (batch_sender, batches) = bounded(4);
@@ -2375,19 +2915,25 @@ mod tests {
             batches,
             request_receiver,
             update_sender,
+            Arc::new(AtomicU64::new(0)),
         );
         batch_sender
             .send(vec![entry("src/main.rs"), entry("README.md")])
             .unwrap();
         drop(batch_sender);
-        requests.send(SearchRequest::Query("main".into())).unwrap();
+        requests
+            .send(SearchRequest::Query {
+                text: "main".into(),
+                mode: SearchMode::Files,
+            })
+            .unwrap();
         let update = updates
             .iter()
             .find(|update| update.query == "main" && update.indexing_done)
             .unwrap();
         assert_eq!(update.total, 2);
-        assert_eq!(update.entries.len(), 1);
-        assert_eq!(update.entries[0].rel, "src/main.rs");
+        assert_eq!(update.rows.len(), 1);
+        assert_eq!(update.rows[0].entry.rel, "src/main.rs");
     }
 
     #[test]
