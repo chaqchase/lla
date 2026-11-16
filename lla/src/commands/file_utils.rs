@@ -752,6 +752,7 @@ pub fn create_lister(args: &Args, config: &Config) -> Arc<dyn FileLister + Send 
             config.clone(),
             args.respect_gitignore,
             args.show_icons,
+            args.fuzzy_mode,
         ))
     } else if args.tree_format || args.recursive_format {
         Arc::new(RecursiveLister::new(config.clone(), args.no_dotfiles))
@@ -993,6 +994,7 @@ mod tests {
             timeline_format: false,
             git_format: false,
             fuzzy_format: false,
+            fuzzy_mode: Default::default(),
             recursive_format: false,
             show_icons: false,
             hyperlinks: false,

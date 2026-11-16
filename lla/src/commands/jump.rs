@@ -240,6 +240,8 @@ fn setup_shell_integration(shell_override: Option<&str>) -> Result<()> {
         _ => {
             println!("❌ Unsupported shell: {}", shell);
             println!("   Supported shells: bash, zsh, fish");
+            println!("   For PowerShell, add this to $PROFILE:");
+            println!("     Invoke-Expression (& lla shell-init powershell | Out-String)");
             println!("   Please set up manually using the documentation.");
             Ok(())
         }

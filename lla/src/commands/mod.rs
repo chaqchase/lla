@@ -6,3 +6,4 @@ pub mod init_wizard;
 pub mod jump;
 pub mod plugin_utils;
 pub mod search;
+pub mod shell_init;

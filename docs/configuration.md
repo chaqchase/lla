@@ -74,7 +74,12 @@ max_entries = 20000
 [listers.fuzzy]
 ignore_patterns = ["node_modules", "target", ".git", ".idea", ".vscode"]
 editor = "code --wait"
+remember_index = true
 ```
+
+`remember_index` keeps the file list of folders that take a while to read in
+the cache directory, so the fuzzy finder can show results right away next
+time.
 
 ## Exclude paths
 

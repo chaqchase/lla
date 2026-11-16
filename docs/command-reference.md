@@ -121,6 +121,7 @@ See [Machine output](machine-output.md) for schemas.
 | `init` | Create configuration interactively or from defaults. | [Getting started](getting-started.md#initialize-lla) |
 | `install` | Install prebuilt, Git, or local plugins. | [Plugins](plugins/README.md#install-plugins) |
 | `jump` | Manage bookmarks/history and select a directory. | [Navigation](navigation.md#directory-jumping) |
+| `shell-init` | Print the `j` and `lcd` shell functions for bash, zsh, fish or PowerShell. | [Navigation](navigation.md#shell-functions-with-shell-init) |
 | `list-plugins` | List discovered plugins. | [Plugins](plugins/README.md#inspect-an-installation) |
 | `plugin` | Run actions or inspect, validate, and migrate packages. | [Plugins](plugins/README.md) |
 | `scan` | Show what fills the disk and clean it up (`--report`, `--json`, `--top N`). | [Disk scan](disk-scan.md) |

@@ -22,6 +22,8 @@ pub struct Args {
     pub timeline_format: bool,
     pub git_format: bool,
     pub fuzzy_format: bool,
+    /// What the finder starts out listing.
+    pub fuzzy_mode: crate::lister::SearchMode,
     pub recursive_format: bool,
     pub show_icons: bool,
     pub hyperlinks: bool,
@@ -98,6 +100,7 @@ pub enum Command {
     Jump(JumpAction),
     Scan(crate::scan::ScanOptions),
     GenerateCompletion(Shell, Option<String>, Option<String>),
+    ShellInit(String),
     Theme,
     ThemePull,
     ThemeInstall(String),
@@ -306,6 +309,11 @@ impl Args {
                                     .map_err(|_| format!("'{value}' is not a number"))
                             })
                             .help("How many items to list per section in the summary (default: 10)"),
+                    )
+                    .arg(
+                        Arg::with_name("no-duplicates")
+                            .long("no-duplicates")
+                            .help("Skip looking for duplicate files after the scan"),
                     ),
             )
             .arg(
@@ -409,6 +417,17 @@ impl Args {
                     .short('F')
                     .long("fuzzy")
                     .help("Use interactive fuzzy finder"),
+            )
+            .arg(
+                Arg::with_name("fuzzy-dirs")
+                    .long("dirs")
+                    .help("Open the fuzzy finder on folders instead of files (implies -F)"),
+            )
+            .arg(
+                Arg::with_name("fuzzy-contents")
+                    .long("contents")
+                    .conflicts_with("fuzzy-dirs")
+                    .help("Open the fuzzy finder searching inside files (implies -F)"),
             )
             .arg(
                 Arg::with_name("icons")
@@ -991,6 +1010,17 @@ impl Args {
                     ),
             )
             .subcommand(
+                SubCommand::with_name("shell-init")
+                    .about("Print shell functions: j (jump) and lcd (pick a folder and cd into it)")
+                    .arg(
+                        Arg::with_name("shell")
+                            .help("Target shell")
+                            .required(true)
+                            .possible_values(crate::commands::shell_init::SHELLS)
+                            .index(1),
+                    ),
+            )
+            .subcommand(
                 SubCommand::with_name("theme")
                     .about("Interactive theme manager")
                     .subcommand(
@@ -1039,6 +1069,7 @@ impl Args {
                     timeline_format: config.default_format == "timeline",
                     git_format: config.default_format == "git",
                     fuzzy_format: false,
+                    fuzzy_mode: Default::default(),
                     recursive_format: false,
                     show_icons: config.show_icons,
                     hyperlinks: false,
@@ -1137,6 +1168,10 @@ impl Args {
                 shell,
                 completion_matches.value_of("path").map(String::from),
                 completion_matches.value_of("output").map(String::from),
+            ))
+        } else if let Some(init_matches) = matches.subcommand_matches("shell-init") {
+            Some(Command::ShellInit(
+                init_matches.value_of("shell").unwrap().to_string(),
             ))
         } else if let Some(theme_matches) = matches.subcommand_matches("theme") {
             if theme_matches.subcommand_matches("pull").is_some() {
@@ -1365,6 +1400,7 @@ impl Args {
                     .value_of("top")
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
+                duplicates: !scan_matches.is_present("no-duplicates"),
             }))
         } else {
             matches.subcommand_matches("update").map(|update_matches| {
@@ -1387,6 +1423,8 @@ impl Args {
             || matches.is_present("timeline")
             || matches.is_present("git")
             || matches.is_present("fuzzy")
+            || matches.is_present("fuzzy-dirs")
+            || matches.is_present("fuzzy-contents")
             || matches.is_present("recursive");
         let has_format_flag = has_view_format_flag || has_long_metadata_flag;
 
@@ -1495,7 +1533,16 @@ impl Args {
                 || (!has_format_flag && config.default_format == "timeline"),
             git_format: matches.is_present("git")
                 || (!has_format_flag && config.default_format == "git"),
-            fuzzy_format: matches.is_present("fuzzy"),
+            fuzzy_format: matches.is_present("fuzzy")
+                || matches.is_present("fuzzy-dirs")
+                || matches.is_present("fuzzy-contents"),
+            fuzzy_mode: if matches.is_present("fuzzy-dirs") {
+                crate::lister::SearchMode::Folders
+            } else if matches.is_present("fuzzy-contents") {
+                crate::lister::SearchMode::Text
+            } else {
+                crate::lister::SearchMode::Files
+            },
             recursive_format: matches.is_present("recursive")
                 || (!has_format_flag && config.default_format == "recursive"),
             // Configured icons are for terminals; piped output only gets them
