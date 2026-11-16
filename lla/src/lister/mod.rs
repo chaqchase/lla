@@ -13,6 +13,7 @@ pub trait FileLister {
 pub mod archive;
 mod basic;
 mod fuzzy;
+mod preview;
 mod recursive;
 
 pub use basic::BasicLister;

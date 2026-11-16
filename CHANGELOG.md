@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `lla scan` shows what is filling the disk and helps clean it up. It scans the
+  home folder (or a given path) in parallel, groups everything into apps,
+  developer files, caches, logs, downloads, media and trash, and labels each
+  item as safe to clean, review first, or your files. Build and dependency
+  folders are found anywhere by their project file. The interactive view has a
+  dot map of the disk, drill-down into any folder, a jump to whatever takes the
+  most space, and marking with move-to-trash behind a confirmation.
+  `--report` and `--json` print a summary instead. Works on macOS, Linux and
+  Windows.
+- The fuzzy finder preview now highlights source code with line numbers,
+  shows CSV files as tables, lists what is inside archives, prints image sizes
+  and gives a hex dump for binary files.
+
+### Changed
+
+- The fuzzy finder searches in the background and uses a faster matcher, so
+  typing no longer stalls in large folders. On a home folder with 2.2 million
+  files a keystroke went from up to 680 ms to under 260 ms, and the prompt
+  never waits for it.
+- `lla scan` and the fuzzy finder take their colors from the current theme.
+
 ## [0.7.0] - 2026-11-16
 
 ### Added

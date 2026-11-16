@@ -12,6 +12,7 @@ plugin authors, contributors, and maintainers to focused documentation.
 | Sort entries or narrow a listing | [Filtering and search](filtering-and-search.md) |
 | Search file contents | [Filtering and search](filtering-and-search.md#search-file-contents) |
 | Jump between directories or find files interactively | [Navigation](navigation.md) |
+| See what fills the disk and clean it up | [Disk scan](disk-scan.md) |
 | Set persistent defaults or a project profile | [Configuration](configuration.md) |
 | Create or manage command shortcuts | [Configuration](configuration.md#shortcuts) |
 | Use lla from scripts | [Machine output](machine-output.md) |

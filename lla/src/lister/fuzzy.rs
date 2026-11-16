@@ -1,12 +1,14 @@
 #![cfg_attr(test, allow(dead_code))]
 
+use super::preview;
 use super::FileLister;
+use crate::error::Result;
+use crate::theme::palette::{self, Tone};
 use crate::utils::color::*;
 use crate::utils::fs_metadata;
 use crate::utils::icons::format_with_icon;
-use crate::{error::Result, theme::color_value_to_color};
 use colored::*;
-use crossbeam_channel::{bounded, Sender};
+use crossbeam_channel::{bounded, never, select, unbounded, Receiver, Sender, TryRecvError};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -14,13 +16,13 @@ use crossterm::{
     style::Print,
     terminal::{self, ClearType},
 };
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 use ignore::{ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, WalkState};
+use nucleo_matcher::{Config as MatchConfig, Matcher, Utf32Str};
 use rayon::prelude::*;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{
@@ -32,13 +34,13 @@ use std::time::{Duration, Instant};
 
 const CHUNK_SIZE: usize = 1000;
 const MAX_RESULTS: usize = 2000;
+/// How many greedy matches per result get rescored with the optimal matcher.
+const RESCORE_FACTOR: usize = 4;
 const POLL_INTERVAL_MS: u64 = 16;
 const BATCH_CHECK_MS: u64 = 100;
 const SPINNER_INTERVAL_MS: u64 = 80;
 const STATUS_MESSAGE_TIMEOUT_MS: u64 = 2000;
 const PREVIEW_MIN_WIDTH: usize = 120;
-const PREVIEW_MAX_BYTES: u64 = 64 * 1024;
-const BINARY_SNIFF_BYTES: usize = 8 * 1024;
 const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 // Per-character weights for the non-fuzzy term kinds, roughly on the same scale
@@ -358,6 +360,9 @@ struct Term {
     negate: bool,
     /// Smart case: a term is case-sensitive only when it contains uppercase.
     case_sensitive: bool,
+    /// `text` as the matcher wants it: lowercased unless case-sensitive.
+    needle: String,
+    needle_chars: Vec<char>,
 }
 
 impl Term {
@@ -392,12 +397,29 @@ impl Term {
             return None;
         }
 
+        let case_sensitive = text.chars().any(char::is_uppercase);
+        let needle = if case_sensitive {
+            text.to_string()
+        } else {
+            text.to_lowercase()
+        };
         Some(Self {
-            case_sensitive: text.chars().any(char::is_uppercase),
+            case_sensitive,
             text: text.to_string(),
             kind,
             negate,
+            needle_chars: needle.chars().collect(),
+            needle,
         })
+    }
+
+    /// nucleo treats a Unicode needle as non-ASCII, so ASCII must stay ASCII.
+    fn needle(&self) -> Utf32Str<'_> {
+        if self.needle.is_ascii() {
+            Utf32Str::Ascii(self.needle.as_bytes())
+        } else {
+            Utf32Str::Unicode(&self.needle_chars)
+        }
     }
 
     fn haystacks<'a>(&self, entry: &'a FileEntry) -> (&'a str, &'a str) {
@@ -408,14 +430,32 @@ impl Term {
         }
     }
 
-    fn score(&self, entry: &FileEntry, matcher: &SkimMatcherV2) -> Option<i64> {
+    /// `precise` picks the optimal alignment. The greedy one matches exactly
+    /// the same entries several times faster, so it is used to filter.
+    fn score(
+        &self,
+        entry: &FileEntry,
+        matcher: &mut Matcher,
+        buf: &mut Vec<char>,
+        precise: bool,
+    ) -> Option<i64> {
         let len = self.text.chars().count() as i64;
         let (path, name) = self.haystacks(entry);
         match self.kind {
             TermKind::Fuzzy => {
-                // The default skim matcher is smart-case already.
-                let score = matcher.fuzzy_match(&entry.rel, &self.text)?;
-                Some(score + matcher.fuzzy_match(entry.name(), &self.text).unwrap_or(0))
+                matcher.config.ignore_case = !self.case_sensitive;
+                let mut fuzzy = |haystack: &str, buf: &mut Vec<char>| {
+                    let haystack = Utf32Str::new(haystack, buf);
+                    if precise {
+                        matcher.fuzzy_match(haystack, self.needle())
+                    } else {
+                        matcher.fuzzy_match_greedy(haystack, self.needle())
+                    }
+                };
+                let score = fuzzy(&entry.rel, buf)?;
+                // Matches inside the file name count twice.
+                let in_name = fuzzy(entry.name(), buf).unwrap_or(0);
+                Some(i64::from(score) + i64::from(in_name))
             }
             TermKind::Exact => {
                 if !path.contains(self.text.as_str()) {
@@ -447,7 +487,7 @@ impl Term {
     }
 
     /// Char positions in `entry.rel` to highlight for this term.
-    fn positions(&self, entry: &FileEntry, matcher: &SkimMatcherV2, out: &mut Vec<usize>) {
+    fn positions(&self, entry: &FileEntry, matcher: &mut Matcher, out: &mut Vec<usize>) {
         if self.negate {
             return;
         }
@@ -457,10 +497,27 @@ impl Term {
             TermKind::Fuzzy => {
                 // Prefer highlighting inside the file name, matching how the
                 // name bonus is scored.
-                if let Some((_, indices)) = matcher.fuzzy_indices(entry.name(), &self.text) {
-                    out.extend(indices.into_iter().map(|i| i + entry.name_char));
-                } else if let Some((_, indices)) = matcher.fuzzy_indices(&entry.rel, &self.text) {
-                    out.extend(indices);
+                matcher.config.ignore_case = !self.case_sensitive;
+                let mut buf = Vec::new();
+                let mut indices = Vec::new();
+                if matcher
+                    .fuzzy_indices(
+                        Utf32Str::new(entry.name(), &mut buf),
+                        self.needle(),
+                        &mut indices,
+                    )
+                    .is_some()
+                {
+                    out.extend(indices.iter().map(|&i| i as usize + entry.name_char));
+                } else if matcher
+                    .fuzzy_indices(
+                        Utf32Str::new(&entry.rel, &mut buf),
+                        self.needle(),
+                        &mut indices,
+                    )
+                    .is_some()
+                {
+                    out.extend(indices.iter().map(|&i| i as usize));
                 }
                 return;
             }
@@ -503,10 +560,16 @@ impl Query {
         self.terms.is_empty()
     }
 
-    fn score(&self, entry: &FileEntry, matcher: &SkimMatcherV2) -> Option<i64> {
+    fn score(
+        &self,
+        entry: &FileEntry,
+        matcher: &mut Matcher,
+        buf: &mut Vec<char>,
+        precise: bool,
+    ) -> Option<i64> {
         let mut total = 0;
         for term in &self.terms {
-            match (term.score(entry, matcher), term.negate) {
+            match (term.score(entry, matcher, buf, precise), term.negate) {
                 (Some(score), false) => total += score,
                 (None, true) => {}
                 _ => return None,
@@ -515,7 +578,7 @@ impl Query {
         Some(total)
     }
 
-    fn positions(&self, entry: &FileEntry, matcher: &SkimMatcherV2) -> Vec<usize> {
+    fn positions(&self, entry: &FileEntry, matcher: &mut Matcher) -> Vec<usize> {
         let mut positions = Vec::new();
         for term in &self.terms {
             term.positions(entry, matcher, &mut positions);
@@ -554,15 +617,17 @@ struct SearchResults {
 
 struct SearchIndex {
     entries: Vec<FileEntry>,
-    matcher: SkimMatcherV2,
     cache: Option<MatchCache>,
+}
+
+fn match_config() -> MatchConfig {
+    MatchConfig::DEFAULT.match_paths()
 }
 
 impl SearchIndex {
     fn new() -> Self {
         Self {
             entries: Vec::with_capacity(10_000),
-            matcher: SkimMatcherV2::default(),
             cache: None,
         }
     }
@@ -595,11 +660,13 @@ impl SearchIndex {
         }
 
         let entries = &self.entries;
-        let matcher = &self.matcher;
-        let score = |idx: usize| {
+        // Matchers keep scratch memory, so each worker thread gets its own.
+        let init = || (Matcher::new(match_config()), Vec::new());
+        let score = |(matcher, buf): &mut (Matcher, Vec<char>), idx: usize| {
+            let entry = &entries[idx];
             query
-                .score(&entries[idx], matcher)
-                .map(|score| (idx as u32, score))
+                .score(entry, matcher, buf, false)
+                .map(|score| (idx as u32, rank_key(score, entry)))
         };
 
         let matches: Vec<(u32, i64)> = match self.cache.take() {
@@ -607,22 +674,53 @@ impl SearchIndex {
                 let mut matches: Vec<_> = cache
                     .matches
                     .par_iter()
-                    .filter_map(|&(idx, _)| score(idx as usize))
+                    .map_init(init, |state, &(idx, _)| score(state, idx as usize))
+                    .flatten()
                     .collect();
                 matches.par_extend(
                     (cache.scanned..entries.len())
                         .into_par_iter()
-                        .filter_map(score),
+                        .map_init(init, score)
+                        .flatten(),
                 );
                 matches
             }
             _ => (0..entries.len())
                 .into_par_iter()
-                .filter_map(score)
+                .map_init(init, score)
+                .flatten()
                 .collect(),
         };
 
-        let mut ranked = matches.clone();
+        // The key already orders by score and then path length, so picking the
+        // best never touches the entries. Only the final page gets the full
+        // comparison.
+        let cheap = |a: &(u32, i64), b: &(u32, i64)| b.1.cmp(&a.1);
+        let shortlist = limit.max(1) * RESCORE_FACTOR;
+        let mut ranked: Vec<(u32, i64)> = matches
+            .par_chunks(16 * 1024)
+            .flat_map_iter(|chunk| {
+                let mut best = chunk.to_vec();
+                if best.len() > shortlist {
+                    best.select_nth_unstable_by(shortlist, cheap);
+                    best.truncate(shortlist);
+                }
+                best
+            })
+            .collect();
+        if ranked.len() > shortlist {
+            ranked.select_nth_unstable_by(shortlist, cheap);
+            ranked.truncate(shortlist);
+        }
+        // Order the shortlist by the optimal alignment.
+        ranked
+            .par_iter_mut()
+            .for_each_init(init, |(matcher, buf), item| {
+                let entry = &entries[item.0 as usize];
+                if let Some(score) = query.score(entry, matcher, buf, true) {
+                    item.1 = rank_key(score, entry);
+                }
+            });
         let items = take_best(&mut ranked, limit, |a, b| {
             b.1.cmp(&a.1)
                 .then_with(|| compare_paths(&entries[a.0 as usize], &entries[b.0 as usize]))
@@ -658,6 +756,13 @@ impl SearchIndex {
     }
 }
 
+/// Packs a match score and the path length into one sortable number: higher
+/// scores first, and shorter paths first among equal scores.
+fn rank_key(score: i64, entry: &FileEntry) -> i64 {
+    let len = entry.rel.len().min(0xFFFF) as i64;
+    (score << 16) | (0xFFFF - len)
+}
+
 /// Shorter paths win ties, then plain alphabetical order.
 fn compare_paths(a: &FileEntry, b: &FileEntry) -> Ordering {
     a.rel
@@ -678,6 +783,166 @@ where
     }
     items.par_sort_unstable_by(&compare);
     std::mem::take(items)
+}
+
+enum SearchRequest {
+    Query(String),
+    Rename { old: PathBuf, new: PathBuf },
+}
+
+/// What the search thread sends back. The best matches are copied out so the
+/// UI never has to touch the index.
+struct SearchUpdate {
+    query: String,
+    entries: Vec<FileEntry>,
+    matched: usize,
+    total: usize,
+    /// The query changed, so the selection goes back to the top.
+    reset: bool,
+    indexing_done: bool,
+}
+
+struct Searcher {
+    root: PathBuf,
+    index: SearchIndex,
+    query: String,
+    /// The query of the last update sent.
+    shown: Option<String>,
+    /// Files arrived since the last update.
+    grown: bool,
+    /// Something other than new files changed the results.
+    stale: bool,
+    indexing_done: bool,
+}
+
+impl Searcher {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            index: SearchIndex::new(),
+            query: String::new(),
+            shown: None,
+            grown: false,
+            stale: true,
+            indexing_done: false,
+        }
+    }
+
+    fn apply(&mut self, request: SearchRequest) {
+        match request {
+            SearchRequest::Query(query) => self.query = query,
+            SearchRequest::Rename { old, new } => {
+                self.index.replace_path(&old, &new, &self.root);
+                self.stale = true;
+            }
+        }
+    }
+
+    fn add(&mut self, batch: Vec<FileEntry>) {
+        self.index.extend(batch);
+        self.grown = true;
+    }
+
+    fn finish(&mut self) {
+        self.indexing_done = true;
+        self.stale = true;
+    }
+
+    /// `None` when a search is due now, otherwise how long to wait for more
+    /// input. New files are shown at most every `interval`.
+    fn wait(&self, last: Option<Instant>, interval: Duration) -> Option<Duration> {
+        if self.stale || self.shown.as_deref() != Some(self.query.as_str()) {
+            return None;
+        }
+        if !self.grown {
+            return Some(Duration::from_secs(3600));
+        }
+        let since = last.map_or(interval, |at| at.elapsed());
+        interval.checked_sub(since).filter(|left| !left.is_zero())
+    }
+
+    fn update(&mut self) -> SearchUpdate {
+        let parsed = Query::parse(&self.query);
+        let results = self.index.search(&self.query, &parsed, MAX_RESULTS);
+        let reset = self.shown.as_deref() != Some(self.query.as_str());
+        self.shown = Some(self.query.clone());
+        self.grown = false;
+        self.stale = false;
+        SearchUpdate {
+            query: self.query.clone(),
+            entries: results
+                .items
+                .iter()
+                .map(|&id| self.index.entry(id).clone())
+                .collect(),
+            matched: results.matched,
+            total: self.index.len(),
+            reset,
+            indexing_done: self.indexing_done,
+        }
+    }
+}
+
+/// Runs searches away from the UI thread, so typing never waits for one.
+/// Queries and files that arrive during a search are folded into the next.
+fn spawn_searcher(
+    root: PathBuf,
+    batches: Receiver<Vec<FileEntry>>,
+    requests: Receiver<SearchRequest>,
+    updates: Sender<SearchUpdate>,
+) {
+    thread::spawn(move || {
+        let mut searcher = Searcher::new(root);
+        let mut batches = Some(batches);
+        let interval = Duration::from_millis(BATCH_CHECK_MS);
+        let mut last_search: Option<Instant> = None;
+        loop {
+            while let Ok(request) = requests.try_recv() {
+                searcher.apply(request);
+            }
+            let mut finished = false;
+            if let Some(receiver) = &batches {
+                loop {
+                    match receiver.try_recv() {
+                        Ok(batch) => searcher.add(batch),
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => {
+                            finished = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if finished {
+                searcher.finish();
+                batches = None;
+            }
+
+            let Some(timeout) = searcher.wait(last_search, interval) else {
+                if updates.send(searcher.update()).is_err() {
+                    return;
+                }
+                last_search = Some(Instant::now());
+                continue;
+            };
+            let incoming = batches.clone().unwrap_or_else(never);
+            select! {
+                recv(requests) -> request => match request {
+                    Ok(request) => searcher.apply(request),
+                    // The finder has closed.
+                    Err(_) => return,
+                },
+                recv(incoming) -> batch => match batch {
+                    Ok(batch) => searcher.add(batch),
+                    Err(_) => {
+                        searcher.finish();
+                        batches = None;
+                    }
+                },
+                default(timeout) => {}
+            }
+        }
+    });
 }
 
 fn spawn_indexer(
@@ -917,7 +1182,7 @@ impl LineEditor {
 
 #[derive(Default)]
 struct ResultList {
-    items: Vec<u32>,
+    items: Vec<FileEntry>,
     matched: usize,
     selected: usize,
     offset: usize,
@@ -926,18 +1191,22 @@ struct ResultList {
 }
 
 impl ResultList {
-    fn selected_id(&self) -> Option<u32> {
-        self.items.get(self.selected).copied()
+    fn selected_entry(&self) -> Option<&FileEntry> {
+        self.items.get(self.selected)
     }
 
     /// Replaces the results. Unless `reset`, keeps the same entry selected
     /// when it is still present (new files arriving while indexing).
-    fn set(&mut self, results: SearchResults, reset: bool) {
-        let previous = if reset { None } else { self.selected_id() };
-        self.items = results.items;
-        self.matched = results.matched;
+    fn set(&mut self, items: Vec<FileEntry>, matched: usize, reset: bool) {
+        let previous = if reset {
+            None
+        } else {
+            self.selected_entry().map(|entry| entry.path.clone())
+        };
+        self.items = items;
+        self.matched = matched;
         self.selected = previous
-            .and_then(|id| self.items.iter().position(|item| *item == id))
+            .and_then(|path| self.items.iter().position(|item| item.path == path))
             .unwrap_or(if reset { 0 } else { self.selected });
         if reset {
             self.offset = 0;
@@ -1001,15 +1270,11 @@ enum Action {
     Edit(Vec<PathBuf>),
 }
 
-struct PreviewCache {
-    path: PathBuf,
-    height: usize,
-    lines: Vec<String>,
-}
-
 struct App {
-    root: PathBuf,
-    index: SearchIndex,
+    searches: Sender<SearchRequest>,
+    /// For highlighting the visible rows.
+    matcher: RefCell<Matcher>,
+    total: usize,
     query: LineEditor,
     parsed: Query,
     results: ResultList,
@@ -1017,17 +1282,24 @@ struct App {
     status: Option<(String, Instant)>,
     show_icons: bool,
     preview_enabled: bool,
-    preview: Option<PreviewCache>,
+    previews: Sender<preview::Request>,
+    preview: Option<preview::Preview>,
+    preview_pending: Option<preview::Request>,
     indexed: usize,
     indexing_done: bool,
     started: Instant,
 }
 
 impl App {
-    fn new(root: PathBuf, show_icons: bool) -> Self {
+    fn new(
+        show_icons: bool,
+        searches: Sender<SearchRequest>,
+        previews: Sender<preview::Request>,
+    ) -> Self {
         Self {
-            root,
-            index: SearchIndex::new(),
+            searches,
+            matcher: RefCell::new(Matcher::new(match_config())),
+            total: 0,
             query: LineEditor::default(),
             parsed: Query::default(),
             results: ResultList::default(),
@@ -1035,19 +1307,35 @@ impl App {
             status: None,
             show_icons,
             preview_enabled: true,
+            previews,
             preview: None,
+            preview_pending: None,
             indexed: 0,
             indexing_done: false,
             started: Instant::now(),
         }
     }
 
-    fn refresh(&mut self, reset: bool) {
-        self.parsed = Query::parse(&self.query.text);
-        let results = self
-            .index
-            .search(&self.query.text, &self.parsed, MAX_RESULTS);
-        self.results.set(results, reset);
+    fn search(&self) {
+        let _ = self
+            .searches
+            .send(SearchRequest::Query(self.query.text.clone()));
+    }
+
+    fn apply(&mut self, update: SearchUpdate, reset: bool) {
+        // Highlights follow the query the results are for, which can lag
+        // behind what has been typed.
+        self.parsed = Query::parse(&update.query);
+        self.results.set(update.entries, update.matched, reset);
+        self.total = update.total;
+        self.indexing_done = update.indexing_done;
+    }
+
+    fn show_preview(&mut self, preview: preview::Preview) {
+        if self.preview_pending.as_ref() == Some(&preview.request) {
+            self.preview_pending = None;
+        }
+        self.preview = Some(preview);
     }
 
     fn set_status(&mut self, message: impl Into<String>) {
@@ -1066,7 +1354,7 @@ impl App {
     }
 
     fn selected_entry(&self) -> Option<&FileEntry> {
-        self.results.selected_id().map(|id| self.index.entry(id))
+        self.results.selected_entry()
     }
 
     /// The marked paths, or the selected one when nothing is marked.
@@ -1225,8 +1513,10 @@ impl App {
                 if self.results.marked.remove(&old_path) {
                     self.results.marked.insert(new_path.clone());
                 }
-                self.index.replace_path(&old_path, &new_path, &self.root);
-                self.refresh(false);
+                let _ = self.searches.send(SearchRequest::Rename {
+                    old: old_path.clone(),
+                    new: new_path.clone(),
+                });
                 self.set_status(format!("Renamed to {}", new_path.display()));
             }
             Err(e) => self.set_status(format!("Rename failed: {}", e)),
@@ -1263,12 +1553,12 @@ impl App {
         queue!(
             out,
             cursor::MoveTo(0, 1),
-            Print("─".repeat(width).bright_black())
+            Print(tint("─".repeat(width), palette::current().faint))
         )?;
 
         let rows = self.render_rows(list_width);
         let preview = if preview_width > 0 {
-            self.preview_lines(list_height)
+            self.preview_lines(list_height, preview_width)
         } else {
             Vec::new()
         };
@@ -1280,7 +1570,7 @@ impl App {
                 let text = preview.get(row).map(String::as_str).unwrap_or("");
                 queue!(
                     out,
-                    Print(" │".bright_black()),
+                    Print(tint(" │", palette::current().faint)),
                     Print(fit(text, preview_width))
                 )?;
             }
@@ -1310,18 +1600,15 @@ impl App {
     }
 
     fn render_prompt(&self, width: usize) -> String {
-        let theme = get_theme();
-        let accent = color_value_to_color(&theme.colors.permission_exec);
+        let ui = palette::current();
+        let accent = ui.accent.colored();
         let input = if self.query.text.is_empty() {
-            "Type to search  ('exact ^prefix suffix$ !exclude)"
-                .bright_black()
-                .to_string()
+            tint(
+                "Type to search  ('exact ^prefix suffix$ !exclude)",
+                ui.muted,
+            )
         } else {
-            self.query
-                .text
-                .color(color_value_to_color(&theme.colors.file))
-                .bold()
-                .to_string()
+            self.query.text.color(ui.text.colored()).bold().to_string()
         };
 
         let spinner = if self.indexing_done {
@@ -1334,7 +1621,7 @@ impl App {
         let counter = format!(
             "{}{} ",
             spinner,
-            format!("{}/{}", self.results.matched, self.index.len()).bright_black()
+            tint(format!("{}/{}", self.results.matched, self.total), ui.muted)
         );
 
         let left = format!("{}{}", PROMPT.color(accent).bold(), input);
@@ -1343,19 +1630,15 @@ impl App {
     }
 
     fn render_rows(&self, width: usize) -> Vec<String> {
-        let theme = get_theme();
         if self.results.items.is_empty() {
-            let message = if !self.indexing_done && self.index.len() == 0 {
+            let message = if !self.indexing_done && self.total == 0 {
                 format!("Indexing files... {} found", self.indexed)
-            } else if self.index.len() == 0 {
+            } else if self.total == 0 {
                 "No files found".to_string()
             } else {
-                format!("No matches ({} files indexed)", self.index.len())
+                format!("No matches ({} files indexed)", self.total)
             };
-            return vec![format!(
-                "  {}",
-                message.color(color_value_to_color(&theme.colors.permission_none))
-            )];
+            return vec![format!("  {}", tint(message, palette::current().muted))];
         }
 
         let show_meta = width >= 70;
@@ -1369,9 +1652,8 @@ impl App {
             .take(self.results.height);
 
         window
-            .map(|(idx, id)| {
-                let entry = self.index.entry(*id);
-                let positions = self.parsed.positions(entry, &self.index.matcher);
+            .map(|(idx, entry)| {
+                let positions = self.parsed.positions(entry, &mut self.matcher.borrow_mut());
                 let selected = idx == self.results.selected;
                 let marked = self.results.marked.contains(&entry.path);
                 let meta = if show_meta {
@@ -1394,10 +1676,11 @@ impl App {
 
     /// The status line, plus the cursor column when the cursor belongs there.
     fn render_status(&self, width: usize) -> (String, Option<usize>) {
-        let hint = |s: &str| s.bright_black().to_string();
+        let ui = palette::current();
+        let hint = |s: &str| tint(s, ui.muted);
         match &self.mode {
             InputMode::Rename(editor) => {
-                let label = " RENAME ".bold().yellow().to_string();
+                let label = " RENAME ".color(ui.warning.colored()).bold().to_string();
                 let line = format!(
                     "{} {}  {}",
                     label,
@@ -1416,12 +1699,12 @@ impl App {
                     format!(
                         "{} ",
                         format!(" {} marked ", self.results.marked.len())
+                            .color(ui.warning.colored())
                             .bold()
-                            .yellow()
                     )
                 };
                 let body = match &self.status {
-                    Some((message, _)) => message.green().to_string(),
+                    Some((message, _)) => tint(message, ui.success),
                     None => {
                         let preview_hint = if width >= PREVIEW_MIN_WIDTH {
                             " ^t preview ·"
@@ -1439,29 +1722,37 @@ impl App {
         }
     }
 
-    fn preview_lines(&mut self, height: usize) -> Vec<String> {
+    /// The preview for the selected file. Previews are built on another
+    /// thread; until the new one arrives the previous one stays up.
+    fn preview_lines(&mut self, height: usize, width: usize) -> Vec<String> {
         let Some(path) = self.selected_entry().map(|entry| entry.path.clone()) else {
             return Vec::new();
         };
-        let cached = self
+        let request = preview::Request {
+            path,
+            height,
+            width,
+        };
+        let ready = self
             .preview
             .as_ref()
-            .is_some_and(|cache| cache.path == path && cache.height == height);
-        if !cached {
-            self.preview = Some(PreviewCache {
-                lines: build_preview(&path, height),
-                path,
-                height,
-            });
+            .is_some_and(|shown| shown.request == request);
+        if !ready && self.preview_pending.as_ref() != Some(&request) {
+            let _ = self.previews.send(request.clone());
+            self.preview_pending = Some(request);
         }
         self.preview
             .as_ref()
-            .map(|cache| cache.lines.clone())
+            .map(|shown| shown.lines.clone())
             .unwrap_or_default()
     }
 }
 
 const PROMPT: &str = " ❯ ";
+
+fn tint(text: impl AsRef<str>, tone: Tone) -> String {
+    text.as_ref().color(tone.colored()).to_string()
+}
 
 fn prompt_width() -> usize {
     console::measure_text_width(PROMPT)
@@ -1540,22 +1831,21 @@ fn render_row(
     meta: &str,
     width: usize,
 ) -> String {
-    let theme = get_theme();
-    let accent = color_value_to_color(&theme.colors.permission_exec);
+    let ui = palette::current();
     let base = colorize_file_name(&entry.path).fgcolor();
 
     let pointer = if selected {
-        "→".color(accent).bold().to_string()
+        "▌".color(ui.accent.colored()).bold().to_string()
     } else {
         " ".to_string()
     };
     let mark = if marked {
-        "●".yellow().bold().to_string()
+        "●".color(ui.warning.colored()).bold().to_string()
     } else {
         " ".to_string()
     };
 
-    let hl = |s: &str| s.color(accent).bold().underline().to_string();
+    let hl = |s: &str| s.color(ui.warning.colored()).bold().underline().to_string();
     let name = highlight_runs(
         entry.name(),
         entry.name_char,
@@ -1580,10 +1870,9 @@ fn render_row(
         positions,
         |s| {
             if selected {
-                s.color(color_value_to_color(&theme.colors.directory))
-                    .to_string()
+                tint(s, ui.accent)
             } else {
-                s.bright_black().to_string()
+                tint(s, ui.muted)
             }
         },
         hl,
@@ -1600,71 +1889,6 @@ fn render_row(
     let meta_width = console::measure_text_width(meta);
     let room = width.saturating_sub(meta_width + 2);
     format!("{}  {}", fit(&left, room), meta)
-}
-
-fn is_binary(bytes: &[u8]) -> bool {
-    bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0)
-}
-
-/// Expands tabs and drops control characters, so file content cannot emit
-/// terminal escape sequences into the UI.
-fn sanitize_line(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    for c in line.chars() {
-        match c {
-            '\t' => out.push_str("    "),
-            c if c.is_control() => {}
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-fn build_preview(path: &Path, height: usize) -> Vec<String> {
-    let dim = |s: String| s.bright_black().to_string();
-    let metadata = match path.metadata() {
-        Ok(metadata) => metadata,
-        Err(e) => return vec![dim(format!("cannot preview: {}", e))],
-    };
-
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let modified = metadata
-        .modified()
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let mut lines = vec![
-        format!(
-            "{}  {}  {}",
-            name.bold(),
-            colorize_size(metadata.len()),
-            colorize_date(&modified)
-        ),
-        String::new(),
-    ];
-
-    let mut buffer = Vec::new();
-    let read = std::fs::File::open(path)
-        .and_then(|file| file.take(PREVIEW_MAX_BYTES).read_to_end(&mut buffer));
-    if let Err(e) = read {
-        lines.push(dim(format!("cannot preview: {}", e)));
-        return lines;
-    }
-    if buffer.is_empty() {
-        lines.push(dim("empty file".to_string()));
-    } else if is_binary(&buffer) {
-        lines.push(dim("binary file".to_string()));
-    } else {
-        let room = height.saturating_sub(lines.len());
-        lines.extend(
-            String::from_utf8_lossy(&buffer)
-                .lines()
-                .take(room)
-                .map(sanitize_line),
-        );
-    }
-    lines
 }
 
 /// Owns the terminal while the finder is open and restores it on drop, even
@@ -1740,35 +1964,37 @@ impl FuzzyLister {
             Arc::clone(&done),
         );
 
+        let (search_sender, search_requests) = unbounded();
+        let (update_sender, updates) = unbounded();
+        spawn_searcher(root, receiver, search_requests, update_sender);
+        let (preview_sender, preview_requests) = unbounded();
+        let (preview_done, previews) = unbounded();
+        preview::spawn_worker(preview_requests, preview_done);
+        preview::warm_up();
+
         let mut session = TerminalSession::enter()?;
-        let mut app = App::new(root, self.show_icons);
+        let mut app = App::new(self.show_icons, search_sender, preview_sender);
         let poll_interval = Duration::from_millis(POLL_INTERVAL_MS);
-        let batch_interval = Duration::from_millis(BATCH_CHECK_MS);
         let spinner_interval = Duration::from_millis(SPINNER_INTERVAL_MS);
-        let mut last_batch: Option<Instant> = None;
         let mut last_draw = Instant::now();
-        let mut pending_search = false;
         let mut dirty = true;
 
         loop {
-            if last_batch.is_none_or(|at| at.elapsed() >= batch_interval) {
-                let mut received = false;
-                while let Ok(batch) = receiver.try_recv() {
-                    app.index.extend(batch);
-                    received = true;
-                }
-                app.indexed = indexed.load(AtomicOrdering::SeqCst);
-                let finished = done.load(AtomicOrdering::SeqCst) && receiver.is_empty();
-                if received {
-                    app.refresh(false);
-                    dirty = true;
-                }
-                if finished != app.indexing_done {
-                    app.indexing_done = finished;
-                    dirty = true;
-                }
-                last_batch = Some(Instant::now());
+            let mut latest = None;
+            let mut reset = false;
+            while let Ok(update) = updates.try_recv() {
+                reset |= update.reset;
+                latest = Some(update);
             }
+            if let Some(update) = latest {
+                app.apply(update, reset);
+                dirty = true;
+            }
+            while let Ok(preview) = previews.try_recv() {
+                app.show_preview(preview);
+                dirty = true;
+            }
+            app.indexed = indexed.load(AtomicOrdering::SeqCst);
 
             // Wait for input, then drain everything already queued so a burst
             // of keystrokes triggers a single search and a single redraw.
@@ -1780,7 +2006,7 @@ impl FuzzyLister {
                                 Action::None => {}
                                 Action::Redraw => dirty = true,
                                 Action::Search => {
-                                    pending_search = true;
+                                    app.search();
                                     dirty = true;
                                 }
                                 Action::Accept => return Ok(app.accept()),
@@ -1814,11 +2040,6 @@ impl FuzzyLister {
                 }
             }
 
-            if pending_search {
-                app.refresh(true);
-                pending_search = false;
-                dirty = true;
-            }
             if app.expire_status() {
                 dirty = true;
             }
@@ -1867,6 +2088,49 @@ mod tests {
             .into_iter()
             .map(|id| index.entry(id).rel.clone())
             .collect()
+    }
+
+    /// Times typing a query one key at a time over a real tree:
+    /// `LLA_FUZZY_BENCH=~ cargo test --release fuzzy_typing_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn fuzzy_typing_speed() {
+        let root = PathBuf::from(std::env::var("LLA_FUZZY_BENCH").unwrap());
+        let (sender, receiver) = bounded::<Vec<FileEntry>>(256);
+        let indexed = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicBool::new(false));
+        spawn_indexer(
+            root.clone(),
+            true,
+            Arc::new(IgnoreRules::new(&[])),
+            sender,
+            indexed,
+            done,
+        );
+        let mut index = SearchIndex::new();
+        for batch in receiver.iter() {
+            index.extend(batch);
+        }
+        println!("indexed {} files", index.len());
+        let mut typed = String::new();
+        let mut total = Duration::ZERO;
+        for step in "srcmainrs\u{8}\u{8}ts".chars() {
+            if step == '\u{8}' {
+                typed.pop();
+            } else {
+                typed.push(step);
+            }
+            let started = Instant::now();
+            let results = index.search(&typed, &Query::parse(&typed), MAX_RESULTS);
+            let took = started.elapsed();
+            total += took;
+            println!(
+                "{typed:>10}  {:>8} matches  {:>7.1} ms",
+                results.matched,
+                took.as_secs_f64() * 1000.0
+            );
+        }
+        println!("total {:.1} ms", total.as_secs_f64() * 1000.0);
     }
 
     #[test]
@@ -2003,17 +2267,15 @@ mod tests {
 
     #[test]
     fn highlight_positions_prefer_the_file_name() {
-        let index = index_of(&[]);
+        let matcher = &mut Matcher::new(match_config());
         let e = entry("main/src/main.rs");
-        let positions = Query::parse("main").positions(&e, &index.matcher);
+        let positions = Query::parse("main").positions(&e, matcher);
         assert_eq!(positions, (9..13).collect::<Vec<_>>());
-        let positions = Query::parse("'src").positions(&e, &index.matcher);
+        let positions = Query::parse("'src").positions(&e, matcher);
         assert_eq!(positions, (5..8).collect::<Vec<_>>());
-        let positions = Query::parse(".rs$").positions(&e, &index.matcher);
+        let positions = Query::parse(".rs$").positions(&e, matcher);
         assert_eq!(positions, (13..16).collect::<Vec<_>>());
-        assert!(Query::parse("!main")
-            .positions(&e, &index.matcher)
-            .is_empty());
+        assert!(Query::parse("!main").positions(&e, matcher).is_empty());
     }
 
     #[test]
@@ -2086,37 +2348,46 @@ mod tests {
 
     #[test]
     fn result_list_keeps_selection_when_results_grow() {
+        let entries = |names: &[&str]| names.iter().map(|name| entry(name)).collect::<Vec<_>>();
+        let selected = |list: &ResultList| list.selected_entry().map(|entry| entry.rel.clone());
         let mut list = ResultList::default();
         list.set_height(2);
-        list.set(
-            SearchResults {
-                items: vec![1, 2, 3],
-                matched: 3,
-            },
-            true,
-        );
+        list.set(entries(&["a", "b", "c"]), 3, true);
         list.move_by(2);
-        assert_eq!(list.selected_id(), Some(3));
+        assert_eq!(selected(&list).as_deref(), Some("c"));
         assert_eq!(list.offset, 1);
-        list.set(
-            SearchResults {
-                items: vec![0, 1, 2, 3],
-                matched: 4,
-            },
-            false,
-        );
-        assert_eq!(list.selected_id(), Some(3));
-        list.set(
-            SearchResults {
-                items: vec![5],
-                matched: 1,
-            },
-            true,
-        );
+        list.set(entries(&["z", "a", "b", "c"]), 4, false);
+        assert_eq!(selected(&list).as_deref(), Some("c"));
+        list.set(entries(&["q"]), 1, true);
         assert_eq!(list.selected, 0);
         assert_eq!(list.offset, 0);
         list.move_by(-5);
         assert_eq!(list.selected, 0);
+    }
+
+    #[test]
+    fn searches_run_on_their_own_thread() {
+        let (batch_sender, batches) = bounded(4);
+        let (requests, request_receiver) = unbounded();
+        let (update_sender, updates) = unbounded();
+        spawn_searcher(
+            PathBuf::from("/root"),
+            batches,
+            request_receiver,
+            update_sender,
+        );
+        batch_sender
+            .send(vec![entry("src/main.rs"), entry("README.md")])
+            .unwrap();
+        drop(batch_sender);
+        requests.send(SearchRequest::Query("main".into())).unwrap();
+        let update = updates
+            .iter()
+            .find(|update| update.query == "main" && update.indexing_done)
+            .unwrap();
+        assert_eq!(update.total, 2);
+        assert_eq!(update.entries.len(), 1);
+        assert_eq!(update.entries[0].rel, "src/main.rs");
     }
 
     #[test]
@@ -2145,15 +2416,12 @@ mod tests {
     }
 
     #[test]
-    fn preview_helpers() {
-        assert!(is_binary(b"abc\0def"));
-        assert!(!is_binary(b"plain text"));
+    fn ignore_rules_skip_whole_components() {
         let rules = IgnoreRules::new(&[".git".to_string(), "target".to_string()]);
         assert!(rules.matches(".git/HEAD"));
         assert!(rules.matches("crate/target/debug/x"));
         assert!(!rules.matches(".github/workflows/ci.yml"));
         assert!(!rules.matches("src/targets.rs"));
-        assert_eq!(sanitize_line("a\tb\x1b[31mc"), "a    b[31mc");
     }
 
     #[test]

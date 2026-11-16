@@ -123,6 +123,7 @@ See [Machine output](machine-output.md) for schemas.
 | `jump` | Manage bookmarks/history and select a directory. | [Navigation](navigation.md#directory-jumping) |
 | `list-plugins` | List discovered plugins. | [Plugins](plugins/README.md#inspect-an-installation) |
 | `plugin` | Run actions or inspect, validate, and migrate packages. | [Plugins](plugins/README.md) |
+| `scan` | Show what fills the disk and clean it up (`--report`, `--json`, `--top N`). | [Disk scan](disk-scan.md) |
 | `shortcut` | Manage plugin-action shortcuts. | [Configuration](configuration.md#shortcuts) |
 | `theme` | Manage, install, and preview themes. | [Configuration](configuration.md#themes) |
 | `update` | Update all plugins or a named plugin. | [Plugins](plugins/README.md) |

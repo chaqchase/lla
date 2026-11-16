@@ -10,6 +10,7 @@ mod plugin;
 #[cfg(not(feature = "dynamic-plugins"))]
 #[path = "plugin/static.rs"]
 mod plugin;
+mod scan;
 mod sorter;
 mod theme;
 mod utils;

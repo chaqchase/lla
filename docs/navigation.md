@@ -42,9 +42,20 @@ lla --fuzzy
 <img src="https://github.com/user-attachments/assets/ec946fd2-34d7-40b7-b951-ffd9c4009ad6" className="rounded-2xl" alt="fuzzy" />
 
 Fuzzy view supports interactive search, multi-selection, and file actions.
-Matched characters are highlighted, matches in the file name rank above
-matches in its directory, and terminals at least 120 columns wide show a
-preview of the highlighted file.
+Matched characters are highlighted, and matches in the file name rank above
+matches in its directory. Searching runs in the background, so typing stays
+responsive even in folders with millions of files.
+
+Terminals at least 120 columns wide show a preview of the highlighted file:
+
+- source code and config files with syntax highlighting and line numbers
+- CSV and TSV files as aligned tables
+- minified JSON reformatted so it can be read
+- the contents of zip, tar and tar.gz archives
+- the pixel size of PNG, JPEG, GIF, WebP and BMP images
+- a hex dump and the likely file type for anything binary
+
+The finder and its previews use the colors of your current theme.
 
 The finder draws on the terminal even when stdout is redirected, so
 `vim $(lla -F)` and `lla -F | xargs …` work; picks are printed as plain paths.

@@ -69,6 +69,7 @@ lla -G                   # Git-aware view
 lla --timeline          # group entries by time
 lla --search "TODO"     # search file contents
 lla --json --pretty     # machine-readable output
+lla scan                # see what is filling the disk and clean it up
 ```
 
 ## Highlights
@@ -127,6 +128,20 @@ themes, exclusions, recursion limits, and shell completion.
 
 See [Navigation](docs/navigation.md) for jump and fuzzy controls.
 
+### Disk cleanup
+
+- `lla scan` walks your home folder in parallel and groups what it finds into
+  apps, developer files, caches, logs, downloads, media and trash, with a dot
+  map of the whole disk.
+- Build and dependency folders are recognised anywhere by their project file
+  (`node_modules`, Rust `target`, `.next`, `Pods`, `DerivedData`, and more), and
+  every item is labelled safe to clean, review first, or your files.
+- Browse into any folder, jump to the part that takes the most space, mark
+  items and move them to the trash, all behind a confirmation. Works on macOS,
+  Linux and Windows; `--report` and `--json` cover scripts.
+
+See [Disk scan](docs/disk-scan.md) for categories, keys and permissions.
+
 ### Automation-friendly output
 
 - Emit listing data as a JSON array, newline-delimited JSON, or fixed-schema CSV
@@ -165,6 +180,7 @@ Start at the [documentation index](docs/README.md), or go directly to a guide:
 | Listing formats and screenshots | [Views and display](docs/views.md) |
 | Sort, filter, and search | [Filtering and search](docs/filtering-and-search.md) |
 | Jump and fuzzy workflows | [Navigation](docs/navigation.md) |
+| Find and clean up what fills the disk | [Disk scan](docs/disk-scan.md) |
 | Global config, project profiles, themes, and shortcuts | [Configuration](docs/configuration.md) |
 | JSON, NDJSON, CSV, and schemas | [Machine output](docs/machine-output.md) |
 | Flags and subcommands | [Command reference](docs/command-reference.md) |

@@ -211,6 +211,7 @@ pub fn handle_command(
             plugin_manager.print_manifest(&resolved, true)
         }
         Some(Command::Jump(action)) => jump::handle_jump(action, config),
+        Some(Command::Scan(options)) => crate::scan::run(options.clone()),
         Some(Command::Clean) => unreachable!(),
         None => {
             if args.search.is_some() {
