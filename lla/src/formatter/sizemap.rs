@@ -33,7 +33,10 @@ impl SizeMapFormatter {
         total_size: u64,
         term_width: usize,
     ) -> (usize, usize, usize) {
-        let max_name_width = (term_width as f64 * 0.3) as usize;
+        // On narrow terminals 30% of the width can drop below the preferred
+        // minimum of 20, so the cap wins and the minimum gives way.
+        let max_name_width = ((term_width as f64 * 0.3) as usize).clamp(1, 60);
+        let min_name_width = 20.min(max_name_width);
         let name_width = files
             .iter()
             .map(|f| {
@@ -48,8 +51,8 @@ impl SizeMapFormatter {
                 Self::visible_width(&name_with_icon)
             })
             .max()
-            .unwrap_or(20)
-            .clamp(20, max_name_width.min(60));
+            .unwrap_or(min_name_width)
+            .clamp(min_name_width, max_name_width);
 
         let size_width = files
             .iter()
@@ -67,7 +70,7 @@ impl SizeMapFormatter {
         let spacing = 6;
         let bar_width = term_width
             .saturating_sub(name_width + size_width + spacing)
-            .max(20);
+            .max(12);
 
         (name_width, size_width, bar_width)
     }
@@ -350,5 +353,24 @@ mod tests {
         let (_, size_width, _) = SizeMapFormatter::calculate_layout(&files, 1800, 80);
 
         assert!(size_width >= SizeMapFormatter::visible_width("1.8 KB"));
+    }
+
+    #[test]
+    fn layout_does_not_panic_on_narrow_terminals() {
+        let files = vec![DecoratedEntry {
+            path: "a-rather-long-file-name.txt".to_string(),
+            metadata: Some(lla_plugin_interface::proto::EntryMetadata {
+                size: 900,
+                is_file: true,
+                ..Default::default()
+            }),
+            custom_fields: Default::default(),
+            typed_fields: Default::default(),
+        }];
+
+        for width in [0, 1, 10, 40, 66, 67, 200] {
+            let (name_width, _, _) = SizeMapFormatter::calculate_layout(&files, 900, width);
+            assert!((1..=60).contains(&name_width), "width {width}");
+        }
     }
 }
