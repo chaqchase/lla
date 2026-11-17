@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-17
+
 ### Fixed
 
 - `lla -S` no longer crashes in terminals narrower than 67 columns. Long names
   are shortened to fit and the bars shrink with the window.
+
 
 ## [0.9.0] - 2026-11-16
 
