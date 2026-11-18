@@ -31,6 +31,8 @@ complete -c lla -n "__fish_use_subcommand" -s S -l sizemap -d 'Show visual repre
 complete -c lla -n "__fish_use_subcommand" -l timeline -d 'Group files by time periods (overrides config format)'
 complete -c lla -n "__fish_use_subcommand" -s G -l git -d 'Show git status and information (overrides config format)'
 complete -c lla -n "__fish_use_subcommand" -s F -l fuzzy -d 'Use interactive fuzzy finder'
+complete -c lla -n "__fish_use_subcommand" -l dirs -d 'Open the fuzzy finder on folders instead of files (implies -F)'
+complete -c lla -n "__fish_use_subcommand" -l contents -d 'Open the fuzzy finder searching inside files (implies -F)'
 complete -c lla -n "__fish_use_subcommand" -l icons -d 'Show icons for files and directories (overrides config setting)'
 complete -c lla -n "__fish_use_subcommand" -l no-icons -d 'Hide icons for files and directories (overrides config setting)'
 complete -c lla -n "__fish_use_subcommand" -l no-color -d 'Disable all colors in the output'
@@ -84,6 +86,7 @@ complete -c lla -n "__fish_use_subcommand" -f -a "upgrade" -d 'Upgrade the lla C
 complete -c lla -n "__fish_use_subcommand" -f -a "clean" -d 'This command will clean up invalid plugins'
 complete -c lla -n "__fish_use_subcommand" -f -a "shortcut" -d 'Manage command shortcuts'
 complete -c lla -n "__fish_use_subcommand" -f -a "completion" -d 'Generate shell completion scripts'
+complete -c lla -n "__fish_use_subcommand" -f -a "shell-init" -d 'Print shell functions: j (jump) and lcd (pick a folder and cd into it)'
 complete -c lla -n "__fish_use_subcommand" -f -a "theme" -d 'Interactive theme manager'
 complete -c lla -n "__fish_use_subcommand" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c lla -n "__fish_seen_subcommand_from diff" -l git-ref -d 'Git reference to compare against (default: HEAD)' -r
@@ -99,6 +102,7 @@ complete -c lla -n "__fish_seen_subcommand_from jump" -s h -l help -d 'Print hel
 complete -c lla -n "__fish_seen_subcommand_from scan" -l top -d 'How many items to list per section in the summary (default: 10)' -r
 complete -c lla -n "__fish_seen_subcommand_from scan" -l report -d 'Print a summary instead of opening the interactive view'
 complete -c lla -n "__fish_seen_subcommand_from scan" -l json -d 'Print the results as JSON'
+complete -c lla -n "__fish_seen_subcommand_from scan" -l no-duplicates -d 'Skip looking for duplicate files after the scan'
 complete -c lla -n "__fish_seen_subcommand_from scan" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from install" -l git -d 'Install a plugin from a GitHub repository URL' -r
 complete -c lla -n "__fish_seen_subcommand_from install" -l dir -d 'Install a plugin from a local directory' -r
@@ -151,6 +155,7 @@ complete -c lla -n "__fish_seen_subcommand_from shortcut; and __fish_seen_subcom
 complete -c lla -n "__fish_seen_subcommand_from completion" -s p -l path -d 'Custom installation path for the completion script' -r
 complete -c lla -n "__fish_seen_subcommand_from completion" -s o -l output -d 'Output path for the completion script (prints to stdout if not specified)' -r
 complete -c lla -n "__fish_seen_subcommand_from completion" -s h -l help -d 'Print help information'
+complete -c lla -n "__fish_seen_subcommand_from shell-init" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from theme; and not __fish_seen_subcommand_from pull; and not __fish_seen_subcommand_from install; and not __fish_seen_subcommand_from preview; and not __fish_seen_subcommand_from help" -s h -l help -d 'Print help information'
 complete -c lla -n "__fish_seen_subcommand_from theme; and not __fish_seen_subcommand_from pull; and not __fish_seen_subcommand_from install; and not __fish_seen_subcommand_from preview; and not __fish_seen_subcommand_from help" -f -a "pull" -d 'Pull and install themes from the official repository'
 complete -c lla -n "__fish_seen_subcommand_from theme; and not __fish_seen_subcommand_from pull; and not __fish_seen_subcommand_from install; and not __fish_seen_subcommand_from preview; and not __fish_seen_subcommand_from help" -f -a "install" -d 'Install theme(s) from a file or directory'

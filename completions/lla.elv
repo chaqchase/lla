@@ -63,6 +63,8 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --git 'Show git status and information (overrides config format)'
             cand -F 'Use interactive fuzzy finder'
             cand --fuzzy 'Use interactive fuzzy finder'
+            cand --dirs 'Open the fuzzy finder on folders instead of files (implies -F)'
+            cand --contents 'Open the fuzzy finder searching inside files (implies -F)'
             cand --icons 'Show icons for files and directories (overrides config setting)'
             cand --no-icons 'Hide icons for files and directories (overrides config setting)'
             cand --no-color 'Disable all colors in the output'
@@ -127,6 +129,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand clean 'This command will clean up invalid plugins'
             cand shortcut 'Manage command shortcuts'
             cand completion 'Generate shell completion scripts'
+            cand shell-init 'Print shell functions: j (jump) and lcd (pick a folder and cd into it)'
             cand theme 'Interactive theme manager'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
@@ -150,6 +153,7 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --top 'How many items to list per section in the summary (default: 10)'
             cand --report 'Print a summary instead of opening the interactive view'
             cand --json 'Print the results as JSON'
+            cand --no-duplicates 'Skip looking for duplicate files after the scan'
             cand -h 'Print help information'
             cand --help 'Print help information'
         }
@@ -277,6 +281,10 @@ set edit:completion:arg-completer[lla] = {|@words|
             cand --path 'Custom installation path for the completion script'
             cand -o 'Output path for the completion script (prints to stdout if not specified)'
             cand --output 'Output path for the completion script (prints to stdout if not specified)'
+            cand -h 'Print help information'
+            cand --help 'Print help information'
+        }
+        &'lla;shell-init'= {
             cand -h 'Print help information'
             cand --help 'Print help information'
         }

@@ -66,6 +66,8 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--git', 'git', [CompletionResultType]::ParameterName, 'Show git status and information (overrides config format)')
             [CompletionResult]::new('-F', 'F', [CompletionResultType]::ParameterName, 'Use interactive fuzzy finder')
             [CompletionResult]::new('--fuzzy', 'fuzzy', [CompletionResultType]::ParameterName, 'Use interactive fuzzy finder')
+            [CompletionResult]::new('--dirs', 'dirs', [CompletionResultType]::ParameterName, 'Open the fuzzy finder on folders instead of files (implies -F)')
+            [CompletionResult]::new('--contents', 'contents', [CompletionResultType]::ParameterName, 'Open the fuzzy finder searching inside files (implies -F)')
             [CompletionResult]::new('--icons', 'icons', [CompletionResultType]::ParameterName, 'Show icons for files and directories (overrides config setting)')
             [CompletionResult]::new('--no-icons', 'no-icons', [CompletionResultType]::ParameterName, 'Hide icons for files and directories (overrides config setting)')
             [CompletionResult]::new('--no-color', 'no-color', [CompletionResultType]::ParameterName, 'Disable all colors in the output')
@@ -130,6 +132,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'This command will clean up invalid plugins')
             [CompletionResult]::new('shortcut', 'shortcut', [CompletionResultType]::ParameterValue, 'Manage command shortcuts')
             [CompletionResult]::new('completion', 'completion', [CompletionResultType]::ParameterValue, 'Generate shell completion scripts')
+            [CompletionResult]::new('shell-init', 'shell-init', [CompletionResultType]::ParameterValue, 'Print shell functions: j (jump) and lcd (pick a folder and cd into it)')
             [CompletionResult]::new('theme', 'theme', [CompletionResultType]::ParameterValue, 'Interactive theme manager')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
@@ -156,6 +159,7 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--top', 'top', [CompletionResultType]::ParameterName, 'How many items to list per section in the summary (default: 10)')
             [CompletionResult]::new('--report', 'report', [CompletionResultType]::ParameterName, 'Print a summary instead of opening the interactive view')
             [CompletionResult]::new('--json', 'json', [CompletionResultType]::ParameterName, 'Print the results as JSON')
+            [CompletionResult]::new('--no-duplicates', 'no-duplicates', [CompletionResultType]::ParameterName, 'Skip looking for duplicate files after the scan')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
@@ -307,6 +311,11 @@ Register-ArgumentCompleter -Native -CommandName 'lla' -ScriptBlock {
             [CompletionResult]::new('--path', 'path', [CompletionResultType]::ParameterName, 'Custom installation path for the completion script')
             [CompletionResult]::new('-o', 'o', [CompletionResultType]::ParameterName, 'Output path for the completion script (prints to stdout if not specified)')
             [CompletionResult]::new('--output', 'output', [CompletionResultType]::ParameterName, 'Output path for the completion script (prints to stdout if not specified)')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            break
+        }
+        'lla;shell-init' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             break
