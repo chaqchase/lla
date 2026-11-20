@@ -1,7 +1,7 @@
 use crate::config::{validate_long_date_format, Config, ShortcutCommand};
 use crate::error::{LlaError, Result};
 use crate::filter::{parse_size_range, parse_time_range, NumericRange, TimeRange};
-use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand, ValueHint};
 use clap_complete::Shell;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -204,6 +204,7 @@ impl Args {
                     .help("The directories or files to list")
                     .index(1)
                     .multiple_values(true)
+                    .value_hint(ValueHint::AnyPath)
                     .default_value("."),
             )
             .subcommand(

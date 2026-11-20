@@ -112,16 +112,15 @@ _lla() {
 '--context[Show ACL or SELinux security context in long format]' \
 '-M[Show source, mount point, and filesystem in long format]' \
 '--mounts[Show source, mount point, and filesystem in long format]' \
-'*::directory -- The directories or files to list:' \
-":: :_lla_commands" \
+": :{_alternative 'commands:command:_lla_commands' 'args:argument:_files'}" \
 "*::: :->lla" \
 && ret=0
     case $state in
     (lla)
-        words=($line[2] "${words[@]}")
+        words=($line[1] "${words[@]}")
         (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:lla-command-$line[2]:"
-        case $line[2] in
+        curcontext="${curcontext%:*:*}:lla-command-$line[1]:"
+        case $line[1] in
             (diff)
 _arguments "${_arguments_options[@]}" \
 '--git-ref=[Git reference to compare against (default: HEAD)]: : ' \
@@ -174,19 +173,16 @@ _arguments "${_arguments_options[@]}" \
 '*--args=[Arguments for the plugin action (alternative to positional)]: : ' \
 '-h[Print help information]' \
 '--help[Print help information]' \
-'::plugin_name -- Plugin name, or doctor/info/permissions:' \
-'::plugin_action -- Action to perform:' \
-'*::plugin_args -- Arguments for the plugin action:' \
-":: :_lla__plugin_commands" \
+": :_lla__plugin_commands" \
 "*::: :->plugin" \
 && ret=0
 
     case $state in
     (plugin)
-        words=($line[4] "${words[@]}")
+        words=($line[1] "${words[@]}")
         (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:lla-plugin-command-$line[4]:"
-        case $line[4] in
+        curcontext="${curcontext%:*:*}:lla-plugin-command-$line[1]:"
+        case $line[1] in
             (run)
 _arguments "${_arguments_options[@]}" \
 '--output=[]: :(human json ndjson csv)' \
@@ -207,6 +203,20 @@ _arguments "${_arguments_options[@]}" \
 (help)
 _arguments "${_arguments_options[@]}" \
 '*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+(*)
+_arguments "${_arguments_options[@]}" \
+'-n+[Name of the plugin (alternative to positional)]: : ' \
+'--name=[Name of the plugin (alternative to positional)]: : ' \
+'-a+[Action to perform (alternative to positional)]: : ' \
+'--action=[Action to perform (alternative to positional)]: : ' \
+'*-r+[Arguments for the plugin action (alternative to positional)]: : ' \
+'*--args=[Arguments for the plugin action (alternative to positional)]: : ' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'::plugin_action -- Action to perform:' \
+'*::plugin_args -- Arguments for the plugin action:' \
 && ret=0
 ;;
         esac
@@ -423,6 +433,108 @@ esac
 (help)
 _arguments "${_arguments_options[@]}" \
 '*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+(*)
+_arguments "${_arguments_options[@]}" \
+'--search=[Search file contents with ripgrep for the given pattern]: : ' \
+'--search-context=[Number of context lines to show before and after matches (default: 2)]: : ' \
+'-d+[Set the depth for tree listing (default from config)]: : ' \
+'--depth=[Set the depth for tree listing (default from config)]: : ' \
+'--hyperlink=[Emit OSC 8 file hyperlinks (always, auto, never)]:WHEN:(always auto automatic never)' \
+'-s+[Sort files by name, size, or date]: :(name size date)' \
+'--sort=[Sort files by name, size, or date]: :(name size date)' \
+'-f+[Filter files by name or extension]: : ' \
+'--filter=[Filter files by name or extension]: : ' \
+'*--preset=[Apply a named filter preset defined in your config]: : ' \
+'--size=[Filter by file size (e.g., '\''>10M'\'', '\''5K..2G'\'')]: : ' \
+'--modified=[Filter by modified time (e.g., '\''<7d'\'', '\''2023-01-01..2023-12-31'\'')]: : ' \
+'--created=[Filter by creation time using the same syntax as --modified]: : ' \
+'*--refine=[Refine a previous listing (or cache) without re-walking the filesystem using additional filters]: : ' \
+'*--enable-plugin=[Enable specific plugins]: : ' \
+'*--search-pipe=[After --search finishes, run plugin action(s) on matching files (syntax: plugin:action\[:arg...\])]: : ' \
+'*--disable-plugin=[Disable specific plugins]: : ' \
+'--plugins-dir=[Specify the plugins directory]: : ' \
+'--permission-format=[Format for displaying permissions (symbolic, octal, binary, verbose, compact)]: :(symbolic octal binary verbose compact)' \
+'--date-format=[Format absolute dates in long format using chrono strftime syntax (e.g., '\''%Y-%m-%d %H:%M'\'')]: : ' \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'-V[Print version information]' \
+'--version[Print version information]' \
+'--license[Print the MIT license]' \
+'--json[Output a single JSON array]' \
+'--ndjson[Output newline-delimited JSON (one object per line)]' \
+'--csv[Output CSV with header row]' \
+'--pretty[Pretty print JSON (only applies to --json)]' \
+'-l[Use long listing format (overrides config format)]' \
+'--long[Use long listing format (overrides config format)]' \
+'-t[Use tree listing format (overrides config format)]' \
+'--tree[Use tree listing format (overrides config format)]' \
+'-T[Use table listing format (overrides config format)]' \
+'--table[Use table listing format (overrides config format)]' \
+'-g[Use grid listing format (overrides config format)]' \
+'--grid[Use grid listing format (overrides config format)]' \
+'--grid-ignore[Use grid view ignoring terminal width (Warning: output may extend beyond screen width)]' \
+'-S[Show visual representation of file sizes (overrides config format)]' \
+'--sizemap[Show visual representation of file sizes (overrides config format)]' \
+'--timeline[Group files by time periods (overrides config format)]' \
+'-G[Show git status and information (overrides config format)]' \
+'--git[Show git status and information (overrides config format)]' \
+'-F[Use interactive fuzzy finder]' \
+'--fuzzy[Use interactive fuzzy finder]' \
+'--dirs[Open the fuzzy finder on folders instead of files (implies -F)]' \
+'(--dirs)--contents[Open the fuzzy finder searching inside files (implies -F)]' \
+'--icons[Show icons for files and directories (overrides config setting)]' \
+'--no-icons[Hide icons for files and directories (overrides config setting)]' \
+'--no-color[Disable all colors in the output]' \
+'-r[Reverse the sort order]' \
+'--sort-reverse[Reverse the sort order]' \
+'--sort-dirs-first[List directories before files (overrides config setting)]' \
+'--no-sort-dirs-first[Do not list directories before files (overrides config setting)]' \
+'--sort-case-sensitive[Enable case-sensitive sorting (overrides config setting)]' \
+'--no-sort-case-sensitive[Sort case-insensitively (overrides config setting)]' \
+'--sort-natural[Use natural sorting for numbers (overrides config setting)]' \
+'--no-sort-natural[Disable natural number ordering (overrides config setting)]' \
+'-c[Enable case-sensitive filtering (overrides config setting)]' \
+'--case-sensitive[Enable case-sensitive filtering (overrides config setting)]' \
+'--ignore-case[Match filters case-insensitively (overrides config setting)]' \
+'-R[Use recursive listing format]' \
+'--recursive[Use recursive listing format]' \
+'--include-dirs[Include directory sizes in metadata (recursive and potentially expensive)]' \
+'--dirs-only[Show only directories]' \
+'--files-only[Show only regular files]' \
+'--symlinks-only[Show only symbolic links]' \
+'(--no-symlinks)--show-symlinks[Include symlinks whose targets match --dirs-only or --files-only]' \
+'--no-dirs[Hide directories]' \
+'--no-files[Hide regular files]' \
+'--no-symlinks[Hide symbolic links]' \
+'-X[Display metadata from symbolic-link targets]' \
+'--dereference[Display metadata from symbolic-link targets]' \
+'--no-symlink-target[Do not display symbolic-link targets after file names]' \
+'--no-dotfiles[Hide files starting with a dot (overrides config setting)]' \
+'-a[Show all files including dotfiles (overrides no_dotfiles config)]' \
+'--all[Show all files including dotfiles (overrides no_dotfiles config)]' \
+'-A[Show all files including dotfiles except . and .. (overrides no_dotfiles config)]' \
+'--almost-all[Show all files including dotfiles except . and .. (overrides no_dotfiles config)]' \
+'--dotfiles-only[Show only dot files and directories (those starting with a dot)]' \
+'--respect-gitignore[Hide files that match .gitignore (and git exclude) rules]' \
+'--no-gitignore[Disable .gitignore filtering even if enabled in config]' \
+'--hide-group[Hide group column in long format]' \
+'--show-group[Show the group column in long format (overrides config setting)]' \
+'--relative-dates[Show relative dates (e.g., '\''2h ago'\'') in long format]' \
+'--absolute-dates[Show absolute dates in long format (overrides config setting)]' \
+'-i[Show inode numbers in long format]' \
+'--inode[Show inode numbers in long format]' \
+'-H[Show hard-link counts in long format]' \
+'--links[Show hard-link counts in long format]' \
+'--allocated-size[Show allocated filesystem size in long format]' \
+'-@[Show extended attribute names and sizes in long format]' \
+'--extended[Show extended attribute names and sizes in long format]' \
+'-Z[Show ACL or SELinux security context in long format]' \
+'--context[Show ACL or SELinux security context in long format]' \
+'-M[Show source, mount point, and filesystem in long format]' \
+'--mounts[Show source, mount point, and filesystem in long format]' \
+'*::directory -- The directories or files to list:_files' \
 && ret=0
 ;;
         esac
