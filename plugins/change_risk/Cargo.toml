@@ -1,6 +1,6 @@
 [package]
 name = "change_risk"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 description = "Estimate per-file change risk from size, complexity, Git churn, and worktree state"
 
