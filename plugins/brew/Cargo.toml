@@ -1,7 +1,7 @@
 [package]
 name = "brew"
 description = "Homebrew package manager plugin - install, uninstall, upgrade, and search packages"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 
 [dependencies]
