@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- zsh completion works again. Every `lla <Tab>` failed with `doubled rest
+  argument definition`; now the first word completes subcommands and files,
+  later words complete more paths and options, and `lla plugin <Tab>` lists the
+  plugin subcommands ([#199](https://github.com/chaqchase/lla/issues/199)).
+
 ## [0.9.1] - 2026-11-17
 
 ### Fixed

@@ -5,6 +5,7 @@ use crate::commands::init_wizard;
 use crate::commands::jump;
 use crate::commands::plugin_utils::{handle_plugin_action, list_plugins, use_plugins};
 use crate::commands::search::run_search;
+use crate::commands::zsh_completion::fix_zsh_completion;
 use crate::config::{self, Config, ShortcutCommand};
 use crate::error::{LlaError, Result};
 use crate::installer::PluginInstaller;
@@ -53,6 +54,9 @@ fn install_completion(
 ) -> Result<()> {
     let mut buf = Vec::new();
     clap_complete::generate(shell, app, env!("CARGO_PKG_NAME"), &mut buf);
+    if shell == clap_complete::Shell::Zsh {
+        buf = fix_zsh_completion(&String::from_utf8_lossy(&buf)).into_bytes();
+    }
 
     match (output_path, custom_path) {
         (None, None) => {
